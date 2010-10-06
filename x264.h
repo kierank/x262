@@ -39,7 +39,7 @@
 
 #include <stdarg.h>
 
-#define X264_BUILD 106
+#define X264_BUILD 107
 
 /* x264_t:
  *      opaque handler for encoder */
@@ -237,6 +237,7 @@ typedef struct x264_param_t
     int         i_csp;  /* CSP of encoded bitstream, only i420 supported */
     int         i_level_idc;
     int         i_frame_total; /* number of frames to encode if known, else 0 */
+    int         b_h262; /* Encode output as H.262 instead of H.264 */
 
     /* NAL HRD
      * Uses Buffering and Picture Timing SEIs to signal HRD

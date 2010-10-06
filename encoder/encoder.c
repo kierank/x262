@@ -416,6 +416,26 @@ static int x264_validate_parameters( x264_t *h )
         return -1;
     }
 
+    if( h->param.b_h262 )
+    {
+        h->param.analyse.b_transform_8x8 = 1;
+        h->param.analyse.intra = X264_ANALYSE_I8x8;
+        h->param.analyse.inter = X264_ANALYSE_PSUB16x16;
+        h->param.analyse.i_weighted_pred = 0;
+        h->param.analyse.b_dct_decimate = 0;
+        h->param.b_constrained_intra = 0;
+        h->param.b_aud = 0;
+        h->param.i_slice_max_size = 0;
+        h->param.i_slice_max_mbs = 0;
+        h->param.i_slice_count = 0;
+        h->param.b_sliced_threads = 0;
+        if( h->param.b_interlaced )
+        {
+            x264_log( h, X264_LOG_WARNING, "H.262 + interlaced is not yet implemented\n" );
+            h->param.b_interlaced = 0;
+        }
+    }
+
     if( h->param.i_threads == X264_THREADS_AUTO )
         h->param.i_threads = x264_cpu_num_processors() * (h->param.b_sliced_threads?2:3)/2;
     h->param.i_threads = x264_clip3( h->param.i_threads, 1, X264_THREAD_MAX );

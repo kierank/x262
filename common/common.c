@@ -730,6 +730,8 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         p->i_slice_max_mbs = atoi(value);
     OPT("slices")
         p->i_slice_count = atoi(value);
+    OPT("h262")
+        p->b_h262 = atobool(value);
     OPT("cabac")
         p->b_cabac = atobool(value);
     OPT("cabac-idc")

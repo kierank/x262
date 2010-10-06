@@ -705,6 +705,7 @@ static void Help( x264_param_t *defaults, int longhelp )
     H0( "      --seek <integer>        First frame to encode\n" );
     H0( "      --frames <integer>      Maximum number of frames to encode\n" );
     H0( "      --level <string>        Specify level (as defined by Annex A)\n" );
+    H0( "      --h262                  Encode as H.262 instead of H.264\n" );
     H1( "\n" );
     H1( "  -v, --verbose               Print stats for each frame\n" );
     H1( "      --no-progress           Don't show the progress indicator while encoding\n" );
@@ -855,6 +856,7 @@ static struct option long_options[] =
     { "deadzone-inter", required_argument, NULL, 0 },
     { "deadzone-intra", required_argument, NULL, 0 },
     { "level",       required_argument, NULL, 0 },
+    { "h262",              no_argument, NULL, 0 },
     { "ratetol",     required_argument, NULL, 0 },
     { "vbv-maxrate", required_argument, NULL, 0 },
     { "vbv-bufsize", required_argument, NULL, 0 },
