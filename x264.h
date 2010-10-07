@@ -239,7 +239,7 @@ typedef struct x264_param_t
     int         i_frame_total; /* number of frames to encode if known, else 0 */
     int         b_h262; /* Encode output as H.262 instead of H.264 */
 
-    /* NAL HRD
+    /* NAL HRD (H264 ONLY)
      * Uses Buffering and Picture Timing SEIs to signal HRD
      * The HRD in H.264 was not designed with VFR in mind.
      * It is therefore not recommendeded to use NAL HRD with VFR.
@@ -398,7 +398,7 @@ typedef struct x264_param_t
 
     int b_tff;
 
-    /* Pulldown:
+    /* Pulldown (H264 ONLY):
      * The correct pic_struct must be passed with each input frame.
      * The input timebase should be the timebase corresponding to the output framerate. This should be constant.
      * e.g. for 3:2 pulldown timebase should be 1001/30000
@@ -658,9 +658,11 @@ typedef struct
     int     i_type;
     /* In: force quantizer for > 0 */
     int     i_qpplus1;
-    /* In: pic_struct, for pulldown/doubling/etc...used only if b_pic_timing_sei=1.
+    /* In: H.264 ONLY - pic_struct, for pulldown/doubling/etc...used only if b_pic_timing_sei=1.
      *     use pic_struct_e for pic_struct inputs */
     int     i_pic_struct;
+    /* In: H.262 ONLY - repeat first field flag. Only valid for progressive input. */
+    int     b_rff;
     /* Out: whether this frame is a keyframe.  Important when using modes that result in
      * SEI recovery points being used instead of IDR frames. */
     int     b_keyframe;

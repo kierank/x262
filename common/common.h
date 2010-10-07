@@ -307,6 +307,17 @@ enum sei_payload_type_e
     SEI_RECOVERY_POINT         = 6,
 };
 
+enum h262_start_code_e
+{
+    H262_PICTURE_START_CODE    = 0x00,
+    H262_USER_DATA_START_CODE  = 0xB2,
+    H262_SEQ_HEADER_CODE       = 0xB3,
+    H262_SEQ_ERROR_CODE        = 0xB4,
+    H262_EXT_START_CODE        = 0xB5,
+    H262_SEQ_END_CODE          = 0xB7,
+    H262_GRP_START_CODE        = 0xB8,
+};
+
 typedef struct
 {
     x264_sps_t *sps;
