@@ -307,6 +307,20 @@ enum sei_payload_type_e
     SEI_RECOVERY_POINT         = 6,
 };
 
+enum h262_structure_type_e
+{
+    H262_VIDEO_SEQUENCE,
+    H262_SEQ_HEADER,
+    H262_USER_DATA,
+    H262_SEQ_EXTENSION,
+    H262_SEQ_DISPLAY_EXT,
+    H262_GOP_HEADER,
+    H262_PICTURE_HEADER,
+    H262_PICTURE_CODING_EXT,
+    H262_QUANT_MATRIX_EXT,
+    H262_COPYRIGHT_EXT,
+};
+
 enum h262_start_code_e
 {
     H262_PICTURE_START_CODE    = 0x00,

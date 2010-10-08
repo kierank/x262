@@ -2646,7 +2646,7 @@ int     x264_encoder_encode( x264_t *h,
     if( h->fenc->b_keyframe )
     {
         /* Write SPS and PPS */
-        if( h->param.b_repeat_headers )
+        if( h->param.b_repeat_headers && !h->param.b_h262 )
         {
             /* generate sequence parameters */
             x264_nal_start( h, NAL_SPS, NAL_PRIORITY_HIGHEST );
@@ -2661,12 +2661,22 @@ int     x264_encoder_encode( x264_t *h,
             if( x264_nal_end( h ) )
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD;
-        }
 
-        /* buffering period sei is written in x264_encoder_frame_end */
+            /* buffering period sei is written in x264_encoder_frame_end */
+        }
+        else
+        {
+            // SEQUENCE HEADER
+            // SEQUENCE EXTENSION
+            // SEQUENCE DISPLAY EXTENSION
+            // GOP HEADER
+        }
     }
 
-    /* write extra sei */
+    // PICTURE HEADER
+    // PICTURE CODING EXTENSION
+
+    /* write extra sei (h264) / user data (h262) */
     for( int i = 0; i < h->fenc->extra_sei.num_payloads; i++ )
     {
         x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
