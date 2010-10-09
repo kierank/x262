@@ -649,6 +649,85 @@ void x264_filler_write( x264_t *h, bs_t *s, int filler )
     bs_flush( s );
 }
 
+void x262_seq_header_write( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    bs_write( s, 12, h->param.i_width & 0xfff );  // horizontal_size_value
+    bs_write( s, 12, h->param.i_height & 0xfff ); // vertical_size_value
+    // aspect_ratio_information
+    // frame_rate_code
+    bs_write1( s, 1 ); // marker_bit
+    // vbv_buffer_size_value
+    bs_write1( s, 0 ); // constrained_parameters_flag
+    // load_intra_quantiser_matrix
+    // load_non_intra_quantiser_matrix
+
+    bs_flush( s );
+}
+
+void x262_seq_extension_write( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    bs_write( s, 4, H262_SEQ_EXT_ID ); // extension_start_code_identifier
+    // profile_and_level_indication
+    bs_write1( s, 1 ); // progressive_sequence
+    // chroma_format
+    // horizontal_size_extension
+    // vertical_size_extension
+    // bit_rate_extension
+    bs_write1( s, 1 ); // marker_bit
+    // vbv_buffer_size_extension
+    bs_write1( s, 0 ); // low_delay
+    // frame_rate_extension_n
+    // frame_rate_extension_d
+
+    bs_flush( s );
+}
+
+void x262_seq_disp_extension_write( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    bs_write( s, 4, H262_SEQ_DISPLAY_EXT_ID ); // extension_start_code_identifier
+    // video_format
+    bs_write1( s, 1 ); // colour_description
+    // colour_primaries
+    // transfer_characteristics
+    // matrix_coefficients
+    // display_horizontal_size
+    bs_write1( s, 1 ); // marker_bit
+    // display_vertical_size
+
+    bs_flush( s );
+}
+
+void x262_gop_header_write( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    // timecode
+    bs_write1( s, 0 );   // drop_frame_flag
+    bs_write( s, 5, 0 ); // time_code_hours
+    bs_write( s, 6, 0 ); // time_code_minutes
+    bs_write1( s, 1 );   // marker_bit
+    bs_write( s, 6, 0 ); // time_code_seconds
+    bs_write( s, 6, 0 ); // time_code_pictures
+
+    bs_write1( s, 0 );   // closed_gop FIXME
+    bs_write1( s, 0 );   // broken_link FIXME
+
+    bs_flush( s );
+}
+
+void x262_write_picture_header( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    bs_flush( s );
+}
+
 const x264_level_t x264_levels[] =
 {
     { 10,   1485,    99,   152064,     64,    175,  64, 64,  0, 2, 0, 0, 1 },

@@ -434,6 +434,11 @@ static int x264_validate_parameters( x264_t *h )
             x264_log( h, X264_LOG_WARNING, "H.262 + interlaced is not yet implemented\n" );
             h->param.b_interlaced = 0;
         }
+        if( h->param.rc.i_qp_constant == 0 )
+        {
+            x264_log( h, X264_LOG_WARNING, "H.262 + lossless is not allowed\n" );
+            h->param.b_interlaced = 0;
+        }
         if( h->param.vui.i_colorprim > 7 )
         {
             x264_log( h, X264_LOG_ERROR, "Chosen colour primary not allowed in H.262\n" );

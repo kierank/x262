@@ -332,6 +332,16 @@ enum h262_start_code_e
     H262_GRP_START_CODE        = 0xB8,
 };
 
+enum h262_extension_id_e
+{
+    H262_SEQ_EXT_ID          = 1,
+    H262_SEQ_DISPLAY_EXT_ID  = 2,
+    H262_QUANT_MATRIX_EXT_ID = 3,
+    H262_COPYRIGHT_EXT_ID    = 4,
+    H262_PIC_DISPLAY_EXT_ID  = 7,
+    H262_PIC_CODING_EXT_ID   = 8,
+};
+
 typedef struct
 {
     x264_sps_t *sps;

@@ -39,4 +39,10 @@ void x264_sei_pic_timing_write( x264_t *h, bs_t *s );
 void x264_sei_write( bs_t *s, uint8_t *payload, int payload_size, int payload_type );
 void x264_filler_write( x264_t *h, bs_t *s, int filler );
 
+void x262_seq_header_write( x264_t *h, bs_t *s );
+void x262_seq_extension_write( x264_t *h, bs_t *s );
+void x262_seq_disp_extension_write( x264_t *h, bs_t *s );
+void x262_gop_header_write( x264_t *h, bs_t *s );
+void x262_write_picture_header( x264_t *h, bs_t *s );
+
 #endif
