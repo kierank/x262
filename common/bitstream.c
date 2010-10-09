@@ -53,36 +53,49 @@ void x264_nal_encode( x264_t *h, uint8_t *dst, x264_nal_t *nal )
     uint8_t *end = nal->p_payload + nal->i_payload;
     uint8_t *orig_dst = dst;
 
-    if( h->param.b_annexb )
+    if( !h->param.b_h262 )
     {
-        if( nal->b_long_startcode )
-            *dst++ = 0x00;
-        *dst++ = 0x00;
-        *dst++ = 0x00;
-        *dst++ = 0x01;
+        if( h->param.b_annexb )
+        {
+            if( nal->b_long_startcode )
+                *dst++ = 0x00;
+             *dst++ = 0x00;
+             *dst++ = 0x00;
+             *dst++ = 0x01;
+        }
+        else /* save room for size later */
+            dst += 4;
+
+        /* nal header */
+        *dst++ = ( 0x00 << 7 ) | ( nal->i_ref_idc << 5 ) | nal->i_type;
+
+        dst = h->bsf.nal_escape( dst, src, end );
+        int size = (dst - orig_dst) - 4;
+
+        /* Write the size header for mp4/etc */
+        if( !h->param.b_annexb )
+        {
+            /* Size doesn't include the size of the header we're writing now. */
+            orig_dst[0] = size>>24;
+            orig_dst[1] = size>>16;
+            orig_dst[2] = size>> 8;
+            orig_dst[3] = size>> 0;
+        }
+
+        nal->i_payload = size+4;
+        x264_emms();
     }
-    else /* save room for size later */
-        dst += 4;
-
-    /* nal header */
-    *dst++ = ( 0x00 << 7 ) | ( nal->i_ref_idc << 5 ) | nal->i_type;
-
-    dst = h->bsf.nal_escape( dst, src, end );
-    int size = (dst - orig_dst) - 4;
-
-    /* Write the size header for mp4/etc */
-    if( !h->param.b_annexb )
+    else
     {
-        /* Size doesn't include the size of the header we're writing now. */
-        orig_dst[0] = size>>24;
-        orig_dst[1] = size>>16;
-        orig_dst[2] = size>> 8;
-        orig_dst[3] = size>> 0;
+         *dst++ = 0x00;
+         *dst++ = 0x00;
+         *dst++ = 0x01;
+         *dst++ = structure_to_start_code[nal->i_type];
+         memcpy( dst, src, nal->i_payload );
+         nal->i_payload += 4;
     }
 
-    nal->i_payload = size+4;
     nal->p_payload = orig_dst;
-    x264_emms();
 }
 
 void x264_bitstream_init( int cpu, x264_bitstream_function_t *pf )

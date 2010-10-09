@@ -79,6 +79,7 @@ do {\
 
 #define NALU_OVERHEAD 5 // startcode + NAL type costs 5 bytes per frame
 #define FILLER_OVERHEAD (NALU_OVERHEAD+1)
+#define STRUCTURE_OVERHEAD 4 // startcode
 
 /****************************************************************************
  * Includes
@@ -307,20 +308,6 @@ enum sei_payload_type_e
     SEI_RECOVERY_POINT         = 6,
 };
 
-enum h262_structure_type_e
-{
-    H262_VIDEO_SEQUENCE,
-    H262_SEQ_HEADER,
-    H262_USER_DATA,
-    H262_SEQ_EXTENSION,
-    H262_SEQ_DISPLAY_EXT,
-    H262_GOP_HEADER,
-    H262_PICTURE_HEADER,
-    H262_PICTURE_CODING_EXT,
-    H262_QUANT_MATRIX_EXT,
-    H262_COPYRIGHT_EXT,
-};
-
 enum h262_start_code_e
 {
     H262_PICTURE_START_CODE    = 0x00,
@@ -330,6 +317,19 @@ enum h262_start_code_e
     H262_EXT_START_CODE        = 0xB5,
     H262_SEQ_END_CODE          = 0xB7,
     H262_GRP_START_CODE        = 0xB8,
+};
+
+static const uint8_t structure_to_start_code[] =
+{
+    [H262_SEQ_HEADER]      = H262_SEQ_HEADER_CODE,
+    [H262_USER_DATA]       = H262_USER_DATA_START_CODE,
+    [H262_SEQ_EXT]         = H262_EXT_START_CODE,
+    [H262_SEQ_DISPLAY_EXT] = H262_EXT_START_CODE,
+    [H262_GOP_HEADER]      = H262_GRP_START_CODE,
+    [H262_PICTURE_HEADER]  = H262_PICTURE_START_CODE,
+    [H262_PICTURE_CODING_EXT] = H262_EXT_START_CODE,
+    [H262_QUANT_MATRIX_EXT]   = H262_EXT_START_CODE,
+    [H262_COPYRIGHT_EXT]      = H262_EXT_START_CODE,
 };
 
 enum h262_extension_id_e

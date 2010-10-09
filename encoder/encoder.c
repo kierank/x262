@@ -439,6 +439,11 @@ static int x264_validate_parameters( x264_t *h )
             x264_log( h, X264_LOG_WARNING, "H.262 + lossless is not allowed\n" );
             h->param.b_interlaced = 0;
         }
+        if( h->param.b_vfr_input )
+        {
+            x264_log( h, X264_LOG_WARNING, "H.262 + VFR is not allowed\n" );
+            h->param.b_vfr_input = 0;
+        }
         if( h->param.vui.i_colorprim > 7 )
         {
             x264_log( h, X264_LOG_ERROR, "Chosen colour primary not allowed in H.262\n" );
@@ -2591,7 +2596,7 @@ int     x264_encoder_encode( x264_t *h,
         h->out.i_nal = 0;
     }
 
-    if( h->param.b_aud )
+    if( h->param.b_aud && !h->param.b_h262 )
     {
         int pic_type;
 
@@ -2671,17 +2676,23 @@ int     x264_encoder_encode( x264_t *h,
         }
         else
         {
-            // SEQUENCE HEADER
-            // SEQUENCE EXTENSION
-            // SEQUENCE DISPLAY EXTENSION
-            // GOP HEADER
+            /* generate sequence header */
+            x264_nal_start( h, H262_SEQ_HEADER, NAL_PRIORITY_HIGHEST );
+            x262_seq_header_write( h, &h->out.bs );
+            if( x264_nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+
+            /* generate sequence extension */
+            /* generate sequence display extension */
+            /* generate gop header */
         }
     }
 
     // PICTURE HEADER
     // PICTURE CODING EXTENSION
 
-    /* write extra sei (h264) / user data (h262) */
+    /* write extra sei */
     for( int i = 0; i < h->fenc->extra_sei.num_payloads; i++ )
     {
         x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );

@@ -660,8 +660,8 @@ void x262_seq_header_write( x264_t *h, bs_t *s )
     bs_write1( s, 1 ); // marker_bit
     // vbv_buffer_size_value
     bs_write1( s, 0 ); // constrained_parameters_flag
-    // load_intra_quantiser_matrix
-    // load_non_intra_quantiser_matrix
+    bs_write1( s, 0 ); // load_intra_quantiser_matrix
+    bs_write1( s, 0 ); // load_non_intra_quantiser_matrix
 
     bs_flush( s );
 }
@@ -672,10 +672,13 @@ void x262_seq_extension_write( x264_t *h, bs_t *s )
 
     bs_write( s, 4, H262_SEQ_EXT_ID ); // extension_start_code_identifier
     // profile_and_level_indication
-    bs_write1( s, 1 ); // progressive_sequence
-    // chroma_format
-    // horizontal_size_extension
-    // vertical_size_extension
+    bs_write1( s, 0 );   // escape bit
+    // profile identification
+    // level identification
+    bs_write1( s, 1 );   // progressive_sequence
+    bs_write( s, 2, 1 ); // chroma_format
+    bs_write( s, 2, (h->param.i_width >> 12) & 0x3 );  // horizontal_size_extension
+    bs_write( s, 2, (h->param.i_height >> 12) & 0x3 ); // vertical_size_extension
     // bit_rate_extension
     bs_write1( s, 1 ); // marker_bit
     // vbv_buffer_size_extension
@@ -688,14 +691,18 @@ void x262_seq_extension_write( x264_t *h, bs_t *s )
 
 void x262_seq_disp_extension_write( x264_t *h, bs_t *s )
 {
+    x264_sps_t *sps = h->sps;
     bs_realign( s );
 
     bs_write( s, 4, H262_SEQ_DISPLAY_EXT_ID ); // extension_start_code_identifier
-    // video_format
-    bs_write1( s, 1 ); // colour_description
-    // colour_primaries
-    // transfer_characteristics
-    // matrix_coefficients
+    bs_write( s, 3, sps->vui.i_vidformat );    // video_format
+    bs_write1( s, sps->vui.b_color_description_present ); // colour_description
+    if( sps->vui.b_color_description_present )
+    {
+        bs_write( s, 8, sps->vui.i_colorprim );
+        bs_write( s, 8, sps->vui.i_transfer );
+        bs_write( s, 8, sps->vui.i_colmatrix );
+    }
     // display_horizontal_size
     bs_write1( s, 1 ); // marker_bit
     // display_vertical_size
@@ -724,6 +731,14 @@ void x262_gop_header_write( x264_t *h, bs_t *s )
 void x262_write_picture_header( x264_t *h, bs_t *s )
 {
     bs_realign( s );
+
+    // temporal_reference
+    // picture_coding_type
+    // vbv_delay
+
+    // TODO
+
+    bs_write1( s, 0 ); // extra_bit_picture
 
     bs_flush( s );
 }

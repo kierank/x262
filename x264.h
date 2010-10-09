@@ -72,6 +72,19 @@ enum nal_priority_e
     NAL_PRIORITY_HIGHEST    = 3,
 };
 
+enum h262_structure_type_e
+{
+    H262_SEQ_HEADER         = 21,
+    H262_USER_DATA,
+    H262_SEQ_EXT,
+    H262_SEQ_DISPLAY_EXT,
+    H262_GOP_HEADER,
+    H262_PICTURE_HEADER,
+    H262_PICTURE_CODING_EXT,
+    H262_QUANT_MATRIX_EXT,
+    H262_COPYRIGHT_EXT,
+};
+
 /* The data within the payload is already NAL-encapsulated; the ref_idc and type
  * are merely in the struct for easy access by the calling application.
  * All data returned in an x264_nal_t, including the data in p_payload, is no longer
@@ -80,7 +93,7 @@ enum nal_priority_e
 typedef struct
 {
     int i_ref_idc;  /* nal_priority_e */
-    int i_type;     /* nal_unit_type_e */
+    int i_type;     /* nal_unit_type_e (h264) / h262_structure_type_e (h262) */
     int b_long_startcode;
     int i_first_mb; /* If this NAL is a slice, the index of the first MB in the slice. */
     int i_last_mb;  /* If this NAL is a slice, the index of the last MB in the slice. */
@@ -684,7 +697,7 @@ typedef struct
     x264_image_properties_t prop;
     /* Out: HRD timing information. Output only when i_nal_hrd is set. */
     x264_hrd_t hrd_timing;
-    /* In: arbitrary user SEI (e.g subtitles, AFDs) */
+    /* In: arbitrary user SEI (e.g subtitles, AFDs) - H264 ONLY */
     x264_sei_t extra_sei;
     /* private user data. libx264 doesn't touch this,
        not even copy it from input to output frames. */
