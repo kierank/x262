@@ -420,9 +420,6 @@ typedef struct x264_param_t
     uint32_t i_fps_den;
     uint32_t i_timebase_num;    /* Timebase numerator */
     uint32_t i_timebase_den;    /* Timebase denominator */
-    int b_dts_compress;         /* DTS compression: this algorithm eliminates negative DTS
-                                 * by compressing them to be less than the second PTS.
-                                 * Warning: this will change the timebase! */
 
     int b_tff;
 
