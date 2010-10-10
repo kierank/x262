@@ -43,8 +43,9 @@ void x262_seq_header_write( x264_t *h, bs_t *s );
 void x262_seq_extension_write( x264_t *h, bs_t *s );
 void x262_seq_disp_extension_write( x264_t *h, bs_t *s );
 void x262_gop_header_write( x264_t *h, bs_t *s );
-void x262_write_picture_header( x264_t *h, bs_t *s );
+void x262_pic_header_write( x264_t *h, bs_t *s );
 void x262_pic_coding_extension_write( x264_t *h, bs_t *s );
+void x262_pic_display_extension_write( x264_t *h, bs_t *s );
 void x262_user_data_write( bs_t *s, uint8_t *payload, int payload_size );
 
 #endif

@@ -425,6 +425,10 @@ static int x264_validate_parameters( x264_t *h )
         h->param.analyse.b_dct_decimate = 0;
         h->param.b_constrained_intra = 0;
         h->param.b_aud = 0;
+        h->param.i_bframe_pyramid = X264_B_PYRAMID_NONE;
+        h->param.b_deblocking_filter = 0;
+        h->param.i_nal_hrd = X264_NAL_HRD_NONE;
+        h->param.b_cabac = 0;
         h->param.i_slice_max_size = 0;
         h->param.i_slice_max_mbs = 0;
         h->param.i_slice_count = 0;
@@ -1210,14 +1214,26 @@ x264_t *x264_encoder_open( x264_param_t *param )
     }
 
     const char *profile = h->sps->i_profile_idc == PROFILE_BASELINE ? "Constrained Baseline" :
-                          h->sps->i_profile_idc == PROFILE_MAIN ? "Main" :
+                          (h->sps->i_profile_idc == PROFILE_MAIN || h->sps->i_profile_idc == H262_PROFILE_MAIN) ? "Main" :
                           h->sps->i_profile_idc == PROFILE_HIGH ? "High" :
                           h->sps->i_profile_idc == PROFILE_HIGH10 ? (h->sps->b_constraint_set3 == 1 ? "High 10 Intra" : "High 10") :
-                          "High 4:4:4 Predictive";
-    char level[4];
-    snprintf( level, sizeof(level), "%d.%d", h->sps->i_level_idc/10, h->sps->i_level_idc%10 );
-    if( h->sps->i_level_idc == 9 || ( h->sps->i_level_idc == 11 && h->sps->b_constraint_set3 ) )
-        strcpy( level, "1b" );
+                          h->sps->i_profile_idc == PROFILE_HIGH444 ? "High 4:4:4 Predictive" :
+                          "Simple";
+
+    char level[10];
+    if( !h->param.b_h262 )
+    {
+        snprintf( level, sizeof(level), "%d.%d", h->sps->i_level_idc/10, h->sps->i_level_idc%10 );
+        if( h->sps->i_level_idc == 9 || ( h->sps->i_level_idc == 11 && h->sps->b_constraint_set3 ) )
+            strcpy( level, "1b" );
+    }
+    else
+    {
+        snprintf( level, sizeof(level), "%s", h->sps->i_level_idc == H262_LEVEL_LOW ? "Low" :
+                                              h->sps->i_level_idc == H262_LEVEL_MAIN ? "Main" :
+                                              h->sps->i_level_idc == H262_LEVEL_HIGH_1440 ? "High 1440" :
+                                              "High" );
+    }
 
     if( h->sps->i_profile_idc < PROFILE_HIGH10 )
     {
@@ -2601,7 +2617,7 @@ int     x264_encoder_encode( x264_t *h,
         h->out.i_nal = 0;
     }
 
-    if( h->param.b_aud && !h->param.b_h262 )
+    if( h->param.b_aud )
     {
         int pic_type;
 
@@ -2689,14 +2705,36 @@ int     x264_encoder_encode( x264_t *h,
             overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
             /* generate sequence extension */
+            x264_nal_start( h, H262_SEQ_EXT, NAL_PRIORITY_HIGHEST );
+            x262_seq_extension_write( h, &h->out.bs );
+            if( x264_nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+
             /* generate sequence display extension */
+            x264_nal_start( h, H262_SEQ_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
+            x262_seq_disp_extension_write( h, &h->out.bs );
+            if( x264_nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+
             /* generate gop header */
+            x264_nal_start( h, H262_GOP_HEADER, NAL_PRIORITY_HIGHEST );
+            x262_gop_header_write( h, &h->out.bs );
+            if( x264_nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
         }
     }
 
     if( h->param.b_h262 )
     {
-        // PICTURE HEADER
+        /* generate picture header */
+        x264_nal_start( h, H262_PICTURE_HEADER, NAL_PRIORITY_HIGHEST );
+        x262_gop_header_write( h, &h->out.bs );
+        if( x264_nal_end( h ) )
+            return -1;
+        overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
         /* generate picture coding extension */
         x264_nal_start( h, H262_PICTURE_CODING_EXT, NAL_PRIORITY_HIGHEST );
@@ -2704,13 +2742,19 @@ int     x264_encoder_encode( x264_t *h,
         if( x264_nal_end( h ) )
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+
+        /* generate picture display extension */
+        x264_nal_start( h, H262_PICTURE_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
+        x262_pic_display_extension_write( h, &h->out.bs );
+        if( x264_nal_end( h ) )
+            return -1;
+        overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
     }
 
-    /* write extra sei */
+    /* write extra sei (h264) / user data (h262) */
     for( int i = 0; i < h->fenc->extra_sei.num_payloads; i++ )
     {
-        h->param.b_h262 ? x264_nal_start( h, H262_USER_DATA, NAL_PRIORITY_DISPOSABLE ) :
-                          x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
+        x264_nal_start( h, h->param.b_h262 ? H262_USER_DATA : NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         x264_sei_write( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size,
                         h->fenc->extra_sei.payloads[i].payload_type );
         if( x264_nal_end( h ) )
@@ -2747,7 +2791,7 @@ int     x264_encoder_encode( x264_t *h,
     }
 
     /* generate sei pic timing */
-    if( h->sps->vui.b_pic_struct_present || h->sps->vui.b_nal_hrd_parameters_present )
+    if( !h->param.b_h262 && (h->sps->vui.b_pic_struct_present || h->sps->vui.b_nal_hrd_parameters_present) )
     {
         x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         x264_sei_pic_timing_write( h, &h->out.bs );

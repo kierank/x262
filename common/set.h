@@ -29,6 +29,8 @@
 
 enum profile_e
 {
+    H262_PROFILE_MAIN   = 4,
+    H262_PROFILE_SIMPLE = 5,
     PROFILE_BASELINE = 66,
     PROFILE_MAIN     = 77,
     PROFILE_EXTENDED = 88,

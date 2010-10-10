@@ -72,6 +72,14 @@ enum nal_priority_e
     NAL_PRIORITY_HIGHEST    = 3,
 };
 
+enum h262_level_e
+{
+    H262_LEVEL_LOW,
+    H262_LEVEL_MAIN,
+    H262_LEVEL_HIGH_1440,
+    H262_LEVEL_HIGH,
+};
+
 enum h262_structure_type_e
 {
     H262_SEQ_HEADER         = 21,
@@ -81,6 +89,7 @@ enum h262_structure_type_e
     H262_GOP_HEADER,
     H262_PICTURE_HEADER,
     H262_PICTURE_CODING_EXT,
+    H262_PICTURE_DISPLAY_EXT,
     H262_QUANT_MATRIX_EXT,
     H262_COPYRIGHT_EXT,
 };

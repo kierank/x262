@@ -115,6 +115,8 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
     else
         sps->i_profile_idc  = PROFILE_BASELINE;
 
+    // TODO handle H.262 profiles
+
     sps->b_constraint_set0  = sps->i_profile_idc == PROFILE_BASELINE;
     /* x264 doesn't support the features that are in Baseline and not in Main,
      * namely arbitrary_slice_order and slice_groups. */
@@ -669,16 +671,16 @@ void x262_seq_header_write( x264_t *h, bs_t *s )
 
 void x262_seq_extension_write( x264_t *h, bs_t *s )
 {
+    x264_sps_t *sps = h->sps;
     bs_realign( s );
 
     bs_write( s, 4, H262_SEQ_EXT_ID ); // extension_start_code_identifier
-    // profile_and_level_indication
     bs_write1( s, 0 );   // escape bit
-    // profile identification
-    // level identification
+    bs_write( s, 3, sps->i_profile_idc ); // profile identification
+    bs_write( s, 3, sps->i_level_idc );   // level identification
     bs_write1( s, 1 );   // progressive_sequence
     bs_write( s, 2, 1 ); // chroma_format
-    bs_write( s, 2, (h->param.i_width >> 12) & 0x3 );  // horizontal_size_extension
+    bs_write( s, 2, (h->param.i_width >> 12) & 0x3 );  // horizontal_size_extension FIXME (mb_width?)
     bs_write( s, 2, (h->param.i_height >> 12) & 0x3 ); // vertical_size_extension
     // bit_rate_extension
     bs_write1( s, 1 ); // marker_bit
@@ -729,7 +731,8 @@ void x262_gop_header_write( x264_t *h, bs_t *s )
     bs_flush( s );
 }
 
-void x262_write_picture_header( x264_t *h, bs_t *s )
+// FIXME put in the right place
+void x262_pic_header_write( x264_t *h, bs_t *s )
 {
     bs_realign( s );
 
@@ -751,18 +754,27 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
     bs_write( s, 4, H262_PIC_CODING_EXT_ID ); // extension_start_code_identifier
     bs_write( s, 16, 0xffff ); // f_code[s][t]
     bs_write( s, 2, h->param.i_intra_dc_precision ); // intra_dc_precision
-    bs_write( s, 2, !h->param.b_interlaced ? 3 :
-                     h->param.b_tff ? 1 : 2 ); // picture_structure
+    bs_write( s, 2, !h->param.b_interlaced ? 3 : h->param.b_tff ? 1 : 2 ); // picture_structure
     bs_write1( s, h->param.b_tff ); // top_field_first
     bs_write1( s, !h->param.b_interlaced ); // frame_pred_frame_dct
     bs_write1( s, 0 ); // concealment_motion_vectors
     bs_write1( s, h->param.b_nonlinear_quant ); // q_scale_type
-    bs_write1( s, h->param.b_alt_intra_vlc ); // intra_vlc_format
-    bs_write1( s, h->param.b_alternate_scan ); // alternate_scan
+    bs_write1( s, h->param.b_alt_intra_vlc );   // intra_vlc_format
+    bs_write1( s, h->param.b_alternate_scan );  // alternate_scan
     bs_write1( s, h->fenc->b_rff ); // repeat_first_field
     bs_write1( s, h->param.i_csp == X264_CSP_I420 ? !h->param.b_interlaced : 0 ); // chroma_420_type
     bs_write1( s, !h->param.b_interlaced ); // progressive_frame
     bs_write1( s, 0 ); // composite_display_flag
+
+    bs_flush( s );
+}
+
+void x262_pic_display_extension_write( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    bs_write( s, 4, H262_PIC_DISPLAY_EXT_ID ); // extension_start_code_identifier
+    // TODO finish
 
     bs_flush( s );
 }
