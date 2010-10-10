@@ -311,6 +311,12 @@ typedef struct x264_param_t
     uint8_t     cqm_8iy[64];
     uint8_t     cqm_8py[64];
 
+    /* H.262 only */
+    int         i_intra_dc_precision;
+    int         b_nonlinear_quant;
+    int         b_alt_intra_vlc;
+    int         b_alternate_scan;
+
     /* Log */
     void        (*pf_log)( void *, int i_level, const char *psz, va_list );
     void        *p_log_private;

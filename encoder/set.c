@@ -575,7 +575,8 @@ int x264_sei_version_write( x264_t *h, bs_t *s )
              X264_BUILD, X264_VERSION, opts );
     length = strlen(payload)+1;
 
-    x264_sei_write( s, (uint8_t *)payload, length, SEI_USER_DATA_UNREGISTERED );
+    h->param.b_h262 ? x262_user_data_write( s, (uint8_t *)payload, length ) :
+                      x264_sei_write( s, (uint8_t *)payload, length, SEI_USER_DATA_UNREGISTERED );
 
     x264_free( opts );
     x264_free( payload );
@@ -739,6 +740,39 @@ void x262_write_picture_header( x264_t *h, bs_t *s )
     // TODO
 
     bs_write1( s, 0 ); // extra_bit_picture
+
+    bs_flush( s );
+}
+
+void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    bs_write( s, 4, H262_PIC_CODING_EXT_ID ); // extension_start_code_identifier
+    bs_write( s, 16, 0xffff ); // f_code[s][t]
+    bs_write( s, 2, h->param.i_intra_dc_precision ); // intra_dc_precision
+    bs_write( s, 2, !h->param.b_interlaced ? 3 :
+                     h->param.b_tff ? 1 : 2 ); // picture_structure
+    bs_write1( s, h->param.b_tff ); // top_field_first
+    bs_write1( s, !h->param.b_interlaced ); // frame_pred_frame_dct
+    bs_write1( s, 0 ); // concealment_motion_vectors
+    bs_write1( s, h->param.b_nonlinear_quant ); // q_scale_type
+    bs_write1( s, h->param.b_alt_intra_vlc ); // intra_vlc_format
+    bs_write1( s, h->param.b_alternate_scan ); // alternate_scan
+    bs_write1( s, h->fenc->b_rff ); // repeat_first_field
+    bs_write1( s, h->param.i_csp == X264_CSP_I420 ? !h->param.b_interlaced : 0 ); // chroma_420_type
+    bs_write1( s, !h->param.b_interlaced ); // progressive_frame
+    bs_write1( s, 0 ); // composite_display_flag
+
+    bs_flush( s );
+}
+
+void x262_user_data_write( bs_t *s, uint8_t *payload, int payload_size )
+{
+    bs_realign( s );
+
+    for( int i = 0; i < payload_size; i++ )
+        bs_write(s, 8, payload[i] );
 
     bs_flush( s );
 }

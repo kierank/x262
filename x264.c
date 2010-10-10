@@ -687,6 +687,13 @@ static void Help( x264_param_t *defaults, int longhelp )
         "                                  - none, vbr, cbr (cbr not allowed in .mp4)\n" );
     H2( "      --pic-struct            Force pic_struct in Picture Timing SEI\n" );
 
+    H2( "\n" );
+    H2( "H.262 (MPEG-2):\n" );
+    H2( "\n" );
+    H2( "      --dc <integer>          Specify intra DC precision to use (8 to 11) [%d]\n", defaults->i_intra_dc_precision + 8);
+    H2( "      --altscan               Use alternate H.262 VLC scan order, not zigzag\n" );
+    H2( "      --nonlinear-quant       Use H.262 nonlinear quantization table\n" );
+
     H0( "\n" );
     H0( "Input/Output:\n" );
     H0( "\n" );
@@ -857,6 +864,9 @@ static struct option long_options[] =
     { "deadzone-intra", required_argument, NULL, 0 },
     { "level",       required_argument, NULL, 0 },
     { "h262",              no_argument, NULL, 0 },
+    { "dc",          required_argument, NULL, 0 },
+    { "altscan",           no_argument, NULL, 0 },
+    { "nonlinear-quant",   no_argument, NULL, 0 },
     { "ratetol",     required_argument, NULL, 0 },
     { "vbv-maxrate", required_argument, NULL, 0 },
     { "vbv-bufsize", required_argument, NULL, 0 },

@@ -732,6 +732,12 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         p->i_slice_count = atoi(value);
     OPT("h262")
         p->b_h262 = atobool(value);
+    OPT("dc")
+        p->i_intra_dc_precision = atoi(value) - 8;
+    OPT("altscan")
+        p->b_alternate_scan = atobool(value);
+    OPT("nonlinear-quant")
+        p->b_nonlinear_quant = atobool(value);
     OPT("cabac")
         p->b_cabac = atobool(value);
     OPT("cabac-idc")

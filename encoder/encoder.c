@@ -446,7 +446,7 @@ static int x264_validate_parameters( x264_t *h )
         }
         if( h->param.vui.i_colorprim > 7 )
         {
-            x264_log( h, X264_LOG_ERROR, "Chosen colour primary not allowed in H.262\n" );
+            x264_log( h, X264_LOG_ERROR, "Chosen color primary not allowed in H.262\n" );
             return -1;
         }
         if( h->param.vui.i_transfer > 8 )
@@ -456,7 +456,12 @@ static int x264_validate_parameters( x264_t *h )
         }
         if( h->param.vui.i_colmatrix > 7 )
         {
-            x264_log( h, X264_LOG_ERROR, "Chosen colmatrix not allowed in H.262\n" );
+            x264_log( h, X264_LOG_ERROR, "Chosen colormatrix not allowed in H.262\n" );
+            return -1;
+        }
+        if( h->param.i_intra_dc_precision < 0 || h->param.i_intra_dc_precision > 3 )
+        {
+            x264_log( h, X264_LOG_ERROR, "invalid intra DC precision specified\n" );
             return -1;
         }
     }
@@ -2689,13 +2694,23 @@ int     x264_encoder_encode( x264_t *h,
         }
     }
 
-    // PICTURE HEADER
-    // PICTURE CODING EXTENSION
+    if( h->param.b_h262 )
+    {
+        // PICTURE HEADER
+
+        /* generate picture coding extension */
+        x264_nal_start( h, H262_PICTURE_CODING_EXT, NAL_PRIORITY_HIGHEST );
+        x262_pic_coding_extension_write( h, &h->out.bs );
+        if( x264_nal_end( h ) )
+            return -1;
+        overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+    }
 
     /* write extra sei */
     for( int i = 0; i < h->fenc->extra_sei.num_payloads; i++ )
     {
-        x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
+        h->param.b_h262 ? x264_nal_start( h, H262_USER_DATA, NAL_PRIORITY_DISPOSABLE ) :
+                          x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         x264_sei_write( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size,
                         h->fenc->extra_sei.payloads[i].payload_type );
         if( x264_nal_end( h ) )
