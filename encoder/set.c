@@ -104,18 +104,32 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
     sps->i_mb_height= ( param->i_height + 15 ) / 16;
 
     sps->b_qpprime_y_zero_transform_bypass = param->rc.i_rc_method == X264_RC_CQP && param->rc.i_qp_constant == 0;
-    if( sps->b_qpprime_y_zero_transform_bypass )
-        sps->i_profile_idc  = PROFILE_HIGH444_PREDICTIVE;
-    else if( BIT_DEPTH > 8 )
-        sps->i_profile_idc  = PROFILE_HIGH10;
-    else if( param->analyse.b_transform_8x8 || param->i_cqm_preset != X264_CQM_FLAT )
-        sps->i_profile_idc  = PROFILE_HIGH;
-    else if( param->b_cabac || param->i_bframe > 0 || param->b_interlaced || param->b_fake_interlaced || param->analyse.i_weighted_pred > 0 )
-        sps->i_profile_idc  = PROFILE_MAIN;
-    else
-        sps->i_profile_idc  = PROFILE_BASELINE;
 
-    // TODO handle H.262 profiles
+    if( !param->b_h262 )
+    {
+        if( sps->b_qpprime_y_zero_transform_bypass )
+            sps->i_profile_idc  = PROFILE_HIGH444_PREDICTIVE;
+        else if( BIT_DEPTH > 8 )
+            sps->i_profile_idc  = PROFILE_HIGH10;
+        else if( param->analyse.b_transform_8x8 || param->i_cqm_preset != X264_CQM_FLAT )
+            sps->i_profile_idc  = PROFILE_HIGH;
+        else if( param->b_cabac || param->i_bframe > 0 || param->b_interlaced || param->b_fake_interlaced || param->analyse.i_weighted_pred > 0 )
+            sps->i_profile_idc  = PROFILE_MAIN;
+        else
+            sps->i_profile_idc  = PROFILE_BASELINE;
+    }
+    else
+    {
+        // FIXME
+        if( param->i_width > 1440 )
+            sps->i_level_idc = H262_LEVEL_HIGH;
+        else if ( param->i_width == 1440 )
+            sps->i_level_idc = H262_LEVEL_HIGH_1440;
+        else if ( param->i_width > 352 || param->i_height > 288 )
+            sps->i_level_idc = H262_LEVEL_MAIN;
+        else
+            sps->i_level_idc = H262_LEVEL_LOW;
+    }
 
     sps->b_constraint_set0  = sps->i_profile_idc == PROFILE_BASELINE;
     /* x264 doesn't support the features that are in Baseline and not in Main,
@@ -706,9 +720,9 @@ void x262_seq_disp_extension_write( x264_t *h, bs_t *s )
         bs_write( s, 8, sps->vui.i_transfer );
         bs_write( s, 8, sps->vui.i_colmatrix );
     }
-    // display_horizontal_size
+    bs_write( s, 14, h->fenc->i_display_h_size ); // display_horizontal_size
     bs_write1( s, 1 ); // marker_bit
-    // display_vertical_size
+    bs_write( s, 14, h->fenc->i_display_v_size ); // display_vertical_size
 
     bs_flush( s );
 }
@@ -737,7 +751,7 @@ void x262_pic_header_write( x264_t *h, bs_t *s )
     bs_realign( s );
 
     // temporal_reference
-    // picture_coding_type
+    bs_write( s, 3, IS_X264_TYPE_I( h->fenc->i_type ) ? 1 : h->fenc->i_type == X264_TYPE_P ? 2 : 3 ); // picture_coding_type
     // vbv_delay
 
     // TODO
@@ -771,10 +785,19 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
 
 void x262_pic_display_extension_write( x264_t *h, bs_t *s )
 {
+    int offsets = !h->param.b_interlaced ? h->fenc->b_rff ? h->param.b_tff ? 3 : 2 : 1 :
+               h->param.b_interlaced ? 1 : h->fenc->b_rff ? 3 : 2;
+
     bs_realign( s );
 
     bs_write( s, 4, H262_PIC_DISPLAY_EXT_ID ); // extension_start_code_identifier
-    // TODO finish
+    for( int i = 0; i < offsets; i++ )
+    {
+        bs_write( s, 16, h->fenc->i_offset_h ); // frame_centre_horizontal_offset
+        bs_write1( s, 1 ); // marker_bit
+        bs_write( s, 16, h->fenc->i_offset_v ); // frame_centre_vertical_offset
+        bs_write1( s, 1 ); // marker_bit
+    }
 
     bs_flush( s );
 }

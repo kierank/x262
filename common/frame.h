@@ -53,7 +53,11 @@ typedef struct x264_frame
     int     i_frame_num; /* 7.4.3 frame_num */
     int     b_kept_as_ref;
     int     i_pic_struct;
-    int     b_rff;       /* H.262 ONLY */
+    int     b_rff;
+    int     i_display_h_size;
+    int     i_display_v_size;
+    int     i_offset_h;
+    int     i_offset_v;
     int     b_keyframe;
     uint8_t b_fdec;
     uint8_t b_last_minigop_bframe; /* this frame is the last b in a sequence of bframes */

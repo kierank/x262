@@ -284,6 +284,12 @@ int x264_frame_copy_picture( x264_t *h, x264_frame_t *dst, x264_picture_t *src )
     dst->i_pic_struct = src->i_pic_struct;
     dst->extra_sei  = src->extra_sei;
 
+    dst->b_rff            = src->b_rff;
+    dst->i_display_h_size = src->i_display_h_size ? src->i_display_h_size : h->param.i_height;
+    dst->i_display_v_size = src->i_display_v_size ? src->i_display_v_size : h->param.i_width;
+    dst->i_offset_h       = src->i_offset_h;
+    dst->i_offset_v       = src->i_offset_v;
+
     uint8_t *pix[3];
     int stride[3];
     get_plane_ptr( h, src, &pix[0], &stride[0], 0, 0, 0 );
