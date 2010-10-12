@@ -1914,8 +1914,6 @@ static inline void x264_slice_init( x264_t *h, int i_nal_type, int i_global_qp )
     }
 
     x264_macroblock_slice_init( h );
-
-    h->sh.b_keyframe = h->fenc->b_keyframe;
 }
 
 static int x264_slice_write( x264_t *h )
