@@ -120,15 +120,12 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
     }
     else
     {
-        // FIXME
-        if( param->i_width > 1440 )
-            sps->i_level_idc = H262_LEVEL_HIGH;
-        else if ( param->i_width == 1440 )
-            sps->i_level_idc = H262_LEVEL_HIGH_1440;
-        else if ( param->i_width > 352 || param->i_height > 288 )
-            sps->i_level_idc = H262_LEVEL_MAIN;
+        if( param->i_intra_dc_precision > 10 - 8 )
+            sps->i_profile_idc = H262_PROFILE_HIGH;
+        else if( param->i_bframe )
+            sps->i_profile_idc = H262_PROFILE_MAIN;
         else
-            sps->i_level_idc = H262_LEVEL_LOW;
+            sps->i_profile_idc = H262_PROFILE_SIMPLE;
     }
 
     sps->b_constraint_set0  = sps->i_profile_idc == PROFILE_BASELINE;
@@ -766,7 +763,10 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
     bs_realign( s );
 
     bs_write( s, 4, H262_PIC_CODING_EXT_ID ); // extension_start_code_identifier
-    bs_write( s, 16, 0xffff ); // f_code[s][t]
+    if( h->sps->i_profile_idc == H262_PROFILE_SIMPLE && !h->param.i_bframe )
+        bs_write( s, 16, 0xffff ); // f_code[s][t]
+    else
+        bs_write( s, 16, 0x0000 ); //FIXME
     bs_write( s, 2, h->param.i_intra_dc_precision ); // intra_dc_precision
     bs_write( s, 2, !h->param.b_interlaced ? 3 : h->param.b_tff ? 1 : 2 ); // picture_structure
     bs_write1( s, h->param.b_tff ); // top_field_first
@@ -833,12 +833,25 @@ const x264_level_t x264_levels[] =
     { 0 }
 };
 
+const x262_level_t x262_levels[] =
+{
+    { 10,  3041280,  352,  288, 30,  4000,  475,  64,  8, 1 },
+    {  8, 14745600,  720,  567, 30, 15000, 1835, 128, 10, 0 },
+    {  6, 62668800, 1440, 1152, 60, 60000, 7340, 128, 10, 0 },
+    {  4, 83558400, 1920, 1152, 60, 80000, 9781, 128, 11, 0 },
+    { 0 }
+};
+
 #define ERROR(...)\
 {\
     if( verbose )\
         x264_log( h, X264_LOG_WARNING, __VA_ARGS__ );\
     ret = 1;\
 }
+
+#define CHECK( name, limit, val ) \
+    if( (val) > (limit) ) \
+        ERROR( name " (%d) > level limit (%d)\n", (int)(val), (limit) );
 
 int x264_validate_levels( x264_t *h, int verbose )
 {
@@ -849,31 +862,51 @@ int x264_validate_levels( x264_t *h, int verbose )
                      h->sps->i_profile_idc==PROFILE_HIGH ? 5 : 4;
 
     const x264_level_t *l = x264_levels;
-    while( l->level_idc != 0 && l->level_idc != h->param.i_level_idc )
-        l++;
+    const x262_level_t *m = x262_levels;
 
-    if( l->frame_size < mbs
-        || l->frame_size*8 < h->sps->i_mb_width * h->sps->i_mb_width
-        || l->frame_size*8 < h->sps->i_mb_height * h->sps->i_mb_height )
-        ERROR( "frame MB size (%dx%d) > level limit (%d)\n",
-               h->sps->i_mb_width, h->sps->i_mb_height, l->frame_size );
-    if( dpb > l->dpb )
-        ERROR( "DPB size (%d frames, %d bytes) > level limit (%d frames, %d bytes)\n",
-                h->sps->vui.i_max_dec_frame_buffering, dpb, (int)(l->dpb / (384*mbs)), l->dpb );
+    if( !h->param.b_h262 )
+    {
+        while( l->level_idc != 0 && l->level_idc != h->param.i_level_idc )
+            l++;
 
-#define CHECK( name, limit, val ) \
-    if( (val) > (limit) ) \
-        ERROR( name " (%d) > level limit (%d)\n", (int)(val), (limit) );
+        if( l->frame_size < mbs
+            || l->frame_size*8 < h->sps->i_mb_width * h->sps->i_mb_width
+            || l->frame_size*8 < h->sps->i_mb_height * h->sps->i_mb_height )
+            ERROR( "frame MB size (%dx%d) > level limit (%d)\n",
+                   h->sps->i_mb_width, h->sps->i_mb_height, l->frame_size );
+        if( dpb > l->dpb )
+            ERROR( "DPB size (%d frames, %d bytes) > level limit (%d frames, %d bytes)\n",
+                    h->sps->vui.i_max_dec_frame_buffering, dpb, (int)(l->dpb / (384*mbs)), l->dpb );
 
-    CHECK( "VBV bitrate", (l->bitrate * cbp_factor) / 4, h->param.rc.i_vbv_max_bitrate );
-    CHECK( "VBV buffer", (l->cpb * cbp_factor) / 4, h->param.rc.i_vbv_buffer_size );
-    CHECK( "MV range", l->mv_range, h->param.analyse.i_mv_range );
-    CHECK( "interlaced", !l->frame_only, h->param.b_interlaced );
-    CHECK( "fake interlaced", !l->frame_only, h->param.b_fake_interlaced );
+        CHECK( "VBV bitrate", (l->bitrate * cbp_factor) / 4, h->param.rc.i_vbv_max_bitrate );
+        CHECK( "VBV buffer", (l->cpb * cbp_factor) / 4, h->param.rc.i_vbv_buffer_size );
+        CHECK( "MV range", l->mv_range, h->param.analyse.i_mv_range );
+        CHECK( "interlaced", !l->frame_only, h->param.b_interlaced );
+        CHECK( "fake interlaced", !l->frame_only, h->param.b_fake_interlaced );
 
-    if( h->param.i_fps_den > 0 )
-        CHECK( "MB rate", l->mbps, (int64_t)mbs * h->param.i_fps_num / h->param.i_fps_den );
+        if( h->param.i_fps_den > 0 )
+            CHECK( "MB rate", l->mbps, (int64_t)mbs * h->param.i_fps_num / h->param.i_fps_den );
 
-    /* TODO check the rest of the limits */
+        /* TODO check the rest of the limits */
+    }
+    else
+    {
+        while( m->level_idc != 0 && m->level_idc != h->param.i_level_idc )
+            m++;
+
+        if( h->param.i_fps_den > 0 )
+        {
+            CHECK( "Luma sample rate", m->luma_rate, (int64_t)mbs * h->param.i_fps_num / h->param.i_fps_den );
+            CHECK( "framerate", m->framerate, h->param.i_fps_num / h->param.i_fps_den );
+        }
+        CHECK( "width", m->width, h->param.i_width );
+        CHECK( "height", m->height, h->param.i_height );
+        // CHECK( "max bitrate", m->bitrate, h->param.rc.i_vbv_max_bitrate );
+        // CHECK( "vbv size", m->vbv, h->param.rc.i_vbv_buffer_size );
+        CHECK( "MV range", m->mv_range, h->param.analyse.i_mv_range );
+        CHECK( "Intra DC precision", m->dc_precision, h->param.i_intra_dc_precision );
+        CHECK( "interlaced", !m->frame_only, h->param.b_interlaced );
+    }
+
     return ret;
 }

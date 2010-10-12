@@ -422,47 +422,77 @@ int x264_param_apply_profile( x264_param_t *param, const char *profile )
     if( !profile )
         return 0;
 
+    if( !param->b_h262 )
+    {
 #if BIT_DEPTH > 8
-    if( !strcasecmp( profile, "baseline" ) || !strcasecmp( profile, "main" ) ||
-        !strcasecmp( profile, "high" ) )
-    {
-        x264_log( NULL, X264_LOG_ERROR, "%s profile doesn't support a bit depth of %d.\n", profile, BIT_DEPTH );
-        return -1;
-    }
+        if( !strcasecmp( profile, "baseline" ) || !strcasecmp( profile, "main" ) ||
+            !strcasecmp( profile, "high" ) )
+        {
+            x264_log( NULL, X264_LOG_ERROR, "%s profile doesn't support a bit depth of %d.\n", profile, BIT_DEPTH );
+            return -1;
+        }
 #endif
+        if( !strcasecmp( profile, "baseline" ) )
+        {
+            param->analyse.b_transform_8x8 = 0;
+            param->b_cabac = 0;
+            param->i_cqm_preset = X264_CQM_FLAT;
+            param->i_bframe = 0;
+            param->analyse.i_weighted_pred = X264_WEIGHTP_NONE;
+            if( param->b_interlaced )
+            {
+                x264_log( NULL, X264_LOG_ERROR, "baseline profile doesn't support interlacing\n" );
+                return -1;
+            }
+            if( param->b_fake_interlaced )
+            {
+                x264_log( NULL, X264_LOG_ERROR, "baseline profile doesn't support fake interlacing\n" );
+                return -1;
+            }
+        }
 
-    if( !strcasecmp( profile, "baseline" ) )
-    {
-        param->analyse.b_transform_8x8 = 0;
-        param->b_cabac = 0;
-        param->i_cqm_preset = X264_CQM_FLAT;
-        param->i_bframe = 0;
-        param->analyse.i_weighted_pred = X264_WEIGHTP_NONE;
-        if( param->b_interlaced )
+        else if( !strcasecmp( profile, "main" ) )
         {
-            x264_log( NULL, X264_LOG_ERROR, "baseline profile doesn't support interlacing\n" );
+            param->analyse.b_transform_8x8 = 0;
+            param->i_cqm_preset = X264_CQM_FLAT;
+        }
+        else if( !strcasecmp( profile, "high" ) || !strcasecmp( profile, "high10" ) )
+        {
+            /* Default H.264 */
+        }
+        else
+        {
+            x264_log( NULL, X264_LOG_ERROR, "invalid profile: %s\n", profile );
             return -1;
         }
-        if( param->b_fake_interlaced )
-        {
-            x264_log( NULL, X264_LOG_ERROR, "baseline profile doesn't support fake interlacing\n" );
-            return -1;
-        }
-    }
-    else if( !strcasecmp( profile, "main" ) )
-    {
-        param->analyse.b_transform_8x8 = 0;
-        param->i_cqm_preset = X264_CQM_FLAT;
-    }
-    else if( !strcasecmp( profile, "high" ) || !strcasecmp( profile, "high10" ) )
-    {
-        /* Default */
     }
     else
     {
-        x264_log( NULL, X264_LOG_ERROR, "invalid profile: %s\n", profile );
-        return -1;
+        if( !strcasecmp( profile, "simple" ) )
+        {
+            param->i_bframe = 0;
+            if( param->b_interlaced )
+            {
+                x264_log( NULL, X264_LOG_ERROR, "simple profile doesn't support interlacing\n" );
+                return -1;
+            }
+        }
+        else if( !strcasecmp( profile, "high" ) )
+        {
+
+        }
+        else if( !strcasecmp( profile, "main" ) )
+        {
+            /* Default H.262 */
+            param->i_intra_dc_precision = x264_clip3(param->i_intra_dc_precision, 0, 2);
+        }
+        else
+        {
+            x264_log( NULL, X264_LOG_ERROR, "invalid profile: %s\n", profile );
+            return -1;
+        }
     }
+
     if( (param->rc.i_rc_method == X264_RC_CQP && param->rc.i_qp_constant == 0) ||
         (param->rc.i_rc_method == X264_RC_CRF && param->rc.f_rf_constant == 0) )
     {
@@ -609,6 +639,26 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
     {
         if( !strcmp(value, "1b") )
             p->i_level_idc = 9;
+        else if( !strcmp(value, "low") )
+        {
+            p->i_level_idc = H262_LEVEL_LOW;
+            p->b_h262 = 1;
+        }
+        else if( !strcmp(value, "main") )
+        {
+            p->i_level_idc = H262_LEVEL_MAIN;
+            p->b_h262 = 1;
+        }
+        else if( !strcmp(value, "high-1440") )
+        {
+            p->i_level_idc = H262_LEVEL_HIGH_1440;
+            p->b_h262 = 1;
+        }
+        else if( !strcmp(value, "high") )
+        {
+            p->i_level_idc = H262_LEVEL_HIGH;
+            p->b_h262 = 1;
+        }
         else if( atof(value) < 6 )
             p->i_level_idc = (int)(10*atof(value)+.5);
         else

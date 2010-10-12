@@ -1469,7 +1469,7 @@ generic_option:
 
     /* Automatically reduce reference frame count to match the user's target level
      * if the user didn't explicitly set a reference frame count. */
-    if( !b_user_ref )
+    if( !b_user_ref && !param->b_h262)
     {
         int mbs = (((param->i_width)+15)>>4) * (((param->i_height)+15)>>4);
         for( int i = 0; x264_levels[i].level_idc != 0; i++ )

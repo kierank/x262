@@ -784,6 +784,8 @@ static int x264_validate_parameters( x264_t *h )
 
     {
         const x264_level_t *l = x264_levels;
+        const x262_level_t *m = x262_levels;
+
         if( h->param.i_level_idc < 0 )
         {
             int maxrate_bak = h->param.rc.i_vbv_max_bitrate;
@@ -791,22 +793,43 @@ static int x264_validate_parameters( x264_t *h )
                 h->param.rc.i_vbv_max_bitrate = h->param.rc.i_bitrate * 2;
             h->sps = h->sps_array;
             x264_sps_init( h->sps, h->param.i_sps_id, &h->param );
-            do h->param.i_level_idc = l->level_idc;
-                while( l[1].level_idc && x264_validate_levels( h, 0 ) && l++ );
+            if( !h->param.b_h262 )
+            {
+                do h->param.i_level_idc = l->level_idc;
+                    while( l[1].level_idc && x264_validate_levels( h, 0 ) && l++ );
+            }
+            else
+            {
+                do h->param.i_level_idc = m->level_idc;
+                    while( m[1].level_idc && x264_validate_levels( h, 0 ) && m++ );            
+            }
             h->param.rc.i_vbv_max_bitrate = maxrate_bak;
         }
         else
         {
-            while( l->level_idc && l->level_idc != h->param.i_level_idc )
-                l++;
-            if( l->level_idc == 0 )
+            if( !h->param.b_h262 )
             {
-                x264_log( h, X264_LOG_ERROR, "invalid level_idc: %d\n", h->param.i_level_idc );
-                return -1;
+                while( l->level_idc && l->level_idc != h->param.i_level_idc )
+                    l++;
+                if( l->level_idc == 0 )
+                {
+                    x264_log( h, X264_LOG_ERROR, "invalid level_idc: %d\n", h->param.i_level_idc );
+                    return -1;
+                }
+            }
+            else
+            {
+                while( m->level_idc && m->level_idc != h->param.i_level_idc )
+                    m++;
+                if( m->level_idc == 0 )
+                {
+                    x264_log( h, X264_LOG_ERROR, "invalid level_idc: %d\n", h->param.i_level_idc );
+                    return -1;
+                }
             }
         }
         if( h->param.analyse.i_mv_range <= 0 )
-            h->param.analyse.i_mv_range = l->mv_range >> h->param.b_interlaced;
+            h->param.analyse.i_mv_range = h->param.b_h262 ? m->mv_range : l->mv_range >> h->param.b_interlaced;
         else
             h->param.analyse.i_mv_range = x264_clip3(h->param.analyse.i_mv_range, 32, 512 >> h->param.b_interlaced);
     }
@@ -1198,10 +1221,10 @@ x264_t *x264_encoder_open( x264_param_t *param )
     }
 
     const char *profile = h->sps->i_profile_idc == PROFILE_BASELINE ? "Constrained Baseline" :
-                          (h->sps->i_profile_idc == PROFILE_MAIN || h->sps->i_profile_idc == H262_PROFILE_MAIN) ? "Main" :
-                          h->sps->i_profile_idc == PROFILE_HIGH ? "High" :
+                        ( h->sps->i_profile_idc == PROFILE_MAIN || h->sps->i_profile_idc == H262_PROFILE_MAIN ) ? "Main" :
+                        ( h->sps->i_profile_idc == PROFILE_HIGH || h->sps->i_profile_idc == H262_PROFILE_HIGH ) ? "High" :
                           h->sps->i_profile_idc == PROFILE_HIGH10 ? (h->sps->b_constraint_set3 == 1 ? "High 10 Intra" : "High 10") :
-                          h->sps->i_profile_idc == PROFILE_HIGH444 ? "High 4:4:4 Predictive" :
+                          h->sps->i_profile_idc == PROFILE_HIGH444 ? "High 4:4:4 Predictive" :                          
                           "Simple";
 
     char level[10];
@@ -1215,7 +1238,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
     {
         snprintf( level, sizeof(level), "%s", h->sps->i_level_idc == H262_LEVEL_LOW ? "Low" :
                                               h->sps->i_level_idc == H262_LEVEL_MAIN ? "Main" :
-                                              h->sps->i_level_idc == H262_LEVEL_HIGH_1440 ? "High 1440" :
+                                              h->sps->i_level_idc == H262_LEVEL_HIGH_1440 ? "High-1440" :
                                               "High" );
     }
 

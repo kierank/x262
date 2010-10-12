@@ -74,10 +74,10 @@ enum nal_priority_e
 
 enum h262_level_e
 {
-    H262_LEVEL_LOW,
-    H262_LEVEL_MAIN,
-    H262_LEVEL_HIGH_1440,
-    H262_LEVEL_HIGH,
+    H262_LEVEL_LOW        = 10,
+    H262_LEVEL_MAIN       =  8,
+    H262_LEVEL_HIGH_1440  =  6,
+    H262_LEVEL_HIGH       =  4,
 };
 
 enum h262_structure_type_e
@@ -510,6 +510,26 @@ typedef struct {
 
 /* all of the levels defined in the standard, terminated by .level_idc=0 */
 extern const x264_level_t x264_levels[];
+
+/****************************************************************************
+ * H.262 level restriction information
+ ****************************************************************************/
+
+typedef struct {
+    int level_idc;
+    int luma_rate;    /* max luminance sample rate (samples/sec) */
+    int width;        /* max frame width (pixel/line) */
+    int height;       /* max frame height (lines) */
+    int framerate;    /* max frame rate (Hz) */
+    int bitrate;      /* max bitrate (kbit/sec) */
+    int vbv;          /* max vbv buffer (kbit) */
+    int mv_range;     /* max vertical mv component range (pixels) */
+    int dc_precision; /* max intra_dc_precision value */
+    int frame_only;   /* forbid interlacing */
+} x262_level_t;
+
+/* all of the levels defined in the standard, terminated by .level_idc=0 */
+extern const x262_level_t x262_levels[];
 
 /****************************************************************************
  * Basic parameter handling functions
