@@ -254,6 +254,49 @@ static pixel *get_ref( pixel *dst,   int *i_dst_stride,
     }
 }
 
+static void hpel_filter_h262( pixel *dsth, pixel *dstv, pixel *dstc, pixel *src,
+                              int stride, int width, int height, dctcoef *buf )
+{
+    for( int y = 0; y < height; y++ )
+    {
+        for( int x = 0; x < width; x++ )
+            dsth[x] = (src[x] + src[x+1] + 1) >> 1;
+        for( int x = 0; x < width; x++ )
+            dstv[x] = (src[x] + src[x+stride] + 1) >> 1;
+        for( int x = 0; x < width; x++ )
+            dstc[x] = (src[x] + src[x+1] + src[x+stride] + src[x+stride+1] + 1) >> 2;
+        dsth += stride;
+        dstv += stride;
+        dstc += stride;
+        src += stride;
+    }
+}
+
+static void mc_luma_h262( pixel *dst,    int i_dst_stride,
+                          pixel *src[4], int i_src_stride,
+                          int mvx, int mvy,
+                          int i_width, int i_height, const x264_weight_t *weight )
+{
+    int idx = ((mvx&2)>>1) + (mvy&2);
+    int offset = (mvy>>2)*i_src_stride + (mvx>>2);
+    pixel *src1 = src[idx] + offset;
+
+    mc_copy( src1, i_src_stride, dst, i_dst_stride, i_width, i_height );
+}
+
+static pixel *get_ref_h262( pixel *dst,   int *i_dst_stride,
+                            pixel *src[4], int i_src_stride,
+                            int mvx, int mvy,
+                            int i_width, int i_height, const x264_weight_t *weight )
+{
+    int idx = ((mvx&2)>>1) + (mvy&2);
+    int offset = (mvy>>2)*i_src_stride + (mvx>>2);
+    pixel *src1 = src[idx] + offset;
+
+    *i_dst_stride = i_src_stride;
+    return src1;
+}
+
 /* full chroma mc (ie until 1/8 pixel)*/
 static void mc_chroma( pixel *dstu, pixel *dstv, int i_dst_stride,
                        pixel *src, int i_src_stride,
@@ -476,7 +519,7 @@ static void mbtree_propagate_cost( int *dst, uint16_t *propagate_in, uint16_t *i
     }
 }
 
-void x264_mc_init( int cpu, x264_mc_functions_t *pf )
+void x264_mc_init( int cpu, x264_mc_functions_t *pf, int h262 )
 {
     pf->mc_luma   = mc_luma;
     pf->get_ref   = get_ref;
@@ -536,6 +579,14 @@ void x264_mc_init( int cpu, x264_mc_functions_t *pf )
 #if HAVE_ARMV6
     x264_mc_init_arm( cpu, pf );
 #endif
+
+    // override any simd for the time being
+    if( h262 )
+    {
+        pf->mc_luma   = mc_luma_h262;
+        pf->get_ref   = get_ref_h262;
+        pf->hpel_filter = hpel_filter_h262;
+    }
 }
 
 void x264_frame_filter( x264_t *h, x264_frame_t *frame, int mb_y, int b_end )

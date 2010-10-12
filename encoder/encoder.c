@@ -327,6 +327,21 @@ static void x264_slice_header_write( bs_t *s, x264_slice_header_t *sh, int i_nal
     }
 }
 
+static void x262_slice_header_write( x264_t *h, bs_t *s, int i_mb_y )
+{
+    if( h->param.i_height > 2800 )
+       bs_write( s, 3, 0 ); // FIXME
+
+    bs_write( s, 5, 0 ); // quantiser_scale_code
+    bs_write1( s, h->fenc->b_keyframe ); // intra_slice_flag / extra_bit_slice
+    if( h->fenc->b_keyframe )
+    {
+        bs_write1( s, h->fenc->b_keyframe ); // intra_slice
+        bs_write( s, 7, 0x7f ); // reserved_bits
+        bs_write1( s, 0 ); // extra_bit_slice
+    }
+}
+
 /* If we are within a reasonable distance of the end of the memory allocated for the bitstream, */
 /* reallocate, adding an arbitrary amount of space (100 kilobytes). */
 static int x264_bitstream_check_buffer( x264_t *h )
@@ -420,7 +435,7 @@ static int x264_validate_parameters( x264_t *h )
     {
         h->param.analyse.b_transform_8x8 = 1;
         h->param.analyse.intra = X264_ANALYSE_I8x8;
-        h->param.analyse.inter = X264_ANALYSE_PSUB16x16;
+        h->param.analyse.inter = X264_ANALYSE_PSUB16x16 | X264_ANALYSE_BSUB16x16;
         h->param.analyse.i_weighted_pred = 0;
         h->param.analyse.b_dct_decimate = 0;
         h->param.b_constrained_intra = 0;
@@ -1092,7 +1107,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
     x264_pixel_init( h->param.cpu, &h->pixf );
     x264_dct_init( h->param.cpu, &h->dctf );
     x264_zigzag_init( h->param.cpu, &h->zigzagf, h->param.b_interlaced );
-    x264_mc_init( h->param.cpu, &h->mc );
+    x264_mc_init( h->param.cpu, &h->mc, h->param.b_h262 );
     x264_quant_init( h, h->param.cpu, &h->quantf );
     x264_deblock_init( h->param.cpu, &h->loopf );
     x264_bitstream_init( h->param.cpu, &h->bsf );
@@ -1899,6 +1914,8 @@ static inline void x264_slice_init( x264_t *h, int i_nal_type, int i_global_qp )
     }
 
     x264_macroblock_slice_init( h );
+
+    h->sh.b_keyframe = h->fenc->b_keyframe;
 }
 
 static int x264_slice_write( x264_t *h )
@@ -1924,7 +1941,8 @@ static int x264_slice_write( x264_t *h )
     bs_realign( &h->out.bs );
 
     /* Slice */
-    x264_nal_start( h, h->i_nal_type, h->i_nal_ref_idc );
+    if( !h->param.b_h262 )
+        x264_nal_start( h, h->i_nal_type, h->i_nal_ref_idc );
     h->out.nal[h->out.i_nal].i_first_mb = h->sh.i_first_mb;
 
     /* Slice header */
@@ -1939,7 +1957,8 @@ static int x264_slice_write( x264_t *h )
         h->sh.i_qp_delta = h->sh.i_qp - h->pps->i_pic_init_qp;
     }
 
-    x264_slice_header_write( &h->out.bs, &h->sh, h->i_nal_ref_idc );
+    if( !h->param.b_h262 )
+        x264_slice_header_write( &h->out.bs, &h->sh, h->i_nal_ref_idc );
     if( h->param.b_cabac )
     {
         /* alignment needed */
@@ -1992,6 +2011,12 @@ static int x264_slice_write( x264_t *h )
 
         x264_macroblock_analyse( h );
 
+        if( h->param.b_h262 && i_mb_x == 0 )
+        {
+            x264_nal_start( h, (i_mb_y % 175) + 1, h->i_nal_ref_idc );
+            x262_slice_header_write( h, &h->out.bs, i_mb_y );
+        }
+
         /* encode this macroblock -> be careful it can change the mb type to P_SKIP if needed */
         x264_macroblock_encode( h );
 
@@ -2009,7 +2034,7 @@ static int x264_slice_write( x264_t *h )
                 x264_macroblock_write_cabac( h, &h->cabac );
             }
         }
-        else
+        else if( !h->param.b_h262 )
         {
             if( IS_SKIP( h->mb.i_type ) )
                 i_skip++;
@@ -2022,6 +2047,10 @@ static int x264_slice_write( x264_t *h )
                 }
                 x264_macroblock_write_cavlc( h );
             }
+        }
+        else
+        {
+
         }
 
         int total_bits = bs_pos(&h->out.bs) + x264_cabac_pos(&h->cabac);
@@ -2159,6 +2188,12 @@ static int x264_slice_write( x264_t *h )
         {
             i_mb_y++;
             i_mb_x = 0;
+            if( h->param.b_h262 )
+            {
+                /* End the H.262 Slice at the end of the row */
+                if( x264_nal_end( h ) )
+                    return -1;
+            }
         }
     }
     h->out.nal[h->out.i_nal].i_last_mb = h->sh.i_last_mb;
@@ -2168,7 +2203,7 @@ static int x264_slice_write( x264_t *h )
         x264_cabac_encode_flush( h, &h->cabac );
         h->out.bs.p = h->cabac.p;
     }
-    else
+    else if( !h->param.b_h262 )
     {
         if( i_skip > 0 )
             bs_write_ue( &h->out.bs, i_skip );  /* last skip run */
@@ -2176,8 +2211,12 @@ static int x264_slice_write( x264_t *h )
         bs_rbsp_trailing( &h->out.bs );
         bs_flush( &h->out.bs );
     }
-    if( x264_nal_end( h ) )
-        return -1;
+
+    if( !h->param.b_h262 )
+    {
+        if( x264_nal_end( h ) )
+            return -1;
+    }
 
     if( h->sh.i_last_mb == (h->i_threadslice_end * h->mb.i_mb_width - 1) )
     {
