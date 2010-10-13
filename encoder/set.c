@@ -736,13 +736,12 @@ void x262_gop_header_write( x264_t *h, bs_t *s )
     bs_write( s, 6, 0 ); // time_code_seconds
     bs_write( s, 6, 0 ); // time_code_pictures
 
-    bs_write1( s, 0 );   // closed_gop FIXME
+    bs_write1( s, !h->param.i_open_gop ); // closed_gop
     bs_write1( s, 0 );   // broken_link FIXME
 
     bs_flush( s );
 }
 
-// FIXME put in the right place
 void x262_pic_header_write( x264_t *h, bs_t *s )
 {
     bs_realign( s );
@@ -786,7 +785,7 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
 void x262_pic_display_extension_write( x264_t *h, bs_t *s )
 {
     int offsets = !h->param.b_interlaced ? h->fenc->b_rff ? h->param.b_tff ? 3 : 2 : 1 :
-               h->param.b_interlaced ? 1 : h->fenc->b_rff ? 3 : 2;
+                   h->param.b_interlaced ? 1 : h->fenc->b_rff ? 3 : 2;
 
     bs_realign( s );
 

@@ -66,6 +66,8 @@ extern const vlc_t x264_total_zeros[15][16];
 extern const vlc_t x264_total_zeros_dc[3][4];
 extern const vlc_t x264_run_before[7][16];
 
+extern const vlc_t x262_mb_addr_inc[34];
+
 typedef struct
 {
     uint8_t *(*nal_escape) ( uint8_t *dst, uint8_t *src, uint8_t *end );

@@ -434,10 +434,11 @@ static int x264_validate_parameters( x264_t *h )
     if( h->param.b_h262 )
     {
         h->param.analyse.b_transform_8x8 = 1;
-        h->param.analyse.intra = X264_ANALYSE_I8x8;
-        h->param.analyse.inter = X264_ANALYSE_PSUB16x16 | X264_ANALYSE_BSUB16x16;
+        h->param.analyse.intra = 0;
+        h->param.analyse.inter = 0;
         h->param.analyse.i_weighted_pred = 0;
         h->param.analyse.b_dct_decimate = 0;
+        h->param.analyse.i_direct_mv_pred = X264_DIRECT_PRED_NONE;
         h->param.b_constrained_intra = 0;
         h->param.b_aud = 0;
         h->param.i_bframe_pyramid = X264_B_PYRAMID_NONE;
@@ -816,7 +817,7 @@ static int x264_validate_parameters( x264_t *h )
             else
             {
                 do h->param.i_level_idc = m->level_idc;
-                    while( m[1].level_idc && x264_validate_levels( h, 0 ) && m++ );            
+                    while( m[1].level_idc && x264_validate_levels( h, 0 ) && m++ );
             }
             h->param.rc.i_vbv_max_bitrate = maxrate_bak;
         }
@@ -1239,7 +1240,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
                         ( h->sps->i_profile_idc == PROFILE_MAIN || h->sps->i_profile_idc == H262_PROFILE_MAIN ) ? "Main" :
                         ( h->sps->i_profile_idc == PROFILE_HIGH || h->sps->i_profile_idc == H262_PROFILE_HIGH ) ? "High" :
                           h->sps->i_profile_idc == PROFILE_HIGH10 ? (h->sps->b_constraint_set3 == 1 ? "High 10 Intra" : "High 10") :
-                          h->sps->i_profile_idc == PROFILE_HIGH444 ? "High 4:4:4 Predictive" :                          
+                          h->sps->i_profile_idc == PROFILE_HIGH444 ? "High 4:4:4 Predictive" :
                           "Simple";
 
     char level[10];
@@ -2048,7 +2049,22 @@ static int x264_slice_write( x264_t *h )
         }
         else
         {
+#define bs_write_vlc(s,v) bs_write( s, (v).i_size, (v).i_bits )
+            if( IS_SKIP( h->mb.i_type ) )
+                i_skip++;
+            else
+            {
+                while( i_skip > 32 )
+                {
+                    bs_write_vlc( &h->out.bs, x262_mb_addr_inc[33] ); // macroblock_escape
+                    i_skip -= 32;
+                }
+                bs_write_vlc( &h->out.bs, x262_mb_addr_inc[i_skip] ); // macroblock_address_increment
+                i_skip = 0;
 
+                x262_macroblock_write_vlc( h );
+	    }
+#undef bs_write_vlc
         }
 
         int total_bits = bs_pos(&h->out.bs) + x264_cabac_pos(&h->cabac);

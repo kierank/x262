@@ -3,8 +3,7 @@
  *****************************************************************************
  * Copyright (C) 2003-2010 x264 project
  *
- * Authors: Laurent Aimar <fenrir@via.ecp.fr>
- *          Jason Garrett-Glaser <darkshikari@gmail.com>
+ * Authors: Kieran Kunhya <kieran@kunhya.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

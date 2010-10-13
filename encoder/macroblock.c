@@ -616,6 +616,19 @@ void x264_macroblock_encode( x264_t *h )
         }
     }
 
+    if( h->param.b_h262 && (((h->mb.i_mb_x == 0 || h->mb.i_mb_x == h->mb.i_mb_width-1) ||
+                             (h->sh.i_type == SLICE_TYPE_B && IS_INTRA( h->mb.i_mb_type_left)))
+                        && IS_SKIP(h->mb.i_type)) )
+    {
+        /* First and last macroblock in a slice is not allowed to be a skip
+	 * In B-frames a skip cannot follow an intra mb */
+        b_force_no_skip = 1;
+        if( h->mb.i_type == P_SKIP )
+            h->mb.i_type = P_L0;
+        else if( h->mb.i_type == B_SKIP )
+            h->mb.i_type = h->mb.i_mb_type_left;
+    }
+
     if( h->mb.i_type == P_SKIP )
     {
         /* A bit special */
