@@ -49,8 +49,7 @@ void x262_macroblock_write_vlc( x264_t *h )
     // macroblock modes
     if( i_mb_type == I_16x16 )
     {
-        //quantiser_scale_code ? bs_write( s, 2, 1 ) : bs_write1( s, 1 ); // FIXME
-        bs_write1( s, 1 );
+
     }
     else if( i_mb_type == P_8x8 )
     {
@@ -61,11 +60,18 @@ void x262_macroblock_write_vlc( x264_t *h )
 
     }
 
+    // forward mvs
+
+    // backward mvs
+
 #if !RDO_SKIP_BS
     i_mb_pos_tex = bs_pos( s );
     h->stat.frame.i_mv_bits += i_mb_pos_tex - i_mb_pos_start;
 #endif
 
+    // coded block pattern
+
+    // block()
 
 #if !RDO_SKIP_BS
     h->stat.frame.i_tex_bits += bs_pos(s) - i_mb_pos_tex;

@@ -62,3 +62,9 @@ const vlc_t x262_mb_addr_inc[34] =
     { 0x18, 11 }, /* str=00000011000 */
     { 0x8, 11 },  /* escape */
 };
+
+const vlc_t x262_i_frame_mb_type[2]
+{
+    { 0x1, 1 }, /* str=1 */
+    { 0x1, 2 }, /* str=01 */
+};
