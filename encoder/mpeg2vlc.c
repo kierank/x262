@@ -49,9 +49,10 @@ void x262_macroblock_write_vlc( x264_t *h )
 
     // macroblock modes
     if( i_mb_type == I_16x16 )
-        bs_write_vlc( s, x262_i_frame_mb_type[h->sh.i_type][!!h->mb.i_quant_scale_code] );
+        bs_write_vlc( s, x262_i_mb_type[h->sh.i_type][!!h->mb.i_quant_scale_code] );
     else if( i_mb_type == P_8x8 )
     {
+
 
     }
     else //if( i_mb_type == B_8x8 )
@@ -71,11 +72,11 @@ void x262_macroblock_write_vlc( x264_t *h )
     h->stat.frame.i_mv_bits += i_mb_pos_tex - i_mb_pos_start;
 #endif
 
-    cbp = h->mb.i_cpb_luma << 2;
+    cbp = h->mb.i_cbp_luma << 2;
 
     // coded block pattern (TODO: handle others and chroma)
     if( i_mb_type == I_16x16 )
-        bs_write_vlc( s, x262_cbp[cpb] ); // coded_block_pattern_420
+        bs_write_vlc( s, x262_cbp[cbp] ); // coded_block_pattern_420
 
     for( int i = 0; i < 6; i++ )
     {
@@ -84,7 +85,7 @@ void x262_macroblock_write_vlc( x264_t *h )
         {
 
         }
-        else if( !(cpb & (1<<(5-i))) )
+        else if( !(cbp & (1<<(5-i))) )
             continue;
 
         // end of block

@@ -152,7 +152,7 @@ const vlc_t x262_i_mb_type[3][2] =
 // TODO clean way of doing the rest
 
 /* [code] */
-const vlc_t x262_dc_lum_code[12] =
+const vlc_large_t x262_dc_lum_code[12] =
 {
     { 0x4, 3 }, /* str=100 */
     { 0x0, 2 }, /* str=00 */
@@ -169,7 +169,7 @@ const vlc_t x262_dc_lum_code[12] =
 };
 
 /* [code] */
-const vlc_t x262_dc_chroma_code[12] =
+const vlc_large_t x262_dc_chroma_code[12] =
 {
     { 0x0, 2 }, /* str=00 */
     { 0x1, 2 }, /* str=01 */
