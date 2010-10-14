@@ -77,9 +77,11 @@ void x262_macroblock_write_vlc( x264_t *h )
 #endif
 
     // coded block pattern
-    bs_write_vlc( s, x262_cbp[h->mb.i_cbp_luma] );
 
-    // block()
+    for( int i = 0; i < 6; i++ )
+    {
+        // block()
+    }
 
 #if !RDO_SKIP_BS
     h->stat.frame.i_tex_bits += bs_pos(s) - i_mb_pos_tex;
