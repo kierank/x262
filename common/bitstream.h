@@ -67,6 +67,10 @@ extern const vlc_t x264_total_zeros_dc[3][4];
 extern const vlc_t x264_run_before[7][16];
 
 extern const vlc_t x262_mb_addr_inc[34];
+extern const vlc_t x262_cbp[64];
+extern const vlc_t x262_i_frame_mb_type[2];
+extern const vlc_t x262_p_frame_mb_type[2][2][2][2];
+extern const vlc_t x262_b_frame_mb_type[2][2][2][2][2];
 
 typedef struct
 {

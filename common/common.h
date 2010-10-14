@@ -657,6 +657,8 @@ struct x264_t
         ALIGNED_4( uint8_t i_sub_partition[4] );
         int     b_transform_8x8;
 
+        int     i_quant_scale_code;  /* H.262 */
+
         int     i_cbp_luma;
         int     i_cbp_chroma;
 
