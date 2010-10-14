@@ -38,6 +38,7 @@ void x262_macroblock_write_vlc( x264_t *h )
 {
     bs_t *s = &h->out.bs;
     const int i_mb_type = h->mb.i_type;
+    int cbp;
 
 #if RDO_SKIP_BS
     s->i_bits_encoded = 0;
@@ -48,16 +49,7 @@ void x262_macroblock_write_vlc( x264_t *h )
 
     // macroblock modes
     if( i_mb_type == I_16x16 )
-    {
-        // macroblock_type
-        if( h->mb.i_quant_scale_code )
-        {
-            bs_write_vlc( s, x262_i_frame_mb_type[1] );
-            bs_write( s, h->mb.i_quant_scale_code, 5 );
-        }
-        else
-            bs_write_vlc( s, x262_i_frame_mb_type[0] );
-    }
+        bs_write_vlc( s, x262_i_frame_mb_type[h->sh.i_type][!!h->mb.i_quant_scale_code] );
     else if( i_mb_type == P_8x8 )
     {
 
@@ -66,6 +58,9 @@ void x262_macroblock_write_vlc( x264_t *h )
     {
 
     }
+
+    if( h->mb.i_quant_scale_code )
+        bs_write( s, 5, h->mb.i_quant_scale_code );
 
     // forward mvs
 
@@ -76,11 +71,23 @@ void x262_macroblock_write_vlc( x264_t *h )
     h->stat.frame.i_mv_bits += i_mb_pos_tex - i_mb_pos_start;
 #endif
 
-    // coded block pattern
+    cbp = h->mb.i_cpb_luma << 2;
+
+    // coded block pattern (TODO: handle others and chroma)
+    if( i_mb_type == I_16x16 )
+        bs_write_vlc( s, x262_cbp[cpb] ); // coded_block_pattern_420
 
     for( int i = 0; i < 6; i++ )
     {
         // block()
+        if( i_mb_type == I_16x16 )
+        {
+
+        }
+        else if( !(cpb & (1<<(5-i))) )
+            continue;
+
+        // end of block
     }
 
 #if !RDO_SKIP_BS

@@ -132,15 +132,26 @@ const vlc_t x262_cbp[64] =
     { 0xc, 6 },  /* str=001100 */
 };
 
-/* [quant] */
-const vlc_t x262_i_frame_mb_type[2] =
+/* [frame_type][quant] */
+const vlc_t x262_i_mb_type[3][2] =
 {
-    { 0x1, 1 }, /* str=1 */
-    { 0x1, 2 }, /* str=01 */
+    {
+	{ 0x3, 5 }, /* str=00011 */
+	{ 0x1, 6 }, /* str=000001 */
+    },
+    {
+	{ 0x3, 5 }, /* str=00011 */
+	{ 0x1, 6 }, /* str=000001 */
+    },
+    {
+        { 0x1, 1 }, /* str=1 */
+        { 0x1, 2 }, /* str=01 */
+    },
 };
 
 // TODO clean way of doing the rest
 
+/* [code] */
 const vlc_t x262_dc_lum_code[12] =
 {
     { 0x4, 3 }, /* str=100 */
@@ -157,6 +168,7 @@ const vlc_t x262_dc_lum_code[12] =
     { 0x1ff, 9 }, /* str=111111111 */
 };
 
+/* [code] */
 const vlc_t x262_dc_chroma_code[12] =
 {
     { 0x0, 2 }, /* str=00 */
