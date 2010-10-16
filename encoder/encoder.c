@@ -1106,7 +1106,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
     if( !h->param.b_cabac )
         x264_init_vlc_tables();
     x264_pixel_init( h->param.cpu, &h->pixf );
-    x264_dct_init( h->param.cpu, &h->dctf );
+    x264_dct_init( h->param.cpu, &h->dctf, h->param.b_h262 );
     x264_zigzag_init( h->param.cpu, &h->zigzagf, h->param.b_interlaced );
     x264_mc_init( h->param.cpu, &h->mc, h->param.b_h262 );
     x264_quant_init( h, h->param.cpu, &h->quantf );
