@@ -149,7 +149,58 @@ const vlc_t x262_i_mb_type[3][2] =
     },
 };
 
-// TODO clean way of doing the rest
+/* [mc][coded][quant] */
+const vlc_t x262_p_mb_type[2][2][2] =
+{
+    {
+        {},
+        {
+            { 0x1, 2 }, /* str=01 */
+            { 0x1, 5 }, /* str=00001 */
+        },
+    },
+    {
+        {
+            { 0x1, 3 }, /* str=001 */
+        },
+        {
+            { 0x1, 1 }, /* str=1 */
+            { 0x2, 5 }, /* str=00010 */
+        },
+    },
+};
+
+/* [fwd/bwd/interp][coded][quant] */
+const vlc_t x262_b_mb_type[3][2][2] =
+{
+    {
+        {
+            { 0x2, 4 }, /* str=0010 */
+        },
+        {
+            { 0x3, 4 }, /* str=0011 */
+            { 0x2, 6 }, /* str=000010 */
+        },
+    },
+    {
+        {
+            { 0x2, 3 }, /* str=010 */
+        },
+        {
+            { 0x3, 3 }, /* str=011 */
+            { 0x3, 6 }, /* str=000011 */
+        },
+    },
+    {
+        {
+            { 0x2, 2 }, /* str=10 */
+        },
+        {
+            { 0x3, 2 }, /* str=11 */
+            { 0x2, 5 }, /* str=00010 */
+        },
+    },
+};
 
 /* [code] */
 const vlc_large_t x262_dc_lum_code[12] =
