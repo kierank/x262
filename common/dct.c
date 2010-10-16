@@ -555,7 +555,7 @@ static inline void jpeg_fdct_islow( dctcoef *data )
     }
     /* descale */
     for( int i = 0; i < 64; i++ )
-		data[i] = (dctcoef) DESCALE(data[i], 3);
+        data[i] = (dctcoef) DESCALE(data[i], 3);
 }
 
 #define W1 2841 /* 2048*sqrt(2)*cos(1*pi/16) */
