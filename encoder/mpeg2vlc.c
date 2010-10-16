@@ -31,14 +31,6 @@
 
 #define bs_write_vlc(s,v) bs_write( s, (v).i_size, (v).i_bits )
 
-// FIXME: right place?
-void x262_reset_intra_dc_predictor( x264_t *h )
-{
-    h->mb.i_intra_dc_predictor[0] = 1<<(h->param.i_intra_dc_precision+7);
-    h->mb.i_intra_dc_predictor[1] = 1<<(h->param.i_intra_dc_precision+7);
-    h->mb.i_intra_dc_predictor[2] = 1<<(h->param.i_intra_dc_precision+7);
-}
-
 /*****************************************************************************
  * x264_macroblock_write:
  *****************************************************************************/
@@ -57,21 +49,23 @@ void x262_macroblock_write_vlc( x264_t *h )
 
     // macroblock modes
     if( i_mb_type == I_16x16 )
-    {
         bs_write_vlc( s, x262_i_mb_type[h->sh.i_type][!!h->mb.i_quant_scale_code] );
-        if( h->mb.i_quant_scale_code )
-            bs_write( s, 5, h->mb.i_quant_scale_code );
-    }
     else if( i_mb_type == P_8x8 )
     {
-        if( h->mb.i_quant_scale_code )
-            bs_write( s, 5, h->mb.i_quant_scale_code );
+
+
     }
     else //if( i_mb_type == B_8x8 )
     {
-        if( h->mb.i_quant_scale_code )
-            bs_write( s, 5, h->mb.i_quant_scale_code );
+
     }
+
+    if( h->mb.i_quant_scale_code )
+        bs_write( s, 5, h->mb.i_quant_scale_code );
+
+    // forward mvs
+
+    // backward mvs
 
 #if !RDO_SKIP_BS
     i_mb_pos_tex = bs_pos( s );
