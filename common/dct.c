@@ -470,14 +470,14 @@ static inline void jpeg_fdct_islow( dctcoef *data )
         z4 = tmp5 + tmp7;
         z5 = (z3 + z4) * FIX_1_175875602; /* sqrt(2) * c3 */
 
-		tmp4 *=  FIX_0_298631336; /* sqrt(2) * (-c1+c3+c5-c7 ) */
-		tmp5 *=  FIX_2_053119869; /* sqrt(2) * ( c1+c3-c5+c7 ) */
-		tmp6 *=  FIX_3_072711026; /* sqrt(2) * ( c1+c3+c5-c7 ) */
-		tmp7 *=  FIX_1_501321110; /* sqrt(2) * ( c1+c3-c5-c7 ) */
-		z1   *= -FIX_0_899976223; /* sqrt(2) * ( c7-c3 ) */
-		z2   *= -FIX_2_562915447; /* sqrt(2) * (-c1-c3 ) */
-		z3   *= -FIX_1_961570560; /* sqrt(2) * (-c3-c5 ) */
-		z4   *= -FIX_0_390180644; /* sqrt(2) * ( c5-c3 ) */
+        tmp4 *=  FIX_0_298631336; /* sqrt(2) * (-c1+c3+c5-c7 ) */
+        tmp5 *=  FIX_2_053119869; /* sqrt(2) * ( c1+c3-c5+c7 ) */
+        tmp6 *=  FIX_3_072711026; /* sqrt(2) * ( c1+c3+c5-c7 ) */
+        tmp7 *=  FIX_1_501321110; /* sqrt(2) * ( c1+c3-c5-c7 ) */
+        z1   *= -FIX_0_899976223; /* sqrt(2) * ( c7-c3 ) */
+        z2   *= -FIX_2_562915447; /* sqrt(2) * (-c1-c3 ) */
+        z3   *= -FIX_1_961570560; /* sqrt(2) * (-c3-c5 ) */
+        z4   *= -FIX_0_390180644; /* sqrt(2) * ( c5-c3 ) */
 
         z3 += z5;
         z4 += z5;
@@ -534,14 +534,14 @@ static inline void jpeg_fdct_islow( dctcoef *data )
         z4 = tmp5 + tmp7;
         z5 = (z3 + z4) * FIX_1_175875602; /* sqrt(2) * c3 */
 
-		tmp4 *=  FIX_0_298631336; /* sqrt(2) * (-c1+c3+c5-c7 ) */
-		tmp5 *=  FIX_2_053119869; /* sqrt(2) * ( c1+c3-c5+c7 ) */
-		tmp6 *=  FIX_3_072711026; /* sqrt(2) * ( c1+c3+c5-c7 ) */
-		tmp7 *=  FIX_1_501321110; /* sqrt(2) * ( c1+c3-c5-c7 ) */
-		z1   *= -FIX_0_899976223; /* sqrt(2) * ( c7-c3 ) */
-		z2   *= -FIX_2_562915447; /* sqrt(2) * (-c1-c3 ) */
-		z3   *= -FIX_1_961570560; /* sqrt(2) * (-c3-c5 ) */
-		z4   *= -FIX_0_390180644; /* sqrt(2) * ( c5-c3 ) */
+        tmp4 *=  FIX_0_298631336; /* sqrt(2) * (-c1+c3+c5-c7 ) */
+        tmp5 *=  FIX_2_053119869; /* sqrt(2) * ( c1+c3-c5+c7 ) */
+        tmp6 *=  FIX_3_072711026; /* sqrt(2) * ( c1+c3+c5-c7 ) */
+        tmp7 *=  FIX_1_501321110; /* sqrt(2) * ( c1+c3-c5-c7 ) */
+        z1   *= -FIX_0_899976223; /* sqrt(2) * ( c7-c3 ) */
+        z2   *= -FIX_2_562915447; /* sqrt(2) * (-c1-c3 ) */
+        z3   *= -FIX_1_961570560; /* sqrt(2) * (-c3-c5 ) */
+        z4   *= -FIX_0_390180644; /* sqrt(2) * ( c5-c3 ) */
 
         z3 += z5;
         z4 += z5;
@@ -570,9 +570,9 @@ static pixel *iclp;
 
 void x264_idct_init_mpeg2( void )
 {
-	iclp = iclip + 512;
-	for (int i = -512; i < 512; i++)
-		iclp[i] = (i < -256) ? -256 : ((i > 255) ? 255 : i);
+    iclp = iclip + 512;
+    for( int i = -512; i < 512; i++ )
+        iclp[i] = (i < -256) ? -256 : ((i > 255) ? 255 : i);
 }
 
 /* jpeg_idct_islow() from libjpeg */
@@ -637,20 +637,19 @@ static void add8x8_idct_mpeg2( pixel *p_dst, dctcoef dct[64] )
         out_dct[7] = (dctcoef) ((X7 - X1) >> 8);
     }
 
-	for( int i = 0; i < 8; i++ ) /* idct columns */
-	{
+    for( int i = 0; i < 8; i++ ) /* idct columns */
+    {
         out_p = p_dst + i;
         blk = tmp + i;
-		//blk = block + i;
-		/* shortcut  */
-		if(! ((X1 = (blk[8 * 4] << 8)) | (X2 = blk[8 * 6]) |
-              (X3 = blk[8 * 2])        | (X4 = blk[8 * 1]) |
-              (X5 = blk[8 * 7])        | (X6 = blk[8 * 5]) | (X7 = blk[8 * 3]) ))
+        /* shortcut  */
+        if( !( (X1 = (blk[8 * 4] << 8)) | (X2 = blk[8 * 6]) |
+               (X3 = blk[8 * 2])        | (X4 = blk[8 * 1]) |
+               (X5 = blk[8 * 7])        | (X6 = blk[8 * 5]) | (X7 = blk[8 * 3]) ) )
         {
             out_p[8 * 0] = blk[8 * 1] = blk[8 * 2] = blk[8 * 3] = blk[8 * 4] =
             blk[8 * 5] = blk[8 * 6] = blk[8 * 7] = iclp[(blk[8 * 0] + 32) >> 6];
-			continue;
-		}
+            continue;
+        }
 
         X0 = (blk[8 * 0] << 8) + 8192;
 
