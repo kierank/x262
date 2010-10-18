@@ -90,7 +90,11 @@ void x264_nal_encode( x264_t *h, uint8_t *dst, x264_nal_t *nal )
          *dst++ = 0x00;
          *dst++ = 0x00;
          *dst++ = 0x01;
-         *dst++ = structure_to_start_code[nal->i_type];
+         /* Write correct startcode if the structure is a slice*/
+         if( nal->i_type > 0 && nal->i_type < 0xb0 )
+             *dst++ = nal->i_type;
+         else
+             *dst++ = structure_to_start_code[nal->i_type];
          memcpy( dst, src, nal->i_payload );
          nal->i_payload += 4;
     }

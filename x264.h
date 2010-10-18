@@ -82,7 +82,7 @@ enum h262_level_e
 
 enum h262_structure_type_e
 {
-    H262_SEQ_HEADER         = 21,
+    H262_SEQ_HEADER         = 0xb0, // FIXME
     H262_USER_DATA,
     H262_SEQ_EXT,
     H262_SEQ_DISPLAY_EXT,
@@ -231,6 +231,12 @@ static const char * const x264_open_gop_names[] = { "none", "normal", "bluray", 
 #define X264_NAL_HRD_NONE            0
 #define X264_NAL_HRD_VBR             1
 #define X264_NAL_HRD_CBR             2
+
+/* Intra DC Precision*/
+#define X264_INTRA_DC_8_BIT          0
+#define X264_INTRA_DC_9_BIT          1
+#define X264_INTRA_DC_10_BIT         2
+#define X264_INTRA_DC_11_BIT         3
 
 /* Zones: override ratecontrol or other options for specific sections of the video.
  * See x264_encoder_reconfig() for which options can be changed.

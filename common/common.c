@@ -165,6 +165,11 @@ void x264_param_default( x264_param_t *param )
     param->b_tff = 1;
     param->b_pic_struct = 0;
     param->b_fake_interlaced = 0;
+
+    param->i_intra_dc_precision = X264_INTRA_DC_8_BIT;
+    param->b_nonlinear_quant = 0;
+    param->b_alt_intra_vlc = 1;
+    param->b_alternate_scan = 0;
 }
 
 static int x264_param_apply_preset( x264_param_t *param, const char *preset )
