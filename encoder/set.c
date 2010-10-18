@@ -669,10 +669,11 @@ void x262_seq_header_write( x264_t *h, bs_t *s )
 
     bs_write( s, 12, h->param.i_width & 0xfff );  // horizontal_size_value
     bs_write( s, 12, h->param.i_height & 0xfff ); // vertical_size_value
-    // aspect_ratio_information
-    // frame_rate_code
+    bs_write( s, 4, 1 ); // aspect_ratio_information FIXME
+    bs_write( s, 4, 1 ); // frame_rate_code FIXME
+    bs_write( s, 18, 1 ); // bit_rate_value FIXME
     bs_write1( s, 1 ); // marker_bit
-    // vbv_buffer_size_value
+    bs_write( s, 10, 0 ); // vbv_buffer_size_value FIXME
     bs_write1( s, 0 ); // constrained_parameters_flag
     bs_write1( s, 0 ); // load_intra_quantiser_matrix
     bs_write1( s, 0 ); // load_non_intra_quantiser_matrix
@@ -688,17 +689,17 @@ void x262_seq_extension_write( x264_t *h, bs_t *s )
     bs_write( s, 4, H262_SEQ_EXT_ID ); // extension_start_code_identifier
     bs_write1( s, 0 );   // escape bit
     bs_write( s, 3, sps->i_profile_idc ); // profile identification
-    bs_write( s, 3, sps->i_level_idc );   // level identification
+    bs_write( s, 4, sps->i_level_idc );   // level identification
     bs_write1( s, 1 );   // progressive_sequence
     bs_write( s, 2, 1 ); // chroma_format
     bs_write( s, 2, (h->param.i_width >> 12) & 0x3 );  // horizontal_size_extension
     bs_write( s, 2, (h->param.i_height >> 12) & 0x3 ); // vertical_size_extension
-    // bit_rate_extension
+    bs_write( s, 12, 0 ); // bit_rate_extension FIXME
     bs_write1( s, 1 ); // marker_bit
-    // vbv_buffer_size_extension
+    bs_write( s, 8, 0 ); // vbv_buffer_size_extension FIXME
     bs_write1( s, 0 ); // low_delay
-    // frame_rate_extension_n
-    // frame_rate_extension_d
+    bs_write( s, 2, 0 ); // frame_rate_extension_n FIXME
+    bs_write( s, 5, 0 ); // frame_rate_extension_d FIXME
 
     bs_flush( s );
 }
@@ -746,9 +747,9 @@ void x262_pic_header_write( x264_t *h, bs_t *s )
 {
     bs_realign( s );
 
-    // temporal_reference
+    bs_write1( s, 0 ); // temporal_reference FIXME
     bs_write( s, 3, IS_X264_TYPE_I( h->fenc->i_type ) ? 1 : h->fenc->i_type == X264_TYPE_P ? 2 : 3 ); // picture_coding_type
-    // vbv_delay
+    bs_write( s, 16, 0xffff ); // vbv_delay FIXME
 
     // TODO
 
@@ -762,13 +763,13 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
     bs_realign( s );
 
     bs_write( s, 4, H262_PIC_CODING_EXT_ID ); // extension_start_code_identifier
-    if( h->sps->i_profile_idc == H262_PROFILE_SIMPLE && !h->param.i_bframe )
+    if( ( h->sps->i_profile_idc == H262_PROFILE_SIMPLE && !h->param.i_bframe ) || IS_X264_TYPE_I( h->fenc->i_type ) )
         bs_write( s, 16, 0xffff ); // f_code[s][t]
     else
-        bs_write( s, 16, 0x0000 ); //FIXME
+        bs_write( s, 16, 0x0000 ); // FIXME
     bs_write( s, 2, h->param.i_intra_dc_precision ); // intra_dc_precision
     bs_write( s, 2, !h->param.b_interlaced ? 3 : h->param.b_tff ? 1 : 2 ); // picture_structure
-    bs_write1( s, h->param.b_tff ); // top_field_first
+    bs_write1( s, h->param.b_interlaced ? h->param.b_tff : 0 ); // top_field_first
     bs_write1( s, !h->param.b_interlaced ); // frame_pred_frame_dct
     bs_write1( s, 0 ); // concealment_motion_vectors
     bs_write1( s, h->param.b_nonlinear_quant ); // q_scale_type

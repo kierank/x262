@@ -566,6 +566,7 @@ struct x264_t
         // FIXME share memory?
         ALIGNED_16( dctcoef luma8x8[4][64] );
         ALIGNED_16( dctcoef luma4x4[16+8][16] );
+        ALIGNED_16( dctcoef h262_8x8[6][64] );
     } dct;
 
     /* MB table and cache for current frame/mb */
@@ -657,7 +658,11 @@ struct x264_t
         ALIGNED_4( uint8_t i_sub_partition[4] );
         int     b_transform_8x8;
 
-        int     i_quant_scale_code;  /* H.262 */
+        /* H.262 */
+        int     i_quant_scale_code;
+        int     i_intra_dc_predictor[6]; /* last block encoded */
+        int     i_dct_dc_size[6];
+        int     i_dct_dc_diff[6];
 
         int     i_cbp_luma;
         int     i_cbp_chroma;
@@ -859,6 +864,8 @@ struct x264_t
     x264_predict8x8_t   predict_8x8[9+3];
     x264_predict_t      predict_4x4[9+3];
     x264_predict_8x8_filter_t predict_8x8_filter;
+
+    x262_predict_t      predict_h262_8x8;
 
     x264_pixel_function_t pixf;
     x264_mc_functions_t   mc;

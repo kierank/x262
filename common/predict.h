@@ -30,6 +30,7 @@
 typedef void (*x264_predict_t)( pixel *src );
 typedef void (*x264_predict8x8_t)( pixel *src, pixel edge[33] );
 typedef void (*x264_predict_8x8_filter_t) ( pixel *src, pixel edge[33], int i_neighbor, int i_filters );
+typedef void (*x262_predict_t)( pixel* src, int predicted_dc );
 
 enum intra_chroma_pred_e
 {
@@ -127,5 +128,7 @@ void x264_predict_8x8c_init  ( int cpu, x264_predict_t pf[7] );
 void x264_predict_4x4_init   ( int cpu, x264_predict_t pf[12] );
 void x264_predict_8x8_init   ( int cpu, x264_predict8x8_t pf[12], x264_predict_8x8_filter_t *predict_filter );
 
+void x262_predict_8x8_init ( int cpu, x262_predict_t *pf );
+void x262_reset_intra_dc_predictor( x264_t *h );
 
 #endif

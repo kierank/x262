@@ -332,13 +332,13 @@ static void x262_slice_header_write( x264_t *h, bs_t *s, int i_mb_y )
     if( h->param.i_height > 2800 )
        bs_write( s, 3, 0 ); // FIXME
 
-    bs_write( s, 5, 0 ); // quantiser_scale_code
+    bs_write( s, 5, 1 ); // quantiser_scale_code FIXME
     bs_write1( s, h->fenc->b_keyframe ); // intra_slice_flag / extra_bit_slice
     if( h->fenc->b_keyframe )
     {
         bs_write1( s, h->fenc->b_keyframe ); // intra_slice
-        bs_write( s, 7, 0x7f ); // reserved_bits
-        bs_write1( s, 0 ); // extra_bit_slice
+        bs_write( s, 7, 0 ); // reserved_bits
+        bs_write1( s, 0 );   // extra_bit_slice
     }
 }
 
@@ -433,12 +433,14 @@ static int x264_validate_parameters( x264_t *h )
 
     if( h->param.b_h262 )
     {
-        h->param.analyse.b_transform_8x8 = 1;
+        h->param.analyse.b_transform_8x8 = 0;
         h->param.analyse.intra = 0;
         h->param.analyse.inter = 0;
         h->param.analyse.i_weighted_pred = 0;
         h->param.analyse.b_dct_decimate = 0;
         h->param.analyse.i_direct_mv_pred = X264_DIRECT_PRED_NONE;
+        h->param.analyse.b_mixed_references = 0;
+        h->param.analyse.i_trellis = 0;
         h->param.b_constrained_intra = 0;
         h->param.b_aud = 0;
         h->param.i_bframe_pyramid = X264_B_PYRAMID_NONE;
@@ -449,6 +451,7 @@ static int x264_validate_parameters( x264_t *h )
         h->param.i_slice_max_mbs = 0;
         h->param.i_slice_count = 0;
         h->param.b_sliced_threads = 0;
+        h->param.i_frame_reference = 1;
         if( h->param.b_interlaced )
         {
             x264_log( h, X264_LOG_WARNING, "H.262 + interlaced is not yet implemented\n" );
@@ -1103,6 +1106,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
     x264_predict_8x8c_init( h->param.cpu, h->predict_8x8c );
     x264_predict_8x8_init( h->param.cpu, h->predict_8x8, &h->predict_8x8_filter );
     x264_predict_4x4_init( h->param.cpu, h->predict_4x4 );
+    x262_predict_8x8_init( h->param.cpu, &h->predict_h262_8x8 );
     if( !h->param.b_cabac )
         x264_init_vlc_tables();
     x264_pixel_init( h->param.cpu, &h->pixf );
@@ -2005,6 +2009,9 @@ static int x264_slice_write( x264_t *h )
         if( i_mb_x == 0 && !h->mb.b_reencode_mb )
             x264_fdec_filter_row( h, i_mb_y, 1 );
 
+        if( h->param.b_h262 && ( i_skip || i_mb_x == 0 || !IS_INTRA( h->mb.i_type ) ) )
+             x262_reset_intra_dc_predictor( h );
+
         /* load cache */
         x264_macroblock_cache_load( h, i_mb_x, i_mb_y );
 
@@ -2063,7 +2070,7 @@ static int x264_slice_write( x264_t *h )
                 i_skip = 0;
 
                 x262_macroblock_write_vlc( h );
-	    }
+           }
 #undef bs_write_vlc
         }
 
@@ -2818,7 +2825,8 @@ int     x264_encoder_encode( x264_t *h,
 
     if( h->fenc->b_keyframe )
     {
-        if( h->param.b_repeat_headers && h->fenc->i_frame == 0 )
+        // FIXME make this work with h.262
+        if( !h->param.b_h262 && h->param.b_repeat_headers && h->fenc->i_frame == 0 )
         {
             /* identify ourself */
             x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );

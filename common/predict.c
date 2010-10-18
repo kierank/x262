@@ -149,7 +149,6 @@ static void x264_predict_16x16_p_c( pixel *src )
     }
 }
 
-
 /****************************************************************************
  * 8x8 prediction for intra chroma block
  ****************************************************************************/
@@ -712,6 +711,19 @@ static void x264_predict_8x8_hu_c( pixel *src, pixel edge[33] )
 }
 
 /****************************************************************************
+ * H.262 Intra Prediction:
+ ****************************************************************************/
+void x262_predict_8x8_c( pixel *src, int predicted_dc )
+{
+    for( int y = 0; y < 8; y++ )
+    {
+        MPIXEL_X4( src+0 ) = PIXEL_SPLAT_X4( predicted_dc );
+        MPIXEL_X4( src+4 ) = PIXEL_SPLAT_X4( predicted_dc );
+        src += FDEC_STRIDE;
+    }
+}
+
+/****************************************************************************
  * Exported functions:
  ****************************************************************************/
 void x264_predict_16x16_init( int cpu, x264_predict_t pf[7] )
@@ -811,3 +823,17 @@ void x264_predict_4x4_init( int cpu, x264_predict_t pf[12] )
 #endif
 }
 
+void x262_predict_8x8_init ( int cpu, x262_predict_t *pf )
+{
+    pf[0] = x262_predict_8x8_c;
+}
+
+void x262_reset_intra_dc_predictor( x264_t *h )
+{
+    h->mb.i_intra_dc_predictor[0] = 1<<(h->param.i_intra_dc_precision+7);
+    h->mb.i_intra_dc_predictor[1] = 1<<(h->param.i_intra_dc_precision+7);
+    h->mb.i_intra_dc_predictor[2] = 1<<(h->param.i_intra_dc_precision+7);
+    h->mb.i_intra_dc_predictor[3] = 1<<(h->param.i_intra_dc_precision+7);
+    h->mb.i_intra_dc_predictor[4] = 1<<(h->param.i_intra_dc_precision+7);
+    h->mb.i_intra_dc_predictor[5] = 1<<(h->param.i_intra_dc_precision+7);
+}
