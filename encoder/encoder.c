@@ -332,14 +332,8 @@ static void x262_slice_header_write( x264_t *h, bs_t *s, int i_mb_y )
     if( h->param.i_height > 2800 )
        bs_write( s, 3, 0 ); // FIXME
 
-    bs_write( s, 5, 1 ); // quantiser_scale_code FIXME
-    bs_write1( s, h->fenc->b_keyframe ); // intra_slice_flag / extra_bit_slice
-    if( h->fenc->b_keyframe )
-    {
-        bs_write1( s, h->fenc->b_keyframe ); // intra_slice
-        bs_write( s, 7, 0 ); // reserved_bits
-        bs_write1( s, 0 );   // extra_bit_slice
-    }
+    bs_write( s, 5, 23 ); // quantiser_scale_code FIXME
+    bs_write1( s, 0 ); // extra_bit_slice
 }
 
 /* If we are within a reasonable distance of the end of the memory allocated for the bitstream, */
@@ -2211,6 +2205,7 @@ static int x264_slice_write( x264_t *h )
             i_mb_x = 0;
             if( h->param.b_h262 )
             {
+                bs_align_0( &h->out.bs );
                 /* End the H.262 Slice at the end of the row */
                 if( x264_nal_end( h ) )
                     return -1;
