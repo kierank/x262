@@ -678,7 +678,7 @@ void x262_seq_header_write( x264_t *h, bs_t *s )
     bs_write1( s, 0 ); // load_intra_quantiser_matrix
     bs_write1( s, 0 ); // load_non_intra_quantiser_matrix
 
-    bs_flush( s );
+    bs_align_0( s );
 }
 
 void x262_seq_extension_write( x264_t *h, bs_t *s )
@@ -701,7 +701,7 @@ void x262_seq_extension_write( x264_t *h, bs_t *s )
     bs_write( s, 2, 0 ); // frame_rate_extension_n FIXME
     bs_write( s, 5, 0 ); // frame_rate_extension_d FIXME
 
-    bs_flush( s );
+    bs_align_0( s );
 }
 
 void x262_seq_disp_extension_write( x264_t *h, bs_t *s )
@@ -722,7 +722,7 @@ void x262_seq_disp_extension_write( x264_t *h, bs_t *s )
     bs_write1( s, 1 ); // marker_bit
     bs_write( s, 14, h->fenc->i_display_v_size ); // display_vertical_size
 
-    bs_flush( s );
+    bs_align_0( s );
 }
 
 void x262_gop_header_write( x264_t *h, bs_t *s )
@@ -740,7 +740,7 @@ void x262_gop_header_write( x264_t *h, bs_t *s )
     bs_write1( s, !h->param.i_open_gop ); // closed_gop
     bs_write1( s, 0 );   // broken_link FIXME
 
-    bs_flush( s );
+    bs_align_0( s );
 }
 
 void x262_pic_header_write( x264_t *h, bs_t *s )
@@ -755,7 +755,7 @@ void x262_pic_header_write( x264_t *h, bs_t *s )
 
     bs_write1( s, 0 ); // extra_bit_picture
 
-    bs_flush( s );
+    bs_align_0( s );
 }
 
 void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
@@ -780,7 +780,7 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
     bs_write1( s, !h->param.b_interlaced ); // progressive_frame
     bs_write1( s, 0 ); // composite_display_flag
 
-    bs_flush( s );
+    bs_align_0( s );
 }
 
 void x262_pic_display_extension_write( x264_t *h, bs_t *s )
@@ -799,7 +799,7 @@ void x262_pic_display_extension_write( x264_t *h, bs_t *s )
         bs_write1( s, 1 ); // marker_bit
     }
 
-    bs_flush( s );
+    bs_align_0( s );
 }
 
 void x262_user_data_write( bs_t *s, uint8_t *payload, int payload_size )
@@ -809,7 +809,7 @@ void x262_user_data_write( bs_t *s, uint8_t *payload, int payload_size )
     for( int i = 0; i < payload_size; i++ )
         bs_write(s, 8, payload[i] );
 
-    bs_flush( s );
+    bs_align_0( s );
 }
 
 const x264_level_t x264_levels[] =
