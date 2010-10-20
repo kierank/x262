@@ -203,7 +203,7 @@ const vlc_t x262_b_mb_type[3][2][2] =
 };
 
 /* [code] */
-const vlc_large_t x262_dc_lum_code[12] =
+const vlc_large_t x262_dc_luma_code[12] =
 {
     { 0x4, 3 }, /* str=100 */
     { 0x0, 2 }, /* str=00 */
@@ -241,9 +241,12 @@ const vlc_large_t dct_vlcs[2][41][32] =
 {
     /* table zero */
     {
-        /* end of block */
+        /* misc */
         {
+            /* end of block */
             { 0x2, 2 }, /* str=10 */
+            /* escape */
+            { 0x1, 6 }, /* str=000001 */
         },
         /* level=1 */
         {
@@ -479,9 +482,12 @@ const vlc_large_t dct_vlcs[2][41][32] =
     },
     /* table one */
     {
-        /* end of block */
+        /* misc */
         {
+            /* end of block */
             { 0x6, 4 }, /* str=0110 */
+            /* escape */
+            { 0x1, 6 }, /* str=000001 */
         },
         /* level=1 */
         {
@@ -715,4 +721,13 @@ const vlc_large_t dct_vlcs[2][41][32] =
             { 0x10, 15 }, /* str=000000000010000 */
         },
     },
+};
+
+/* [level] */
+const uint8_t dct_vlc_largest_run[41] =
+{
+    /* Both tables */
+    0, 31, 16, 6, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
