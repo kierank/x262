@@ -75,6 +75,7 @@ extern const vlc_t x262_p_mb_type[2][2][2];
 extern const vlc_t x262_b_mb_type[3][2][2];
 extern const vlc_large_t x262_dc_lum_code[12];
 extern const vlc_large_t x262_dc_chroma_code[12];
+extern const vlc_large_t dct_vlcs[2][41][32];
 
 typedef struct
 {
