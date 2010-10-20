@@ -259,7 +259,7 @@ static int x264_coeff_level_run##num( dctcoef *dct, x264_run_level_t *runlevel )
 level_run(4)
 level_run(15)
 level_run(16)
-
+level_run(64)
 
 void x264_quant_init( x264_t *h, int cpu, x264_quant_function_t *pf )
 {
@@ -429,4 +429,5 @@ void x264_quant_init( x264_t *h, int cpu, x264_quant_function_t *pf )
     pf->coeff_last[DCT_CHROMA_AC] = pf->coeff_last[ DCT_LUMA_AC];
     pf->coeff_level_run[  DCT_LUMA_DC] = pf->coeff_level_run[DCT_LUMA_4x4];
     pf->coeff_level_run[DCT_CHROMA_AC] = pf->coeff_level_run[ DCT_LUMA_AC];
+    pf->coeff_level_run[5] = x264_coeff_level_run64;
 }

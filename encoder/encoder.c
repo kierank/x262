@@ -332,7 +332,7 @@ static void x262_slice_header_write( x264_t *h, bs_t *s, int i_mb_y )
     if( h->param.i_height > 2800 )
        bs_write( s, 3, 0 ); // FIXME
 
-    bs_write( s, 5, 23 ); // quantiser_scale_code FIXME
+    bs_write( s, 5, 1 ); // quantiser_scale_code FIXME
     bs_write1( s, 0 ); // extra_bit_slice
 }
 
@@ -919,6 +919,9 @@ static int x264_validate_parameters( x264_t *h )
     BOOLIFY( b_vfr_input );
     BOOLIFY( b_pic_struct );
     BOOLIFY( b_fake_interlaced );
+    BOOLIFY( b_nonlinear_quant );
+    BOOLIFY( b_alt_intra_vlc );
+    BOOLIFY( b_alternate_scan );
     BOOLIFY( analyse.b_transform_8x8 );
     BOOLIFY( analyse.b_weighted_bipred );
     BOOLIFY( analyse.b_chroma_me );
