@@ -265,6 +265,59 @@ static void x264_mb_encode_i16x16( x264_t *h, int i_qp )
         h->dctf.add16x16_idct( p_dst, dct4x4 );
     else if( nz )
         h->dctf.add16x16_idct_dc( p_dst, dct_dc4x4 );
+
+}
+
+static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
+{
+    pixel *p_src;
+    pixel *p_dst;
+    ALIGNED_ARRAY_16( dctcoef, dct8x8,[64] );
+    int nz, half_range, cur_dc_predictor, dc_diff;
+    // TODO decimation
+
+    if( idx < 4 )
+    {
+        int x = idx&1;
+        int y = idx>>1;
+        p_src = &h->mb.pic.p_fenc[0][8*x + 8*y*FENC_STRIDE];
+        p_dst = &h->mb.pic.p_fdec[0][8*x + 8*y*FDEC_STRIDE];
+    }
+    else
+    {
+        p_src = h->mb.pic.p_fenc[idx-3];
+        p_dst = h->mb.pic.p_fdec[idx-3];
+    }
+
+    h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
+
+    nz = 1; // TODO quantisation
+    if( nz )
+    {
+        if( idx < 4 )
+            h->mb.i_cbp_luma |= 1<<(3-idx);
+        else
+            h->mb.i_cbp_chroma |= 1<<(5-idx);
+        h->zigzagf.scan_8x8( h->dct.h262_8x8[idx], dct8x8 );
+        //h->quantf.dequant_8x8( dct8x8[idx], h->dequant8_mf[CQM_8IY], i_qp );
+        h->dctf.add8x8_idct8( p_dst, dct8x8 );
+    }
+
+    if( idx < 4 )
+        cur_dc_predictor = idx == 0 ? h->mb.i_intra_dc_predictor[4] : h->mb.i_intra_dc_predictor[idx-1];
+    else
+        cur_dc_predictor = h->mb.i_intra_dc_predictor[idx];
+
+    /* update intra_dc_predictor */
+    h->mb.i_dct_dc_size[idx] = 32 - x264_clz( abs( h->dct.h262_8x8[idx][0] ) );
+    dc_diff = h->mb.i_dct_dc_diff[idx] = h->dct.h262_8x8[idx][0] - cur_dc_predictor;
+    if( h->mb.i_dct_dc_size[idx] )
+    {
+        half_range = 1 << ( h->mb.i_dct_dc_size[idx] - 1 );
+        if( h->mb.i_dct_dc_diff[idx] < half_range )
+            h->mb.i_dct_dc_diff[idx] = ( h->mb.i_dct_dc_diff[idx] + ( half_range << 1 ) ) - 1;
+        h->mb.i_intra_dc_predictor[idx] += dc_diff;
+   }
 }
 
 static inline int idct_dequant_round_2x2_dc( dctcoef ref[4], dctcoef dct[4], int dequant_mf[6][16], int i_qp )
@@ -621,7 +674,7 @@ void x264_macroblock_encode( x264_t *h )
                         && IS_SKIP(h->mb.i_type)) )
     {
         /* First and last macroblock in a slice is not allowed to be a skip
-	 * In B-frames a skip cannot follow an intra mb */
+         * In B-frames a skip cannot follow an intra mb */
         b_force_no_skip = 1;
         if( h->mb.i_type == P_SKIP )
             h->mb.i_type = P_L0;
@@ -651,11 +704,21 @@ void x264_macroblock_encode( x264_t *h )
 
         if( h->mb.b_lossless )
             x264_predict_lossless_16x16( h, i_mode );
-        else
+        else if( !h->param.b_h262 )
             h->predict_16x16[i_mode]( h->mb.pic.p_fdec[0] );
 
         /* encode the 16x16 macroblock */
-        x264_mb_encode_i16x16( h, i_qp );
+        if( !h->param.b_h262)
+            x264_mb_encode_i16x16( h, i_qp );
+        else
+        {
+            for( int i = 0; i < 4; i++ )
+            {
+                pixel *p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
+                h->predict_h262_8x8( p_dst, h->mb.i_intra_dc_predictor[i] );
+                x262_mb_encode_i_block( h, i, i_qp );
+            }
+        }
     }
     else if( h->mb.i_type == I_8x8 )
     {
@@ -880,17 +943,30 @@ void x264_macroblock_encode( x264_t *h )
         const int i_mode = h->mb.i_chroma_pred_mode;
         if( h->mb.b_lossless )
             x264_predict_lossless_8x8_chroma( h, i_mode );
-        else
+        else if( !h->param.b_h262 )
         {
             h->predict_8x8c[i_mode]( h->mb.pic.p_fdec[1] );
             h->predict_8x8c[i_mode]( h->mb.pic.p_fdec[2] );
         }
+        else
+        {
+            h->predict_h262_8x8( h->mb.pic.p_fdec[1], h->mb.i_intra_dc_predictor[4] );
+            h->predict_h262_8x8( h->mb.pic.p_fdec[2], h->mb.i_intra_dc_predictor[5] );
+
+            for( int i = 4; i < 6; i++ )
+                x262_mb_encode_i_block( h, i, i_qp ); /* encode intra block */
+        }
     }
 
     /* encode the 8x8 blocks */
-    x264_mb_encode_8x8_chroma( h, !IS_INTRA( h->mb.i_type ), h->mb.i_chroma_qp );
+    if( !h->param.b_h262 )
+        x264_mb_encode_8x8_chroma( h, !IS_INTRA( h->mb.i_type ), h->mb.i_chroma_qp );
+    else
+    {
+        // TODO inter h.262
+    }
 
-    /* store cbp */
+    /* store cbp */ // FIXME do we need to make this into mpeg-2 cbp
     int cbp = h->mb.i_cbp_chroma << 4 | h->mb.i_cbp_luma;
     if( h->param.b_cabac )
         cbp |= h->mb.cache.non_zero_count[x264_scan8[24]] << 8
