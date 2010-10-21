@@ -72,26 +72,26 @@ enum nal_priority_e
     NAL_PRIORITY_HIGHEST    = 3,
 };
 
-enum h262_level_e
+enum mpeg2_level_e
 {
-    H262_LEVEL_LOW        = 10,
-    H262_LEVEL_MAIN       =  8,
-    H262_LEVEL_HIGH_1440  =  6,
-    H262_LEVEL_HIGH       =  4,
+    MPEG2_LEVEL_LOW        = 10,
+    MPEG2_LEVEL_MAIN       =  8,
+    MPEG2_LEVEL_HIGH_1440  =  6,
+    MPEG2_LEVEL_HIGH       =  4,
 };
 
-enum h262_structure_type_e
+enum mpeg2_structure_type_e
 {
-    H262_SEQ_HEADER         = 0xb0, // FIXME
-    H262_USER_DATA,
-    H262_SEQ_EXT,
-    H262_SEQ_DISPLAY_EXT,
-    H262_GOP_HEADER,
-    H262_PICTURE_HEADER,
-    H262_PICTURE_CODING_EXT,
-    H262_PICTURE_DISPLAY_EXT,
-    H262_QUANT_MATRIX_EXT,
-    H262_COPYRIGHT_EXT,
+    MPEG2_SEQ_HEADER         = 0xb0, // FIXME
+    MPEG2_USER_DATA,
+    MPEG2_SEQ_EXT,
+    MPEG2_SEQ_DISPLAY_EXT,
+    MPEG2_GOP_HEADER,
+    MPEG2_PICTURE_HEADER,
+    MPEG2_PICTURE_CODING_EXT,
+    MPEG2_PICTURE_DISPLAY_EXT,
+    MPEG2_QUANT_MATRIX_EXT,
+    MPEG2_COPYRIGHT_EXT,
 };
 
 /* The data within the payload is already NAL-encapsulated; the ref_idc and type
@@ -102,7 +102,7 @@ enum h262_structure_type_e
 typedef struct
 {
     int i_ref_idc;  /* nal_priority_e */
-    int i_type;     /* nal_unit_type_e (h264) / h262_structure_type_e (h262) */
+    int i_type;     /* nal_unit_type_e (H.264) / mpeg2_structure_type_e (MPEG-2) */
     int b_long_startcode;
     int i_first_mb; /* If this NAL is a slice, the index of the first MB in the slice. */
     int i_last_mb;  /* If this NAL is a slice, the index of the last MB in the slice. */
@@ -265,7 +265,7 @@ typedef struct x264_param_t
     int         i_csp;  /* CSP of encoded bitstream, only i420 supported */
     int         i_level_idc;
     int         i_frame_total; /* number of frames to encode if known, else 0 */
-    int         b_h262; /* Encode output as H.262 instead of H.264 */
+    int         b_mpeg2; /* Encode output as MPEG-2 instead of H.264 */
 
     /* NAL HRD (H264 ONLY)
      * Uses Buffering and Picture Timing SEIs to signal HRD
@@ -326,7 +326,7 @@ typedef struct x264_param_t
     uint8_t     cqm_8iy[64];
     uint8_t     cqm_8py[64];
 
-    /* H.262 only */
+    /* MPEG-2 only */
     int         i_intra_dc_precision;
     int         b_nonlinear_quant;
     int         b_alt_intra_vlc;
@@ -518,7 +518,7 @@ typedef struct {
 extern const x264_level_t x264_levels[];
 
 /****************************************************************************
- * H.262 level restriction information
+ * MPEG-2 level restriction information
  ****************************************************************************/
 
 typedef struct {
@@ -712,9 +712,9 @@ typedef struct
     /* In: H.264 ONLY - pic_struct, for pulldown/doubling/etc...used only if b_pic_timing_sei=1.
      *     use pic_struct_e for pic_struct inputs */
     int     i_pic_struct;
-    /* In: H.262 ONLY - repeat first field flag. Only valid for progressive input. */
+    /* In: MPEG-2 ONLY - repeat first field flag. Only valid for progressive input. */
     int     b_rff;
-    /* In: H.262 ONLY - position display rectangle.  Useful for implementing pan-scan. 
+    /* In: MPEG-2 ONLY - position display rectangle.  Useful for implementing pan-scan. 
            Display sizes are measured in pixels, but offsets are measured in 1/16 pixels. */
     int     i_display_h_size;
     int     i_display_v_size;

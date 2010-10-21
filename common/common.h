@@ -308,39 +308,39 @@ enum sei_payload_type_e
     SEI_RECOVERY_POINT         = 6,
 };
 
-enum h262_start_code_e
+enum mpeg2_start_code_e
 {
-    H262_PICTURE_START_CODE    = 0x00,
-    H262_USER_DATA_START_CODE  = 0xB2,
-    H262_SEQ_HEADER_CODE       = 0xB3,
-    H262_SEQ_ERROR_CODE        = 0xB4,
-    H262_EXT_START_CODE        = 0xB5,
-    H262_SEQ_END_CODE          = 0xB7,
-    H262_GRP_START_CODE        = 0xB8,
+    MPEG2_PICTURE_START_CODE    = 0x00,
+    MPEG2_USER_DATA_START_CODE  = 0xB2,
+    MPEG2_SEQ_HEADER_CODE       = 0xB3,
+    MPEG2_SEQ_ERROR_CODE        = 0xB4,
+    MPEG2_EXT_START_CODE        = 0xB5,
+    MPEG2_SEQ_END_CODE          = 0xB7,
+    MPEG2_GRP_START_CODE        = 0xB8,
 };
 
 static const uint8_t structure_to_start_code[] =
 {
-    [H262_SEQ_HEADER]      = H262_SEQ_HEADER_CODE,
-    [H262_USER_DATA]       = H262_USER_DATA_START_CODE,
-    [H262_SEQ_EXT]         = H262_EXT_START_CODE,
-    [H262_SEQ_DISPLAY_EXT] = H262_EXT_START_CODE,
-    [H262_GOP_HEADER]      = H262_GRP_START_CODE,
-    [H262_PICTURE_HEADER]  = H262_PICTURE_START_CODE,
-    [H262_PICTURE_CODING_EXT] = H262_EXT_START_CODE,
-    [H262_PICTURE_DISPLAY_EXT] = H262_EXT_START_CODE,
-    [H262_QUANT_MATRIX_EXT]   = H262_EXT_START_CODE,
-    [H262_COPYRIGHT_EXT]      = H262_EXT_START_CODE,
+    [MPEG2_SEQ_HEADER]      = MPEG2_SEQ_HEADER_CODE,
+    [MPEG2_USER_DATA]       = MPEG2_USER_DATA_START_CODE,
+    [MPEG2_SEQ_EXT]         = MPEG2_EXT_START_CODE,
+    [MPEG2_SEQ_DISPLAY_EXT] = MPEG2_EXT_START_CODE,
+    [MPEG2_GOP_HEADER]      = MPEG2_GRP_START_CODE,
+    [MPEG2_PICTURE_HEADER]  = MPEG2_PICTURE_START_CODE,
+    [MPEG2_PICTURE_CODING_EXT] = MPEG2_EXT_START_CODE,
+    [MPEG2_PICTURE_DISPLAY_EXT] = MPEG2_EXT_START_CODE,
+    [MPEG2_QUANT_MATRIX_EXT]   = MPEG2_EXT_START_CODE,
+    [MPEG2_COPYRIGHT_EXT]      = MPEG2_EXT_START_CODE,
 };
 
-enum h262_extension_id_e
+enum mpeg2_extension_id_e
 {
-    H262_SEQ_EXT_ID          = 1,
-    H262_SEQ_DISPLAY_EXT_ID  = 2,
-    H262_QUANT_MATRIX_EXT_ID = 3,
-    H262_COPYRIGHT_EXT_ID    = 4,
-    H262_PIC_DISPLAY_EXT_ID  = 7,
-    H262_PIC_CODING_EXT_ID   = 8,
+    MPEG2_SEQ_EXT_ID          = 1,
+    MPEG2_SEQ_DISPLAY_EXT_ID  = 2,
+    MPEG2_QUANT_MATRIX_EXT_ID = 3,
+    MPEG2_COPYRIGHT_EXT_ID    = 4,
+    MPEG2_PIC_DISPLAY_EXT_ID  = 7,
+    MPEG2_PIC_CODING_EXT_ID   = 8,
 };
 
 typedef struct
@@ -566,7 +566,7 @@ struct x264_t
         // FIXME share memory?
         ALIGNED_16( dctcoef luma8x8[4][64] );
         ALIGNED_16( dctcoef luma4x4[16+8][16] );
-        ALIGNED_16( dctcoef h262_8x8[6][64] );
+        ALIGNED_16( dctcoef mpeg2_8x8[6][64] );
     } dct;
 
     /* MB table and cache for current frame/mb */
@@ -658,7 +658,7 @@ struct x264_t
         ALIGNED_4( uint8_t i_sub_partition[4] );
         int     b_transform_8x8;
 
-        /* H.262 */
+        /* MPEG-2 */
         int     i_quant_scale_code;
         int     i_intra_dc_predictor[6]; /* last block encoded */
         int     i_dct_dc_size[6];
@@ -865,7 +865,7 @@ struct x264_t
     x264_predict_t      predict_4x4[9+3];
     x264_predict_8x8_filter_t predict_8x8_filter;
 
-    x262_predict_t      predict_h262_8x8;
+    x262_predict_t      predict_mpeg2_8x8;
 
     x264_pixel_function_t pixf;
     x264_mc_functions_t   mc;

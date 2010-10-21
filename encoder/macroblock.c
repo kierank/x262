@@ -298,7 +298,7 @@ static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
             h->mb.i_cbp_luma |= 1<<(3-idx);
         else
             h->mb.i_cbp_chroma |= 1<<(5-idx);
-        h->zigzagf.scan_8x8( h->dct.h262_8x8[idx], dct8x8 );
+        h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
         //h->quantf.dequant_8x8( dct8x8[idx], h->dequant8_mf[CQM_8IY], i_qp );
         h->dctf.add8x8_idct8( p_dst, dct8x8 );
     }
@@ -309,8 +309,8 @@ static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
         cur_dc_predictor = h->mb.i_intra_dc_predictor[idx];
 
     /* update intra_dc_predictor */
-    h->mb.i_dct_dc_size[idx] = 32 - x264_clz( abs( h->dct.h262_8x8[idx][0] ) );
-    dc_diff = h->mb.i_dct_dc_diff[idx] = h->dct.h262_8x8[idx][0] - cur_dc_predictor;
+    h->mb.i_dct_dc_size[idx] = 32 - x264_clz( abs( h->dct.mpeg2_8x8[idx][0] ) );
+    dc_diff = h->mb.i_dct_dc_diff[idx] = h->dct.mpeg2_8x8[idx][0] - cur_dc_predictor;
     if( h->mb.i_dct_dc_size[idx] )
     {
         half_range = 1 << ( h->mb.i_dct_dc_size[idx] - 1 );
@@ -669,7 +669,7 @@ void x264_macroblock_encode( x264_t *h )
         }
     }
 
-    if( h->param.b_h262 && (((h->mb.i_mb_x == 0 || h->mb.i_mb_x == h->mb.i_mb_width-1) ||
+    if( h->param.b_mpeg2 && (((h->mb.i_mb_x == 0 || h->mb.i_mb_x == h->mb.i_mb_width-1) ||
                              (h->sh.i_type == SLICE_TYPE_B && IS_INTRA( h->mb.i_mb_type_left)))
                         && IS_SKIP(h->mb.i_type)) )
     {
@@ -704,20 +704,20 @@ void x264_macroblock_encode( x264_t *h )
 
         if( h->mb.b_lossless )
             x264_predict_lossless_16x16( h, i_mode );
-        else if( !h->param.b_h262 )
+        else if( !h->param.b_mpeg2 )
             h->predict_16x16[i_mode]( h->mb.pic.p_fdec[0] );
 
         /* encode the 16x16 macroblock */
-        if( !h->param.b_h262)
-            x264_mb_encode_i16x16( h, i_qp );
-        else
-        {
+        if( h->param.b_mpeg2)
             for( int i = 0; i < 4; i++ )
             {
                 pixel *p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
-                h->predict_h262_8x8( p_dst, h->mb.i_intra_dc_predictor[i] );
+                h->predict_mpeg2_8x8( p_dst, h->mb.i_intra_dc_predictor[i] );
                 x262_mb_encode_i_block( h, i, i_qp );
             }
+        else
+        {
+            x264_mb_encode_i16x16( h, i_qp );
         }
     }
     else if( h->mb.i_type == I_8x8 )
@@ -943,27 +943,29 @@ void x264_macroblock_encode( x264_t *h )
         const int i_mode = h->mb.i_chroma_pred_mode;
         if( h->mb.b_lossless )
             x264_predict_lossless_8x8_chroma( h, i_mode );
-        else if( !h->param.b_h262 )
+        else if( h->param.b_mpeg2 )
         {
-            h->predict_8x8c[i_mode]( h->mb.pic.p_fdec[1] );
-            h->predict_8x8c[i_mode]( h->mb.pic.p_fdec[2] );
-        }
-        else
-        {
-            h->predict_h262_8x8( h->mb.pic.p_fdec[1], h->mb.i_intra_dc_predictor[4] );
-            h->predict_h262_8x8( h->mb.pic.p_fdec[2], h->mb.i_intra_dc_predictor[5] );
+            h->predict_mpeg2_8x8( h->mb.pic.p_fdec[1], h->mb.i_intra_dc_predictor[4] );
+            h->predict_mpeg2_8x8( h->mb.pic.p_fdec[2], h->mb.i_intra_dc_predictor[5] );
 
             for( int i = 4; i < 6; i++ )
                 x262_mb_encode_i_block( h, i, i_qp ); /* encode intra block */
         }
+        else
+        {
+            h->predict_8x8c[i_mode]( h->mb.pic.p_fdec[1] );
+            h->predict_8x8c[i_mode]( h->mb.pic.p_fdec[2] );
+        }
     }
 
     /* encode the 8x8 blocks */
-    if( !h->param.b_h262 )
-        x264_mb_encode_8x8_chroma( h, !IS_INTRA( h->mb.i_type ), h->mb.i_chroma_qp );
+    if( h->param.b_mpeg2 )
+    {
+        // TODO inter MPEG-2
+    }
     else
     {
-        // TODO inter h.262
+        x264_mb_encode_8x8_chroma( h, !IS_INTRA( h->mb.i_type ), h->mb.i_chroma_qp );
     }
 
     /* store cbp */ // FIXME do we need to make this into mpeg-2 cbp

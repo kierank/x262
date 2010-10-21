@@ -711,7 +711,7 @@ static void x264_predict_8x8_hu_c( pixel *src, pixel edge[33] )
 }
 
 /****************************************************************************
- * H.262 Intra Prediction:
+ * MPEG-2 Intra Prediction:
  ****************************************************************************/
 void x262_predict_8x8_c( pixel *src, int predicted_dc )
 {

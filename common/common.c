@@ -427,7 +427,7 @@ int x264_param_apply_profile( x264_param_t *param, const char *profile )
     if( !profile )
         return 0;
 
-    if( !param->b_h262 )
+    if( !param->b_mpeg2 )
     {
 #if BIT_DEPTH > 8
         if( !strcasecmp( profile, "baseline" ) || !strcasecmp( profile, "main" ) ||
@@ -488,7 +488,7 @@ int x264_param_apply_profile( x264_param_t *param, const char *profile )
         }
         else if( !strcasecmp( profile, "main" ) )
         {
-            /* Default H.262 */
+            /* Default MPEG-2 */
             param->i_intra_dc_precision = x264_clip3(param->i_intra_dc_precision, 0, 2);
         }
         else
@@ -646,23 +646,23 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
             p->i_level_idc = 9;
         else if( !strcmp(value, "low") )
         {
-            p->i_level_idc = H262_LEVEL_LOW;
-            p->b_h262 = 1;
+            p->i_level_idc = MPEG2_LEVEL_LOW;
+            p->b_mpeg2 = 1;
         }
         else if( !strcmp(value, "main") )
         {
-            p->i_level_idc = H262_LEVEL_MAIN;
-            p->b_h262 = 1;
+            p->i_level_idc = MPEG2_LEVEL_MAIN;
+            p->b_mpeg2 = 1;
         }
         else if( !strcmp(value, "high-1440") )
         {
-            p->i_level_idc = H262_LEVEL_HIGH_1440;
-            p->b_h262 = 1;
+            p->i_level_idc = MPEG2_LEVEL_HIGH_1440;
+            p->b_mpeg2 = 1;
         }
         else if( !strcmp(value, "high") )
         {
-            p->i_level_idc = H262_LEVEL_HIGH;
-            p->b_h262 = 1;
+            p->i_level_idc = MPEG2_LEVEL_HIGH;
+            p->b_mpeg2 = 1;
         }
         else if( atof(value) < 6 )
             p->i_level_idc = (int)(10*atof(value)+.5);
@@ -784,8 +784,8 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         p->i_slice_max_mbs = atoi(value);
     OPT("slices")
         p->i_slice_count = atoi(value);
-    OPT("h262")
-        p->b_h262 = atobool(value);
+    OPT("mpeg2")
+        p->b_mpeg2 = atobool(value);
     OPT("dc")
         p->i_intra_dc_precision = atoi(value) - 8;
     OPT("altscan")

@@ -519,7 +519,7 @@ static void mbtree_propagate_cost( int *dst, uint16_t *propagate_in, uint16_t *i
     }
 }
 
-void x264_mc_init( int cpu, x264_mc_functions_t *pf, int h262 )
+void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 )
 {
     pf->mc_luma   = mc_luma;
     pf->get_ref   = get_ref;
@@ -581,7 +581,7 @@ void x264_mc_init( int cpu, x264_mc_functions_t *pf, int h262 )
 #endif
 
     // override any simd for the time being
-    if( h262 )
+    if( b_mpeg2 )
     {
         pf->mc_luma   = mc_luma_h262;
         pf->get_ref   = get_ref_h262;

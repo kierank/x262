@@ -706,7 +706,7 @@ static void help( x264_param_t *defaults, int longhelp )
     H0( "      --seek <integer>        First frame to encode\n" );
     H0( "      --frames <integer>      Maximum number of frames to encode\n" );
     H0( "      --level <string>        Specify level (as defined by Annex A)\n" );
-    H0( "      --h262                  Encode as H.262 instead of H.264\n" );
+    H0( "      --mpeg2                 Encode as MPEG-2 instead of H.264\n" );
     H1( "\n" );
     H1( "  -v, --verbose               Print stats for each frame\n" );
     H1( "      --no-progress           Don't show the progress indicator while encoding\n" );
@@ -860,7 +860,7 @@ static struct option long_options[] =
     { "deadzone-inter", required_argument, NULL, 0 },
     { "deadzone-intra", required_argument, NULL, 0 },
     { "level",       required_argument, NULL, 0 },
-    { "h262",              no_argument, NULL, 0 },
+    { "mpeg2",             no_argument, NULL, 0 },
     { "dc",          required_argument, NULL, 0 },
     { "altscan",           no_argument, NULL, 0 },
     { "nonlinear-quant",   no_argument, NULL, 0 },
@@ -1469,7 +1469,7 @@ generic_option:
 
     /* Automatically reduce reference frame count to match the user's target level
      * if the user didn't explicitly set a reference frame count. */
-    if( !b_user_ref && !param->b_h262)
+    if( !b_user_ref && !param->b_mpeg2)
     {
         int mbs = (((param->i_width)+15)>>4) * (((param->i_height)+15)>>4);
         for( int i = 0; x264_levels[i].level_idc != 0; i++ )

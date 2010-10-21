@@ -395,7 +395,7 @@ static void add16x16_idct_dc( pixel *p_dst, dctcoef dct[16] )
 }
 
 /****************************************************************************
- * 8x8 DCT transforms (for H.262)
+ * 8x8 DCT transforms (for MPEG-2)
  * These algorithms are part of the Independent JPEG Group's software.
  * Copyright (C) 1991-1996, Thomas G. Lane.
  ****************************************************************************/
@@ -717,7 +717,7 @@ static void sub16x16_dct_mpeg2( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )
 /****************************************************************************
  * x264_dct_init:
  ****************************************************************************/
-void x264_dct_init( int cpu, x264_dct_function_t *dctf, int b_h262 )
+void x264_dct_init( int cpu, x264_dct_function_t *dctf, int b_mpeg2 )
 {
     dctf->sub4x4_dct    = sub4x4_dct;
     dctf->add4x4_idct   = add4x4_idct;
@@ -839,7 +839,7 @@ void x264_dct_init( int cpu, x264_dct_function_t *dctf, int b_h262 )
     }
 #endif
 
-    if( b_h262 )
+    if( b_mpeg2 )
     {
         dctf->sub8x8_dct8 = sub8x8_dct_mpeg2;
         dctf->add8x8_idct8 = add8x8_idct_mpeg2;

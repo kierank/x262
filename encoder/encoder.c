@@ -425,7 +425,7 @@ static int x264_validate_parameters( x264_t *h )
         return -1;
     }
 
-    if( h->param.b_h262 )
+    if( h->param.b_mpeg2 )
     {
         h->param.analyse.b_transform_8x8 = 0;
         h->param.analyse.intra = 0;
@@ -448,32 +448,32 @@ static int x264_validate_parameters( x264_t *h )
         h->param.i_frame_reference = 1;
         if( h->param.b_interlaced )
         {
-            x264_log( h, X264_LOG_WARNING, "H.262 + interlaced is not yet implemented\n" );
+            x264_log( h, X264_LOG_WARNING, "MPEG-2 + interlaced is not yet implemented\n" );
             h->param.b_interlaced = 0;
         }
         if( h->param.rc.i_qp_constant == 0 )
         {
-            x264_log( h, X264_LOG_WARNING, "H.262 + lossless is not allowed\n" );
+            x264_log( h, X264_LOG_WARNING, "MPEG-2 + lossless is not allowed\n" );
             h->param.b_interlaced = 0;
         }
         if( h->param.b_vfr_input )
         {
-            x264_log( h, X264_LOG_WARNING, "H.262 + VFR is not allowed\n" );
+            x264_log( h, X264_LOG_WARNING, "MPEG-2 + VFR is not allowed\n" );
             h->param.b_vfr_input = 0;
         }
         if( h->param.vui.i_colorprim > 7 )
         {
-            x264_log( h, X264_LOG_ERROR, "Chosen color primary not allowed in H.262\n" );
+            x264_log( h, X264_LOG_ERROR, "Chosen color primary not allowed in MPEG-2\n" );
             return -1;
         }
         if( h->param.vui.i_transfer > 8 )
         {
-            x264_log( h, X264_LOG_ERROR, "Chosen transfer characteristic not allowed in H.262\n" );
+            x264_log( h, X264_LOG_ERROR, "Chosen transfer characteristic not allowed in MPEG-2\n" );
             return -1;
         }
         if( h->param.vui.i_colmatrix > 7 )
         {
-            x264_log( h, X264_LOG_ERROR, "Chosen colormatrix not allowed in H.262\n" );
+            x264_log( h, X264_LOG_ERROR, "Chosen colormatrix not allowed in MPEG-2\n" );
             return -1;
         }
         if( h->param.i_intra_dc_precision < 0 || h->param.i_intra_dc_precision > 3 )
@@ -806,31 +806,21 @@ static int x264_validate_parameters( x264_t *h )
                 h->param.rc.i_vbv_max_bitrate = h->param.rc.i_bitrate * 2;
             h->sps = h->sps_array;
             x264_sps_init( h->sps, h->param.i_sps_id, &h->param );
-            if( !h->param.b_h262 )
-            {
-                do h->param.i_level_idc = l->level_idc;
-                    while( l[1].level_idc && x264_validate_levels( h, 0 ) && l++ );
-            }
-            else
+            if( h->param.b_mpeg2 )
             {
                 do h->param.i_level_idc = m->level_idc;
                     while( m[1].level_idc && x264_validate_levels( h, 0 ) && m++ );
+            }
+            else
+            {
+                do h->param.i_level_idc = l->level_idc;
+                    while( l[1].level_idc && x264_validate_levels( h, 0 ) && l++ );
             }
             h->param.rc.i_vbv_max_bitrate = maxrate_bak;
         }
         else
         {
-            if( !h->param.b_h262 )
-            {
-                while( l->level_idc && l->level_idc != h->param.i_level_idc )
-                    l++;
-                if( l->level_idc == 0 )
-                {
-                    x264_log( h, X264_LOG_ERROR, "invalid level_idc: %d\n", h->param.i_level_idc );
-                    return -1;
-                }
-            }
-            else
+            if( !h->param.b_mpeg2 )
             {
                 while( m->level_idc && m->level_idc != h->param.i_level_idc )
                     m++;
@@ -840,9 +830,19 @@ static int x264_validate_parameters( x264_t *h )
                     return -1;
                 }
             }
+            else
+            {
+                while( l->level_idc && l->level_idc != h->param.i_level_idc )
+                    l++;
+                if( l->level_idc == 0 )
+                {
+                    x264_log( h, X264_LOG_ERROR, "invalid level_idc: %d\n", h->param.i_level_idc );
+                    return -1;
+                }
+            }
         }
         if( h->param.analyse.i_mv_range <= 0 )
-            h->param.analyse.i_mv_range = h->param.b_h262 ? m->mv_range : l->mv_range >> h->param.b_interlaced;
+            h->param.analyse.i_mv_range = h->param.b_mpeg2 ? m->mv_range : l->mv_range >> h->param.b_interlaced;
         else
             h->param.analyse.i_mv_range = x264_clip3(h->param.analyse.i_mv_range, 32, 512 >> h->param.b_interlaced);
     }
@@ -1103,13 +1103,13 @@ x264_t *x264_encoder_open( x264_param_t *param )
     x264_predict_8x8c_init( h->param.cpu, h->predict_8x8c );
     x264_predict_8x8_init( h->param.cpu, h->predict_8x8, &h->predict_8x8_filter );
     x264_predict_4x4_init( h->param.cpu, h->predict_4x4 );
-    x262_predict_8x8_init( h->param.cpu, &h->predict_h262_8x8 );
+    x262_predict_8x8_init( h->param.cpu, &h->predict_mpeg2_8x8 );
     if( !h->param.b_cabac )
         x264_init_vlc_tables();
     x264_pixel_init( h->param.cpu, &h->pixf );
-    x264_dct_init( h->param.cpu, &h->dctf, h->param.b_h262 );
+    x264_dct_init( h->param.cpu, &h->dctf, h->param.b_mpeg2 );
     x264_zigzag_init( h->param.cpu, &h->zigzagf, h->param.b_interlaced );
-    x264_mc_init( h->param.cpu, &h->mc, h->param.b_h262 );
+    x264_mc_init( h->param.cpu, &h->mc, h->param.b_mpeg2 );
     x264_quant_init( h, h->param.cpu, &h->quantf );
     x264_deblock_init( h->param.cpu, &h->loopf );
     x264_bitstream_init( h->param.cpu, &h->bsf );
@@ -1238,25 +1238,25 @@ x264_t *x264_encoder_open( x264_param_t *param )
     }
 
     const char *profile = h->sps->i_profile_idc == PROFILE_BASELINE ? "Constrained Baseline" :
-                        ( h->sps->i_profile_idc == PROFILE_MAIN || h->sps->i_profile_idc == H262_PROFILE_MAIN ) ? "Main" :
-                        ( h->sps->i_profile_idc == PROFILE_HIGH || h->sps->i_profile_idc == H262_PROFILE_HIGH ) ? "High" :
+                        ( h->sps->i_profile_idc == PROFILE_MAIN || h->sps->i_profile_idc == MPEG2_PROFILE_MAIN ) ? "Main" :
+                        ( h->sps->i_profile_idc == PROFILE_HIGH || h->sps->i_profile_idc == MPEG2_PROFILE_HIGH ) ? "High" :
                           h->sps->i_profile_idc == PROFILE_HIGH10 ? (h->sps->b_constraint_set3 == 1 ? "High 10 Intra" : "High 10") :
                           h->sps->i_profile_idc == PROFILE_HIGH444 ? "High 4:4:4 Predictive" :
                           "Simple";
 
     char level[10];
-    if( !h->param.b_h262 )
+    if( h->param.b_mpeg2 )
+    {
+        snprintf( level, sizeof(level), "%s", h->sps->i_level_idc == MPEG2_LEVEL_LOW ? "Low" :
+                                              h->sps->i_level_idc == MPEG2_LEVEL_MAIN ? "Main" :
+                                              h->sps->i_level_idc == MPEG2_LEVEL_HIGH_1440 ? "High-1440" :
+                                              "High" );
+    }
+    else
     {
         snprintf( level, sizeof(level), "%d.%d", h->sps->i_level_idc/10, h->sps->i_level_idc%10 );
         if( h->sps->i_level_idc == 9 || ( h->sps->i_level_idc == 11 && h->sps->b_constraint_set3 ) )
             strcpy( level, "1b" );
-    }
-    else
-    {
-        snprintf( level, sizeof(level), "%s", h->sps->i_level_idc == H262_LEVEL_LOW ? "Low" :
-                                              h->sps->i_level_idc == H262_LEVEL_MAIN ? "Main" :
-                                              h->sps->i_level_idc == H262_LEVEL_HIGH_1440 ? "High-1440" :
-                                              "High" );
     }
 
     if( h->sps->i_profile_idc < PROFILE_HIGH10 )
@@ -1941,7 +1941,7 @@ static int x264_slice_write( x264_t *h )
     bs_realign( &h->out.bs );
 
     /* Slice */
-    if( !h->param.b_h262 )
+    if( !h->param.b_mpeg2 )
         x264_nal_start( h, h->i_nal_type, h->i_nal_ref_idc );
     h->out.nal[h->out.i_nal].i_first_mb = h->sh.i_first_mb;
 
@@ -1957,7 +1957,7 @@ static int x264_slice_write( x264_t *h )
         h->sh.i_qp_delta = h->sh.i_qp - h->pps->i_pic_init_qp;
     }
 
-    if( !h->param.b_h262 )
+    if( !h->param.b_mpeg2 )
         x264_slice_header_write( &h->out.bs, &h->sh, h->i_nal_ref_idc );
     if( h->param.b_cabac )
     {
@@ -2006,7 +2006,7 @@ static int x264_slice_write( x264_t *h )
         if( i_mb_x == 0 && !h->mb.b_reencode_mb )
             x264_fdec_filter_row( h, i_mb_y, 1 );
 
-        if( h->param.b_h262 && ( i_skip || i_mb_x == 0 || !IS_INTRA( h->mb.i_type ) ) )
+        if( h->param.b_mpeg2 && ( i_skip || i_mb_x == 0 || !IS_INTRA( h->mb.i_type ) ) )
              x262_reset_intra_dc_predictor( h );
 
         /* load cache */
@@ -2014,7 +2014,7 @@ static int x264_slice_write( x264_t *h )
 
         x264_macroblock_analyse( h );
 
-        if( h->param.b_h262 && i_mb_x == 0 )
+        if( h->param.b_mpeg2 && i_mb_x == 0 )
         {
             x264_nal_start( h, (i_mb_y % 175) + 1, h->i_nal_ref_idc );
             x262_slice_header_write( h, &h->out.bs, i_mb_y );
@@ -2037,21 +2037,7 @@ static int x264_slice_write( x264_t *h )
                 x264_macroblock_write_cabac( h, &h->cabac );
             }
         }
-        else if( !h->param.b_h262 )
-        {
-            if( IS_SKIP( h->mb.i_type ) )
-                i_skip++;
-            else
-            {
-                if( h->sh.i_type != SLICE_TYPE_I )
-                {
-                    bs_write_ue( &h->out.bs, i_skip );  /* skip run */
-                    i_skip = 0;
-                }
-                x264_macroblock_write_cavlc( h );
-            }
-        }
-        else
+        else if( h->param.b_mpeg2 )
         {
 #define bs_write_vlc(s,v) bs_write( s, (v).i_size, (v).i_bits )
             if( IS_SKIP( h->mb.i_type ) )
@@ -2069,6 +2055,20 @@ static int x264_slice_write( x264_t *h )
                 x262_macroblock_write_vlc( h );
            }
 #undef bs_write_vlc
+        }
+        else
+        {
+            if( IS_SKIP( h->mb.i_type ) )
+                i_skip++;
+            else
+            {
+                if( h->sh.i_type != SLICE_TYPE_I )
+                {
+                    bs_write_ue( &h->out.bs, i_skip );  /* skip run */
+                    i_skip = 0;
+                }
+                x264_macroblock_write_cavlc( h );
+            }
         }
 
         int total_bits = bs_pos(&h->out.bs) + x264_cabac_pos(&h->cabac);
@@ -2206,10 +2206,10 @@ static int x264_slice_write( x264_t *h )
         {
             i_mb_y++;
             i_mb_x = 0;
-            if( h->param.b_h262 )
+            if( h->param.b_mpeg2 )
             {
                 bs_align_0( &h->out.bs );
-                /* End the H.262 Slice at the end of the row */
+                /* end the MPEG-2 slice at the end of the row */
                 if( x264_nal_end( h ) )
                     return -1;
             }
@@ -2222,7 +2222,7 @@ static int x264_slice_write( x264_t *h )
         x264_cabac_encode_flush( h, &h->cabac );
         h->out.bs.p = h->cabac.p;
     }
-    else if( !h->param.b_h262 )
+    else if( !h->param.b_mpeg2 )
     {
         if( i_skip > 0 )
             bs_write_ue( &h->out.bs, i_skip );  /* last skip run */
@@ -2231,7 +2231,7 @@ static int x264_slice_write( x264_t *h )
         bs_flush( &h->out.bs );
     }
 
-    if( !h->param.b_h262 )
+    if( !h->param.b_mpeg2 )
     {
         if( x264_nal_end( h ) )
             return -1;
@@ -2731,7 +2731,7 @@ int     x264_encoder_encode( x264_t *h,
     if( h->fenc->b_keyframe )
     {
         /* Write SPS and PPS */
-        if( h->param.b_repeat_headers && !h->param.b_h262 )
+        if( h->param.b_repeat_headers && !h->param.b_mpeg2 )
         {
             /* generate sequence parameters */
             x264_nal_start( h, NAL_SPS, NAL_PRIORITY_HIGHEST );
@@ -2752,28 +2752,28 @@ int     x264_encoder_encode( x264_t *h,
         else
         {
             /* generate sequence header */
-            x264_nal_start( h, H262_SEQ_HEADER, NAL_PRIORITY_HIGHEST );
+            x264_nal_start( h, MPEG2_SEQ_HEADER, NAL_PRIORITY_HIGHEST );
             x262_seq_header_write( h, &h->out.bs );
             if( x264_nal_end( h ) )
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
             /* generate sequence extension */
-            x264_nal_start( h, H262_SEQ_EXT, NAL_PRIORITY_HIGHEST );
+            x264_nal_start( h, MPEG2_SEQ_EXT, NAL_PRIORITY_HIGHEST );
             x262_seq_extension_write( h, &h->out.bs );
             if( x264_nal_end( h ) )
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
             /* generate sequence display extension */
-            x264_nal_start( h, H262_SEQ_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
+            x264_nal_start( h, MPEG2_SEQ_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
             x262_seq_disp_extension_write( h, &h->out.bs );
             if( x264_nal_end( h ) )
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
             /* generate gop header */
-            x264_nal_start( h, H262_GOP_HEADER, NAL_PRIORITY_HIGHEST );
+            x264_nal_start( h, MPEG2_GOP_HEADER, NAL_PRIORITY_HIGHEST );
             x262_gop_header_write( h, &h->out.bs );
             if( x264_nal_end( h ) )
                 return -1;
@@ -2781,34 +2781,34 @@ int     x264_encoder_encode( x264_t *h,
         }
     }
 
-    if( h->param.b_h262 )
+    if( h->param.b_mpeg2 )
     {
         /* generate picture header */
-        x264_nal_start( h, H262_PICTURE_HEADER, NAL_PRIORITY_HIGHEST );
+        x264_nal_start( h, MPEG2_PICTURE_HEADER, NAL_PRIORITY_HIGHEST );
         x262_gop_header_write( h, &h->out.bs );
         if( x264_nal_end( h ) )
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
         /* generate picture coding extension */
-        x264_nal_start( h, H262_PICTURE_CODING_EXT, NAL_PRIORITY_HIGHEST );
+        x264_nal_start( h, MPEG2_PICTURE_CODING_EXT, NAL_PRIORITY_HIGHEST );
         x262_pic_coding_extension_write( h, &h->out.bs );
         if( x264_nal_end( h ) )
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
         /* generate picture display extension */
-        x264_nal_start( h, H262_PICTURE_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
+        x264_nal_start( h, MPEG2_PICTURE_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
         x262_pic_display_extension_write( h, &h->out.bs );
         if( x264_nal_end( h ) )
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
     }
 
-    /* write extra sei (h264) / user data (h262) */
+    /* write extra sei (H.264) / user data (MPEG-2) */
     for( int i = 0; i < h->fenc->extra_sei.num_payloads; i++ )
     {
-        x264_nal_start( h, h->param.b_h262 ? H262_USER_DATA : NAL_SEI, NAL_PRIORITY_DISPOSABLE );
+        x264_nal_start( h, h->param.b_mpeg2 ? MPEG2_USER_DATA : NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         x264_sei_write( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size,
                         h->fenc->extra_sei.payloads[i].payload_type );
         if( x264_nal_end( h ) )
@@ -2823,8 +2823,8 @@ int     x264_encoder_encode( x264_t *h,
 
     if( h->fenc->b_keyframe )
     {
-        // FIXME make this work with h.262
-        if( !h->param.b_h262 && h->param.b_repeat_headers && h->fenc->i_frame == 0 )
+        // FIXME make this work with MPEG-2
+        if( !h->param.b_mpeg2 && h->param.b_repeat_headers && h->fenc->i_frame == 0 )
         {
             /* identify ourself */
             x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
@@ -2846,7 +2846,7 @@ int     x264_encoder_encode( x264_t *h,
     }
 
     /* generate sei pic timing */
-    if( !h->param.b_h262 && (h->sps->vui.b_pic_struct_present || h->sps->vui.b_nal_hrd_parameters_present) )
+    if( !h->param.b_mpeg2 && (h->sps->vui.b_pic_struct_present || h->sps->vui.b_nal_hrd_parameters_present) )
     {
         x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         x264_sei_pic_timing_write( h, &h->out.bs );
