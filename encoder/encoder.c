@@ -820,7 +820,7 @@ static int x264_validate_parameters( x264_t *h )
         }
         else
         {
-            if( !h->param.b_mpeg2 )
+            if( h->param.b_mpeg2 )
             {
                 while( m->level_idc && m->level_idc != h->param.i_level_idc )
                     m++;
