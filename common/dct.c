@@ -681,14 +681,14 @@ static void add8x8_idct_mpeg2( pixel *p_dst, dctcoef dct[64] )
         X4 = (181 * (X4 - X5) + 128) >> 8;
 
         /* fourth stage  */
-        out_p[8 * 0] = iclp[(X7 + X1) >> 14];
-        out_p[8 * 1] = iclp[(X3 + X2) >> 14];
-        out_p[8 * 2] = iclp[(X0 + X4) >> 14];
-        out_p[8 * 3] = iclp[(X8 + X6) >> 14];
-        out_p[8 * 4] = iclp[(X8 - X6) >> 14];
-        out_p[8 * 5] = iclp[(X0 - X4) >> 14];
-        out_p[8 * 6] = iclp[(X3 - X2) >> 14];
-        out_p[8 * 7] = iclp[(X7 - X1) >> 14];
+        out_p[FDEC_STRIDE * 0] = iclp[(X7 + X1) >> 14];
+        out_p[FDEC_STRIDE * 1] = iclp[(X3 + X2) >> 14];
+        out_p[FDEC_STRIDE * 2] = iclp[(X0 + X4) >> 14];
+        out_p[FDEC_STRIDE * 3] = iclp[(X8 + X6) >> 14];
+        out_p[FDEC_STRIDE * 4] = iclp[(X8 - X6) >> 14];
+        out_p[FDEC_STRIDE * 5] = iclp[(X0 - X4) >> 14];
+        out_p[FDEC_STRIDE * 6] = iclp[(X3 - X2) >> 14];
+        out_p[FDEC_STRIDE * 7] = iclp[(X7 - X1) >> 14];
     }
 }
 
