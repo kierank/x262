@@ -167,7 +167,7 @@ void x264_param_default( x264_param_t *param )
     param->b_fake_interlaced = 0;
 
     param->i_intra_dc_precision = X264_INTRA_DC_8_BIT;
-    param->b_nonlinear_quant = 0;
+    param->b_nonlinear_quant = 1;
     param->b_alt_intra_vlc = 1;
     param->b_alternate_scan = 0;
 }

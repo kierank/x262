@@ -590,8 +590,16 @@ static int x264_validate_parameters( x264_t *h )
         h->param.rc.i_aq_mode = 0;
         h->param.rc.b_mb_tree = 0;
     }
-    h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, 0, QP_MAX );
-    h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min, 0, h->param.rc.i_qp_max );
+    if( h->param.b_mpeg2 )
+    {
+        h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, 1, QP_MAX_MPEG2 );
+        h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min, 1, h->param.rc.i_qp_max );
+    }
+    else
+    {
+        h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, 0, QP_MAX );
+        h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min, 0, h->param.rc.i_qp_max );
+    }
     if( h->param.rc.i_vbv_buffer_size )
     {
         if( h->param.rc.i_rc_method == X264_RC_CQP )

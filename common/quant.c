@@ -54,6 +54,18 @@ static int quant_8x8( dctcoef dct[64], uint16_t mf[64], uint16_t bias[64] )
     return !!nz;
 }
 
+static int quant_8x8_mpeg2( dctcoef dct[64], const uint8_t qm[64], int qscale )
+{
+    int nz = 0;
+    int stepsize = 0;
+    for( int i = 0; i < 64; i++ )
+    {
+        stepsize = 2 * qscale * qm[i] >> 6;
+        dct[i] = x264_clip3( dct[i] / stepsize, -2047, 2047 );
+    }
+    return !!nz;
+}
+
 static int quant_4x4( dctcoef dct[16], uint16_t mf[16], uint16_t bias[16] )
 {
     int nz = 0;
@@ -267,6 +279,8 @@ void x264_quant_init( x264_t *h, int cpu, x264_quant_function_t *pf )
     pf->quant_4x4 = quant_4x4;
     pf->quant_4x4_dc = quant_4x4_dc;
     pf->quant_2x2_dc = quant_2x2_dc;
+
+    pf->quant_8x8_mpeg2 = quant_8x8_mpeg2;
 
     pf->dequant_4x4 = dequant_4x4;
     pf->dequant_4x4_dc = dequant_4x4_dc;

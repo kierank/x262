@@ -61,6 +61,7 @@ do {\
 #define QP_BD_OFFSET (6*(BIT_DEPTH-8))
 #define QP_MAX (51+QP_BD_OFFSET)
 #define QP_MAX_MAX (51+2*6)
+#define QP_MAX_MPEG2 31
 #define LAMBDA_MAX (91 << (BIT_DEPTH-8))
 #define PIXEL_MAX ((1 << BIT_DEPTH)-1)
 // arbitrary, but low because SATD scores are 1/4 normal
