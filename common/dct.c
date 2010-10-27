@@ -404,7 +404,7 @@ static void add16x16_idct_dc( pixel *p_dst, dctcoef dct[16] )
 #define DESCALE(x, n)  RIGHT_SHIFT((x) + (1 << ((n) - 1)), n)
 
 #define CONST_BITS 13
-#define PASS1_BITS  2
+#define PASS1_BITS  4
 
 #define FIX_0_298631336  ((int32_t)  2446)      /* FIX(0.298631336) */
 #define FIX_0_390180644  ((int32_t)  3196)      /* FIX(0.390180644) */
