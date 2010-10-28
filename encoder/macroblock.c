@@ -273,7 +273,8 @@ static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
     pixel *p_src;
     pixel *p_dst;
     ALIGNED_ARRAY_16( dctcoef, dct8x8,[64] );
-    int nz, half_range, cur_dc_predictor, dc_diff;
+    int nz, cur_dc_predictor, dc_mult, dc_diff, size;
+    dctcoef dcb;
     // TODO decimation
 
     if( idx < 4 )
@@ -291,7 +292,29 @@ static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
 
     h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
 
-    nz = 1; // TODO quantisation
+    // quantize dc
+    dcb = dct8x8[0];
+    dc_mult = 8 >> h->param.i_intra_dc_precision;
+    dcb = (dcb + (dc_mult >> 1)) / dc_mult;    
+
+    if( idx < 4 )
+        cur_dc_predictor = idx == 0 ? h->mb.i_intra_dc_predictor[3] : h->mb.i_intra_dc_predictor[idx-1];
+    else
+        cur_dc_predictor = h->mb.i_intra_dc_predictor[idx];
+    dc_diff = dcb - cur_dc_predictor;
+
+    if( dc_diff < 0 )
+    {
+        size = LOG2_16( -2*dc_diff );
+        dc_diff--;
+    }
+    else
+        size = LOG2_16( 2*dc_diff );
+
+    // TODO quantisation of rest of coeffs
+    //nz = h->quantf.quant_8x8_mpeg2( dct8x8, x262_cqm_intra, x262_qscale[h->mb.i_qp] );
+
+    nz = 1;
     if( nz )
     {
         if( idx < 4 )
@@ -299,25 +322,15 @@ static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
         else
             h->mb.i_cbp_chroma |= 1<<(5-idx);
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
+        h->dct.mpeg2_8x8[idx][0] = dcb;
         //h->quantf.dequant_8x8( dct8x8[idx], h->dequant8_mf[CQM_8IY], i_qp );
-        h->dctf.add8x8_idct8( p_dst, dct8x8 );
+        //h->dctf.add8x8_idct8( p_dst, dct8x8 );
     }
 
-    if( idx < 4 )
-        cur_dc_predictor = idx == 0 ? h->mb.i_intra_dc_predictor[4] : h->mb.i_intra_dc_predictor[idx-1];
-    else
-        cur_dc_predictor = h->mb.i_intra_dc_predictor[idx];
-
-    /* update intra_dc_predictor */
-    h->mb.i_dct_dc_size[idx] = 32 - x264_clz( abs( h->dct.mpeg2_8x8[idx][0] ) );
-    dc_diff = h->mb.i_dct_dc_diff[idx] = h->dct.mpeg2_8x8[idx][0] - cur_dc_predictor;
-    if( h->mb.i_dct_dc_size[idx] )
-    {
-        half_range = 1 << ( h->mb.i_dct_dc_size[idx] - 1 );
-        if( h->mb.i_dct_dc_diff[idx] < half_range )
-            h->mb.i_dct_dc_diff[idx] = ( h->mb.i_dct_dc_diff[idx] + ( half_range << 1 ) ) - 1;
-        h->mb.i_intra_dc_predictor[idx] += dc_diff;
-   }
+    /* store dc_diff and update intra_dc_predictor */
+    h->mb.i_dct_dc_size[idx] = size;
+    h->mb.i_dct_dc_diff[idx] = dc_diff & ((1<<size)-1);
+    h->mb.i_intra_dc_predictor[idx] = dcb;
 }
 
 static inline int idct_dequant_round_2x2_dc( dctcoef ref[4], dctcoef dct[4], int dequant_mf[6][16], int i_qp )
@@ -712,7 +725,7 @@ void x264_macroblock_encode( x264_t *h )
             for( int i = 0; i < 4; i++ )
             {
                 pixel *p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
-                h->predict_mpeg2_8x8( p_dst, h->mb.i_intra_dc_predictor[i] );
+                h->predict_mpeg2_8x8( p_dst, 0 );
                 x262_mb_encode_i_block( h, i, i_qp );
             }
         else
@@ -945,8 +958,8 @@ void x264_macroblock_encode( x264_t *h )
             x264_predict_lossless_8x8_chroma( h, i_mode );
         else if( h->param.b_mpeg2 )
         {
-            h->predict_mpeg2_8x8( h->mb.pic.p_fdec[1], h->mb.i_intra_dc_predictor[4] );
-            h->predict_mpeg2_8x8( h->mb.pic.p_fdec[2], h->mb.i_intra_dc_predictor[5] );
+            h->predict_mpeg2_8x8( h->mb.pic.p_fdec[1], 0 );
+            h->predict_mpeg2_8x8( h->mb.pic.p_fdec[2], 0 );
 
             for( int i = 4; i < 6; i++ )
                 x262_mb_encode_i_block( h, i, i_qp ); /* encode intra block */
@@ -964,9 +977,7 @@ void x264_macroblock_encode( x264_t *h )
         // TODO inter MPEG-2
     }
     else
-    {
         x264_mb_encode_8x8_chroma( h, !IS_INTRA( h->mb.i_type ), h->mb.i_chroma_qp );
-    }
 
     /* store cbp */ // FIXME do we need to make this into mpeg-2 cbp
     int cbp = h->mb.i_cbp_chroma << 4 | h->mb.i_cbp_luma;
