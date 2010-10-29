@@ -322,7 +322,7 @@ static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
         else
             h->mb.i_cbp_chroma |= 1<<(5-idx);
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
-        h->dct.mpeg2_8x8[idx][0] = dcb;
+        h->dct.mpeg2_8x8[idx][0] = dcb << h->param.i_intra_dc_precision;
         //h->quantf.dequant_8x8( dct8x8[idx], h->dequant8_mf[CQM_8IY], i_qp );
         //h->dctf.add8x8_idct8( p_dst, dct8x8 );
     }
