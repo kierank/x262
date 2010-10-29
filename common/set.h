@@ -158,6 +158,9 @@ typedef struct
 
     int b_qpprime_y_zero_transform_bypass;
 
+    /* mpeg-2 */
+    int frame_rate_code;
+
 } x264_sps_t;
 
 typedef struct
@@ -270,5 +273,12 @@ static const uint8_t x262_qscale[32] =
 int  x264_cqm_init( x264_t *h );
 void x264_cqm_delete( x264_t *h );
 int  x264_cqm_parse_file( x264_t *h, const char *filename );
+
+typedef struct
+{
+    int fps_code;
+    int fps_num;
+    int fps_den;
+} x262_fps_t;
 
 #endif

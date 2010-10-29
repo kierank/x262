@@ -107,7 +107,7 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
 
     if( param->b_mpeg2 )
     {
-        if( param->i_intra_dc_precision > 10 - 8 )
+        if( param->i_intra_dc_precision > 2 )
             sps->i_profile_idc = MPEG2_PROFILE_HIGH;
         else if( param->i_bframe )
             sps->i_profile_idc = MPEG2_PROFILE_MAIN;
@@ -665,12 +665,13 @@ void x264_filler_write( x264_t *h, bs_t *s, int filler )
 
 void x262_seq_header_write( x264_t *h, bs_t *s )
 {
+    x264_sps_t *sps = h->sps;
     bs_realign( s );
 
     bs_write( s, 12, h->param.i_width & 0xfff );  // horizontal_size_value
     bs_write( s, 12, h->param.i_height & 0xfff ); // vertical_size_value
     bs_write( s, 4, 1 ); // aspect_ratio_information FIXME
-    bs_write( s, 4, 1 ); // frame_rate_code FIXME
+    bs_write( s, 4, sps->frame_rate_code ); // frame_rate_code
     bs_write( s, 18, 1 ); // bit_rate_value FIXME
     bs_write1( s, 1 ); // marker_bit
     bs_write( s, 10, 0 ); // vbv_buffer_size_value FIXME
@@ -698,8 +699,8 @@ void x262_seq_extension_write( x264_t *h, bs_t *s )
     bs_write1( s, 1 ); // marker_bit
     bs_write( s, 8, 0 ); // vbv_buffer_size_extension FIXME
     bs_write1( s, 0 ); // low_delay
-    bs_write( s, 2, 0 ); // frame_rate_extension_n FIXME
-    bs_write( s, 5, 0 ); // frame_rate_extension_d FIXME
+    bs_write( s, 2, 0 ); // frame_rate_extension_n
+    bs_write( s, 5, 0 ); // frame_rate_extension_d
 
     bs_align_0( s );
 }
@@ -738,7 +739,7 @@ void x262_gop_header_write( x264_t *h, bs_t *s )
     bs_write( s, 6, 0 ); // time_code_pictures
 
     bs_write1( s, !h->param.i_open_gop ); // closed_gop
-    bs_write1( s, 0 );   // broken_link FIXME
+    bs_write1( s, 0 );   // broken_link
 
     bs_align_0( s );
 }
@@ -839,6 +840,19 @@ const x262_level_t x262_levels[] =
     {  8, 14745600,  720,  567, 30, 15000, 1835, 128, 10, 0 },
     {  6, 62668800, 1440, 1152, 60, 60000, 7340, 128, 10, 0 },
     {  4, 83558400, 1920, 1152, 60, 80000, 9781, 128, 11, 0 },
+    { 0 }
+};
+
+const x262_fps_t x262_allowed_fps[9] =
+{
+    { 1, 24000, 1001 },
+    { 2, 24, 1 },
+    { 3, 25, 1 },
+    { 4, 30000, 1001 },
+    { 5, 30, 1 },
+    { 6, 50, 1 },
+    { 7, 60000, 1001 },
+    { 8, 60, 1 },
     { 0 }
 };
 

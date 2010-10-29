@@ -456,11 +456,6 @@ static int x264_validate_parameters( x264_t *h )
             x264_log( h, X264_LOG_WARNING, "MPEG-2 + lossless is not allowed\n" );
             h->param.b_interlaced = 0;
         }
-        if( h->param.b_vfr_input )
-        {
-            x264_log( h, X264_LOG_WARNING, "MPEG-2 + VFR is not allowed\n" );
-            h->param.b_vfr_input = 0;
-        }
         if( h->param.vui.i_colorprim > 7 )
         {
             x264_log( h, X264_LOG_ERROR, "Chosen color primary not allowed in MPEG-2\n" );
@@ -858,6 +853,28 @@ static int x264_validate_parameters( x264_t *h )
     h->param.analyse.i_weighted_pred = x264_clip3( h->param.analyse.i_weighted_pred, 0, X264_WEIGHTP_SMART );
     if( !h->param.analyse.i_weighted_pred && h->param.rc.b_mb_tree && h->param.analyse.b_psy && !h->param.b_interlaced )
         h->param.analyse.i_weighted_pred = X264_WEIGHTP_FAKE;
+
+    if( h->param.b_mpeg2 )
+    {
+        if( h->param.b_vfr_input )
+        {
+            x264_log( h, X264_LOG_WARNING, "MPEG-2 + VFR is not allowed\n" );
+            h->param.b_vfr_input = 0;
+        }
+	else
+        {
+            const x262_fps_t *f = x262_allowed_fps;
+            while( f->fps_code != 0 && ( h->param.i_fps_num == f->fps_num && h->param.i_fps_den == f->fps_den ) )
+                f++;
+
+            h->sps->frame_rate_code = f->fps_code;
+            if( !f->fps_code )
+            {
+                x264_log( h, X264_LOG_ERROR, "Chosen fps now allowed in MPEG-2\n" );
+                return -1;
+            }
+        }
+    }
 
     if( h->i_thread_frames > 1 )
     {
