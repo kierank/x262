@@ -14,6 +14,7 @@ echo "  --disable-gpac           disables gpac support"
 echo "  --disable-gpl            disables GPL-only features"
 echo "  --disable-pthread        disables multithreaded encoding"
 echo "  --disable-swscale        disables swscale support"
+echo "  --disable-mpeg2          disables MPEG-2 encoding support"
 echo "  --disable-asm            disables platform-specific assembly optimizations"
 echo "  --enable-debug           adds -g, doesn't strip"
 echo "  --enable-gprof           adds -pg, doesn't strip"
@@ -142,6 +143,7 @@ gpac="auto"
 gpl="yes"
 pthread="auto"
 swscale="auto"
+mpeg2="yes"
 asm="auto"
 debug="no"
 gprof="no"
@@ -211,6 +213,9 @@ for opt do
             ;;
         --disable-swscale)
             swscale="no"
+            ;;
+        --disable-mpeg2)
+            mpeg2="no"
             ;;
         --enable-debug)
             debug="yes"
@@ -572,6 +577,8 @@ if [ "$swscale" = "auto" ] ; then
     fi
 fi
 
+
+
 if [ "$lavf" = "auto" ] ; then
     lavf="no"
     if ${cross_prefix}pkg-config --exists libavformat libavcodec libswscale 2>$DEVNULL; then
@@ -720,6 +727,12 @@ else
     define HAVE_GPL 0
 fi
 
+if [ $mpeg2 = yes ]; then
+    define MPEG2_ENABLED 1
+else
+    define MPEG2_ENABLED 0
+fi
+
 rm -f conftest*
 
 # generate config files
@@ -800,6 +813,7 @@ avs:        $avs
 lavf:       $lavf
 ffms:       $ffms
 gpac:       $gpac
+mpeg2:      $mpeg2
 gpl:        $gpl
 pthread:    $pthread
 filters:    $filters

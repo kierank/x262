@@ -2752,7 +2752,7 @@ intra_analysis:
         h->mb.i_type = I_16x16;
         COPY2_IF_LT( i_cost, analysis.i_satd_i4x4, h->mb.i_type, I_4x4 );
         COPY2_IF_LT( i_cost, analysis.i_satd_i8x8, h->mb.i_type, I_8x8 );
-        if( !h->param.b_mpeg2 && (analysis.i_satd_pcm < i_cost) )
+        if( !MPEG2 && (analysis.i_satd_pcm < i_cost) )
             h->mb.i_type = I_PCM;
 
         else if( analysis.i_mbrd >= 2 )
@@ -2989,7 +2989,7 @@ intra_analysis:
             COPY2_IF_LT( i_cost, analysis.i_satd_i16x16, i_type, I_16x16 );
             COPY2_IF_LT( i_cost, analysis.i_satd_i8x8, i_type, I_8x8 );
             COPY2_IF_LT( i_cost, analysis.i_satd_i4x4, i_type, I_4x4 );
-            if( !h->param.b_mpeg2 )
+            if( !MPEG2 )
                 COPY2_IF_LT( i_cost, analysis.i_satd_pcm, i_type, I_PCM );
 
             h->mb.i_type = i_type;

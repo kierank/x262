@@ -1448,7 +1448,7 @@ int x264_ratecontrol_mb_qp( x264_t *h )
     if( h->param.rc.i_aq_mode )
     {
         /* MB-tree currently doesn't adjust quantizers in unreferenced frames. */
-        if( h->param.b_mpeg2 )
+        if( MPEG2 )
             qp += qptompeg2qp( h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy] );
         else
             qp += h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy];

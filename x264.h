@@ -232,6 +232,13 @@ static const char * const x264_open_gop_names[] = { "none", "normal", "bluray", 
 #define X264_NAL_HRD_VBR             1
 #define X264_NAL_HRD_CBR             2
 
+/* MPEG-2 Support */
+#if MPEG2_ENABLED
+#   define MPEG2 h->param.b_mpeg2
+#else
+#   define MPEG2 0
+#endif
+
 /* Intra DC Precision*/
 #define X264_INTRA_DC_8_BIT          0
 #define X264_INTRA_DC_9_BIT          1

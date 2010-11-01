@@ -169,7 +169,7 @@ static int x264_rd_cost_mb( x264_t *h, int i_lambda2 )
 
     i_ssd = ssd_mb( h );
 
-    if( h->param.b_mpeg2 )
+    if( MPEG2 )
     {
         if( IS_SKIP( h->mb.i_type ) )
         {

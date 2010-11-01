@@ -53,7 +53,7 @@ void x264_nal_encode( x264_t *h, uint8_t *dst, x264_nal_t *nal )
     uint8_t *end = nal->p_payload + nal->i_payload;
     uint8_t *orig_dst = dst;
 
-    if( h->param.b_mpeg2 )
+    if( MPEG2 )
     {
          *dst++ = 0x00;
          *dst++ = 0x00;

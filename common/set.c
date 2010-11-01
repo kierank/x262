@@ -272,7 +272,7 @@ fail:
 
 void x264_cqm_delete( x264_t *h )
 {
-    if( !h->param.b_mpeg2 )
+    if( !MPEG2 )
         CQM_DELETE( 4, 4 );
     CQM_DELETE( 8, 2 );
 }

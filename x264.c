@@ -680,14 +680,15 @@ static void help( x264_param_t *defaults, int longhelp )
     H2( "      --nal-hrd <string>      Signal HRD information (requires vbv-bufsize)\n"
         "                                  - none, vbr, cbr (cbr not allowed in .mp4)\n" );
     H2( "      --pic-struct            Force pic_struct in Picture Timing SEI\n" );
-
+#if MPEG2_ENABLED
     H2( "\n" );
-    H2( "H.262 (MPEG-2):\n" );
+    H2( "MPEG-2 (H.262):\n" );
     H2( "\n" );
+    H0( "      --mpeg2                 Encode as MPEG-2 instead of H.264\n" );
     H2( "      --dc <integer>          Specify intra DC precision to use (8 to 11) [%d]\n", defaults->i_intra_dc_precision + 8);
-    H2( "      --altscan               Use alternate H.262 VLC scan order, not zigzag\n" );
-    H2( "      --nonlinear-quant       Use H.262 nonlinear quantization table\n" );
-
+    H2( "      --altscan               Use alternate MPEG-2 VLC scan order, not zigzag\n" );
+    H2( "      --nonlinear-quant       Use MPEG-2 nonlinear quantization table\n" );
+#endif
     H0( "\n" );
     H0( "Input/Output:\n" );
     H0( "\n" );
@@ -706,7 +707,6 @@ static void help( x264_param_t *defaults, int longhelp )
     H0( "      --seek <integer>        First frame to encode\n" );
     H0( "      --frames <integer>      Maximum number of frames to encode\n" );
     H0( "      --level <string>        Specify level (as defined by Annex A)\n" );
-    H0( "      --mpeg2                 Encode as MPEG-2 instead of H.264\n" );
     H1( "\n" );
     H1( "  -v, --verbose               Print stats for each frame\n" );
     H1( "      --no-progress           Don't show the progress indicator while encoding\n" );
@@ -860,10 +860,12 @@ static struct option long_options[] =
     { "deadzone-inter", required_argument, NULL, 0 },
     { "deadzone-intra", required_argument, NULL, 0 },
     { "level",       required_argument, NULL, 0 },
+#if MPEG2_ENABLED
     { "mpeg2",             no_argument, NULL, 0 },
     { "dc",          required_argument, NULL, 0 },
     { "altscan",           no_argument, NULL, 0 },
     { "nonlinear-quant",   no_argument, NULL, 0 },
+#endif
     { "ratetol",     required_argument, NULL, 0 },
     { "vbv-maxrate", required_argument, NULL, 0 },
     { "vbv-bufsize", required_argument, NULL, 0 },
@@ -1469,7 +1471,7 @@ generic_option:
 
     /* Automatically reduce reference frame count to match the user's target level
      * if the user didn't explicitly set a reference frame count. */
-    if( !b_user_ref && !param->b_mpeg2)
+    if( !b_user_ref && !param->b_mpeg2 )
     {
         int mbs = (((param->i_width)+15)>>4) * (((param->i_height)+15)>>4);
         for( int i = 0; x264_levels[i].level_idc != 0; i++ )

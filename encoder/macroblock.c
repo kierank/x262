@@ -680,7 +680,7 @@ void x264_macroblock_encode( x264_t *h )
         }
     }
 
-    if( h->param.b_mpeg2 && (((h->mb.i_mb_x == 0 || h->mb.i_mb_x == h->mb.i_mb_width-1) ||
+    if( MPEG2 && (((h->mb.i_mb_x == 0 || h->mb.i_mb_x == h->mb.i_mb_width-1) ||
                              (h->sh.i_type == SLICE_TYPE_B && IS_INTRA( h->mb.i_mb_type_left)))
                         && IS_SKIP(h->mb.i_type)) )
     {
@@ -715,11 +715,11 @@ void x264_macroblock_encode( x264_t *h )
 
         if( h->mb.b_lossless )
             x264_predict_lossless_16x16( h, i_mode );
-        else if( !h->param.b_mpeg2 )
+        else if( !MPEG2 )
             h->predict_16x16[i_mode]( h->mb.pic.p_fdec[0] );
 
         /* encode the 16x16 macroblock */
-        if( h->param.b_mpeg2)
+        if( MPEG2)
             for( int i = 0; i < 4; i++ )
             {
                 pixel *p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
@@ -954,7 +954,7 @@ void x264_macroblock_encode( x264_t *h )
         const int i_mode = h->mb.i_chroma_pred_mode;
         if( h->mb.b_lossless )
             x264_predict_lossless_8x8_chroma( h, i_mode );
-        else if( h->param.b_mpeg2 )
+        else if( MPEG2 )
         {
             h->predict_mpeg2_8x8( h->mb.pic.p_fdec[1], 0 );
             h->predict_mpeg2_8x8( h->mb.pic.p_fdec[2], 0 );
@@ -970,7 +970,7 @@ void x264_macroblock_encode( x264_t *h )
     }
 
     /* encode the 8x8 blocks */
-    if( h->param.b_mpeg2 )
+    if( MPEG2 )
     {
         // TODO inter MPEG-2
     }

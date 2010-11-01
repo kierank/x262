@@ -425,7 +425,7 @@ static int x264_validate_parameters( x264_t *h )
         return -1;
     }
 
-    if( h->param.b_mpeg2 )
+    if( MPEG2 )
     {
         h->param.analyse.b_transform_8x8 = 0;
         h->param.analyse.intra = 0;
@@ -585,7 +585,7 @@ static int x264_validate_parameters( x264_t *h )
         h->param.rc.i_aq_mode = 0;
         h->param.rc.b_mb_tree = 0;
     }
-    if( h->param.b_mpeg2 )
+    if( MPEG2 )
     {
         h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, 1, QP_MAX_MPEG2 );
         h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min, 1, h->param.rc.i_qp_max );
@@ -809,7 +809,7 @@ static int x264_validate_parameters( x264_t *h )
                 h->param.rc.i_vbv_max_bitrate = h->param.rc.i_bitrate * 2;
             h->sps = h->sps_array;
             x264_sps_init( h->sps, h->param.i_sps_id, &h->param );
-            if( h->param.b_mpeg2 )
+            if( MPEG2 )
             {
                 do h->param.i_level_idc = m->level_idc;
                     while( m[1].level_idc && x264_validate_levels( h, 0 ) && m++ );
@@ -823,7 +823,7 @@ static int x264_validate_parameters( x264_t *h )
         }
         else
         {
-            if( h->param.b_mpeg2 )
+            if( MPEG2 )
             {
                 while( m->level_idc && m->level_idc != h->param.i_level_idc )
                     m++;
@@ -845,7 +845,7 @@ static int x264_validate_parameters( x264_t *h )
             }
         }
         if( h->param.analyse.i_mv_range <= 0 )
-            h->param.analyse.i_mv_range = h->param.b_mpeg2 ? m->mv_range : l->mv_range >> h->param.b_interlaced;
+            h->param.analyse.i_mv_range = MPEG2 ? m->mv_range : l->mv_range >> h->param.b_interlaced;
         else
             h->param.analyse.i_mv_range = x264_clip3(h->param.analyse.i_mv_range, 32, 512 >> h->param.b_interlaced);
     }
@@ -854,7 +854,7 @@ static int x264_validate_parameters( x264_t *h )
     if( !h->param.analyse.i_weighted_pred && h->param.rc.b_mb_tree && h->param.analyse.b_psy && !h->param.b_interlaced )
         h->param.analyse.i_weighted_pred = X264_WEIGHTP_FAKE;
 
-    if( h->param.b_mpeg2 )
+    if( MPEG2 )
     {
         if( h->param.b_vfr_input )
         {
@@ -1070,7 +1070,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
 
     h->chroma_qp_table = i_chroma_qp_table + 12 + h->pps->i_chroma_qp_index_offset;
 
-    if( h->param.b_mpeg2 )
+    if( MPEG2 )
     {
         if( x262_cqm_init( h ) < 0 )
             goto fail;
@@ -1140,9 +1140,9 @@ x264_t *x264_encoder_open( x264_param_t *param )
     if( !h->param.b_cabac )
         x264_init_vlc_tables();
     x264_pixel_init( h->param.cpu, &h->pixf );
-    x264_dct_init( h->param.cpu, &h->dctf, h->param.b_mpeg2 );
+    x264_dct_init( h->param.cpu, &h->dctf, MPEG2 );
     x264_zigzag_init( h->param.cpu, &h->zigzagf, h->param.b_interlaced );
-    x264_mc_init( h->param.cpu, &h->mc, h->param.b_mpeg2 );
+    x264_mc_init( h->param.cpu, &h->mc, MPEG2 );
     x264_quant_init( h, h->param.cpu, &h->quantf );
     x264_deblock_init( h->param.cpu, &h->loopf );
     x264_bitstream_init( h->param.cpu, &h->bsf );
@@ -1278,7 +1278,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
                           "Simple";
 
     char level[10];
-    if( h->param.b_mpeg2 )
+    if( MPEG2 )
     {
         snprintf( level, sizeof(level), "%s", h->sps->i_level_idc == MPEG2_LEVEL_LOW ? "Low" :
                                               h->sps->i_level_idc == MPEG2_LEVEL_MAIN ? "Main" :
@@ -1974,7 +1974,7 @@ static int x264_slice_write( x264_t *h )
     bs_realign( &h->out.bs );
 
     /* Slice */
-    if( !h->param.b_mpeg2 )
+    if( !MPEG2 )
         x264_nal_start( h, h->i_nal_type, h->i_nal_ref_idc );
     h->out.nal[h->out.i_nal].i_first_mb = h->sh.i_first_mb;
 
@@ -1990,7 +1990,7 @@ static int x264_slice_write( x264_t *h )
         h->sh.i_qp_delta = h->sh.i_qp - h->pps->i_pic_init_qp;
     }
 
-    if( !h->param.b_mpeg2 )
+    if( !MPEG2 )
         x264_slice_header_write( &h->out.bs, &h->sh, h->i_nal_ref_idc );
     if( h->param.b_cabac )
     {
@@ -2039,7 +2039,7 @@ static int x264_slice_write( x264_t *h )
         if( i_mb_x == 0 && !h->mb.b_reencode_mb )
             x264_fdec_filter_row( h, i_mb_y, 1 );
 
-        if( h->param.b_mpeg2 && ( i_skip || i_mb_x == 0 || !IS_INTRA( h->mb.i_type ) ) )
+        if( MPEG2 && ( i_skip || i_mb_x == 0 || !IS_INTRA( h->mb.i_type ) ) )
              x262_reset_intra_dc_predictor( h );
 
         /* load cache */
@@ -2047,7 +2047,7 @@ static int x264_slice_write( x264_t *h )
 
         x264_macroblock_analyse( h );
 
-        if( h->param.b_mpeg2 && i_mb_x == 0 )
+        if( MPEG2 && i_mb_x == 0 )
         {
             x264_nal_start( h, (i_mb_y % 175) + 1, h->i_nal_ref_idc );
             x262_slice_header_write( h, &h->out.bs, i_mb_y );
@@ -2070,7 +2070,7 @@ static int x264_slice_write( x264_t *h )
                 x264_macroblock_write_cabac( h, &h->cabac );
             }
         }
-        else if( h->param.b_mpeg2 )
+        else if( MPEG2 )
         {
 #define bs_write_vlc(s,v) bs_write( s, (v).i_size, (v).i_bits )
             if( IS_SKIP( h->mb.i_type ) )
@@ -2239,7 +2239,7 @@ static int x264_slice_write( x264_t *h )
         {
             i_mb_y++;
             i_mb_x = 0;
-            if( h->param.b_mpeg2 )
+            if( MPEG2 )
             {
                 bs_align_0( &h->out.bs );
                 /* end the MPEG-2 slice at the end of the row */
@@ -2255,7 +2255,7 @@ static int x264_slice_write( x264_t *h )
         x264_cabac_encode_flush( h, &h->cabac );
         h->out.bs.p = h->cabac.p;
     }
-    else if( !h->param.b_mpeg2 )
+    else if( !MPEG2 )
     {
         if( i_skip > 0 )
             bs_write_ue( &h->out.bs, i_skip );  /* last skip run */
@@ -2264,7 +2264,7 @@ static int x264_slice_write( x264_t *h )
         bs_flush( &h->out.bs );
     }
 
-    if( !h->param.b_mpeg2 )
+    if( !MPEG2 )
     {
         if( x264_nal_end( h ) )
             return -1;
@@ -2764,7 +2764,7 @@ int     x264_encoder_encode( x264_t *h,
     if( h->fenc->b_keyframe )
     {
         /* Write SPS and PPS */
-        if( h->param.b_repeat_headers && !h->param.b_mpeg2 )
+        if( h->param.b_repeat_headers && !MPEG2 )
         {
             /* generate sequence parameters */
             x264_nal_start( h, NAL_SPS, NAL_PRIORITY_HIGHEST );
@@ -2814,7 +2814,7 @@ int     x264_encoder_encode( x264_t *h,
         }
     }
 
-    if( h->param.b_mpeg2 )
+    if( MPEG2 )
     {
         /* generate picture header */
         x264_nal_start( h, MPEG2_PICTURE_HEADER, NAL_PRIORITY_HIGHEST );
@@ -2841,7 +2841,7 @@ int     x264_encoder_encode( x264_t *h,
     /* write extra sei (H.264) / user data (MPEG-2) */
     for( int i = 0; i < h->fenc->extra_sei.num_payloads; i++ )
     {
-        x264_nal_start( h, h->param.b_mpeg2 ? MPEG2_USER_DATA : NAL_SEI, NAL_PRIORITY_DISPOSABLE );
+        x264_nal_start( h, MPEG2 ? MPEG2_USER_DATA : NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         x264_sei_write( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size,
                         h->fenc->extra_sei.payloads[i].payload_type );
         if( x264_nal_end( h ) )
@@ -2857,7 +2857,7 @@ int     x264_encoder_encode( x264_t *h,
     if( h->fenc->b_keyframe )
     {
         // FIXME make this work with MPEG-2
-        if( !h->param.b_mpeg2 && h->param.b_repeat_headers && h->fenc->i_frame == 0 )
+        if( !MPEG2 && h->param.b_repeat_headers && h->fenc->i_frame == 0 )
         {
             /* identify ourself */
             x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
@@ -2879,7 +2879,7 @@ int     x264_encoder_encode( x264_t *h,
     }
 
     /* generate sei pic timing */
-    if( !h->param.b_mpeg2 && (h->sps->vui.b_pic_struct_present || h->sps->vui.b_nal_hrd_parameters_present) )
+    if( !MPEG2 && (h->sps->vui.b_pic_struct_present || h->sps->vui.b_nal_hrd_parameters_present) )
     {
         x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         x264_sei_pic_timing_write( h, &h->out.bs );

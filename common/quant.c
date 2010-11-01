@@ -450,6 +450,6 @@ void x264_quant_init( x264_t *h, int cpu, x264_quant_function_t *pf )
     pf->coeff_level_run[DCT_CHROMA_AC] = pf->coeff_level_run[ DCT_LUMA_AC];
     pf->coeff_level_run[5] = x264_coeff_level_run64;
 
-    if( h->param.b_mpeg2 )
+    if( MPEG2 )
         pf->quant_8x8 = quant_8x8_mpeg2;
 }

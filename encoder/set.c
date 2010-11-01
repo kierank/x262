@@ -594,7 +594,7 @@ int x264_sei_version_write( x264_t *h, bs_t *s )
              X264_BUILD, X264_VERSION, opts );
     length = strlen(payload)+1;
 
-    h->param.b_mpeg2 ? x262_user_data_write( s, (uint8_t *)payload, length ) :
+    MPEG2 ? x262_user_data_write( s, (uint8_t *)payload, length ) :
                       x264_sei_write( s, (uint8_t *)payload, length, SEI_USER_DATA_UNREGISTERED );
 
     x264_free( opts );
@@ -884,7 +884,7 @@ int x264_validate_levels( x264_t *h, int verbose )
     const x264_level_t *l = x264_levels;
     const x262_level_t *m = x262_levels;
 
-    if( h->param.b_mpeg2 )
+    if( MPEG2 )
     {
         while( m->level_idc != 0 && m->level_idc != h->param.i_level_idc )
             m++;
