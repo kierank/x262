@@ -469,8 +469,14 @@ void x264_pps_init( x264_pps_t *pps, int i_id, x264_param_t *param, x264_sps_t *
     switch( pps->i_cqm_preset )
     {
     case X264_CQM_FLAT:
-        for( int i = 0; i < 6; i++ )
-            pps->scaling_list[i] = x264_cqm_flat16;
+        if( param->b_mpeg2 )
+        {
+            pps->scaling_list[CQM_8IY] = x262_cqm_intra;
+            pps->scaling_list[CQM_8PY] = x264_cqm_flat16;
+        }
+        else
+            for( int i = 0; i < 6; i++ )
+                pps->scaling_list[i] = x264_cqm_flat16;
         break;
     case X264_CQM_JVT:
         for( int i = 0; i < 6; i++ )

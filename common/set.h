@@ -243,6 +243,13 @@ static const uint8_t x264_cqm_flat16[64] =
     16,16,16,16,16,16,16,16,
     16,16,16,16,16,16,16,16
 };
+static const uint8_t * const x264_cqm_jvt[6] =
+{
+    x264_cqm_jvt4i, x264_cqm_jvt4p,
+    x264_cqm_jvt4i, x264_cqm_jvt4p,
+    x264_cqm_jvt8i, x264_cqm_jvt8p
+};
+
 static const uint8_t x262_cqm_intra[64] =
 {
      8,16,19,22,26,27,29,34,
@@ -254,23 +261,9 @@ static const uint8_t x262_cqm_intra[64] =
     26,27,29,34,38,46,56,69,
     27,29,35,38,46,56,69,83
 };
-static const uint8_t * const x264_cqm_jvt[7] =
-{
-    x264_cqm_jvt4i, x264_cqm_jvt4p,
-    x264_cqm_jvt4i, x264_cqm_jvt4p,
-    x264_cqm_jvt8i, x264_cqm_jvt8p,
-    x262_cqm_intra
-};
-
-static const uint8_t x262_qscale[32] =
-{
-      0,   1,   2,   3,   4,   5,   6,   7,
-      8,  10,  12,  14,  16,  18,  20,  22,
-     24,  28,  32,  36,  40,  44,  48,  52,
-     56,  64,  72,  80,  88,  96, 104, 112
-};
 
 int  x264_cqm_init( x264_t *h );
+int  x262_cqm_init( x264_t *h );
 void x264_cqm_delete( x264_t *h );
 int  x264_cqm_parse_file( x264_t *h, const char *filename );
 

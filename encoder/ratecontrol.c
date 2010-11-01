@@ -199,6 +199,11 @@ static inline double qscale2qp( x264_t *h, double qscale )
     else
         return 12.0 + 6.0 * log2( qscale/0.85 );
 }
+static inline double qptompeg2qp( double qp )
+{
+    double qscale = 0.85 * pow( 2.0, ( qp - 12.0 ) / 6.0 );
+    return 8.0 * log2( qscale ); //FIXME
+}
 
 /* Texture bitrate is not quite inversely proportional to qscale,
  * probably due the the changing number of SKIP blocks.
@@ -1444,7 +1449,7 @@ int x264_ratecontrol_mb_qp( x264_t *h )
     {
         /* MB-tree currently doesn't adjust quantizers in unreferenced frames. */
         if( h->param.b_mpeg2 )
-            qp += h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy]; //FIXME
+            qp += qptompeg2qp( h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy] );
         else
             qp += h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy];
     }

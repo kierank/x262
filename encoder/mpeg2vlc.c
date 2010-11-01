@@ -49,8 +49,7 @@ void x262_macroblock_write_vlc( x264_t *h )
 
     // macroblock modes
     if( i_mb_type == I_16x16 )
-        //bs_write_vlc( s, x262_i_mb_type[h->sh.i_type][!!h->mb.i_qp] );
-        bs_write_vlc( s, x262_i_mb_type[h->sh.i_type][0] ); // FIXME no quant
+        bs_write_vlc( s, x262_i_mb_type[h->sh.i_type][!!h->mb.i_qp] );
     else if( i_mb_type == P_8x8 )
     {
 
@@ -62,7 +61,7 @@ void x262_macroblock_write_vlc( x264_t *h )
     }
 
     if( h->mb.i_qp )
-        //bs_write( s, 5, h->mb.i_qp ); // quantizer_scale_code
+        bs_write( s, 5, h->mb.i_qp ); // quantizer_scale_code
 
     // forward mvs
 

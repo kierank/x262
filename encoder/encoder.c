@@ -1070,8 +1070,16 @@ x264_t *x264_encoder_open( x264_param_t *param )
 
     h->chroma_qp_table = i_chroma_qp_table + 12 + h->pps->i_chroma_qp_index_offset;
 
-    if( x264_cqm_init( h ) < 0 )
-        goto fail;
+    if( h->param.b_mpeg2 )
+    {
+        if( x262_cqm_init( h ) < 0 )
+            goto fail;
+    }
+    else
+    {
+        if( x264_cqm_init( h ) < 0 )
+            goto fail;
+    }
 
     h->mb.i_mb_width = h->sps->i_mb_width;
     h->mb.i_mb_height = h->sps->i_mb_height;

@@ -295,7 +295,7 @@ static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
     // quantize dc
     dcb = dct8x8[0];
     dc_mult = 8 >> h->param.i_intra_dc_precision;
-    dcb = (dcb + (dc_mult >> 1)) / dc_mult;    
+    dcb = (dcb + (dc_mult >> 1)) / dc_mult;
 
     if( idx < 4 )
         cur_dc_predictor = idx == 0 ? h->mb.i_intra_dc_predictor[3] : h->mb.i_intra_dc_predictor[idx-1];
@@ -311,10 +311,8 @@ static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
     else
         size = LOG2_16( 2*dc_diff );
 
-    // TODO quantisation of rest of coeffs
-    //nz = h->quantf.quant_8x8_mpeg2( dct8x8, x262_cqm_intra, x262_qscale[h->mb.i_qp] );
-
-    nz = 1;
+    // quantisation of ac coefficients
+    nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8IY][i_qp], h->quant8_bias[CQM_8IY][i_qp] );
     if( nz )
     {
         if( idx < 4 )

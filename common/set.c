@@ -70,6 +70,25 @@ static const uint16_t quant8_scale[6][6] =
     {  7282,  6428, 11570,  6830,  9118,  8640 }
 };
 
+static const uint8_t x262_qscale_nonlinear[32] =
+{
+      0,   1,   2,   3,   4,   5,   6,   7,
+      8,  10,  12,  14,  16,  18,  20,  22,
+     24,  28,  32,  36,  40,  44,  48,  52,
+     56,  64,  72,  80,  88,  96, 104, 112
+};
+static const uint8_t x262_qscale_linear[32] =
+{
+      0,   2,   4,   6,   8,  10,  12,  14,
+     16,  18,  20,  22,  24,  26,  28,  30,
+     32,  34,  36,  38,  40,  42,  44,  46,
+     48,  50,  52,  54,  56,  58,  60,  62
+};
+static const uint8_t * x262_qscale[2] =
+{
+    x262_qscale_linear, x262_qscale_nonlinear
+};
+
 int x264_cqm_init( x264_t *h )
 {
     int def_quant4[6][16];
@@ -207,6 +226,30 @@ fail:
     return -1;
 }
 
+int x262_cqm_init( x264_t *h )
+{
+    const uint8_t *qscale = x262_qscale[h->param.b_nonlinear_quant];
+
+    for( int i = 0; i < 2; i++ )
+    {
+        CHECKED_MALLOC( h->quant8_bias[i], (QP_MAX_MPEG2+1)*64*sizeof(uint16_t) );
+        CHECKED_MALLOC( h->  quant8_mf[i], (QP_MAX_MPEG2+1)*64*sizeof(uint16_t) );
+        CHECKED_MALLOC( h->dequant8_mf[i],  6*64*sizeof(int) );
+        CHECKED_MALLOC( h->unquant8_mf[i], (QP_MAX_MPEG2+1)*64*sizeof(int) );
+    }
+    for( int q = 0; q < QP_MAX_MPEG2+1; q++ )
+    {
+        for( int i = 0; i < 64; i++ )
+        {
+            h->quant8_mf[CQM_8IY][q][i] = 2 * qscale[q] * h->pps->scaling_list[CQM_8IY][i];
+        }
+    }
+    return 0;
+fail:
+    x264_cqm_delete( h );
+    return -1;
+}
+
 #define CQM_DELETE( n, max )\
     for( int i = 0; i < max; i++ )\
     {\
@@ -229,7 +272,8 @@ fail:
 
 void x264_cqm_delete( x264_t *h )
 {
-    CQM_DELETE( 4, 4 );
+    if( !h->param.b_mpeg2 )
+        CQM_DELETE( 4, 4 );
     CQM_DELETE( 8, 2 );
 }
 
