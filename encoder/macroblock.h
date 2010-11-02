@@ -32,6 +32,12 @@
 extern const int x264_lambda2_tab[QP_MAX_MAX+1];
 extern const uint16_t x264_lambda_tab[QP_MAX_MAX+1];
 
+extern const int x262_lambda2_tab_exp[QP_MAX_MPEG2+1];
+extern const uint16_t x262_lambda_tab_exp[QP_MAX_MPEG2+1];
+extern const int x262_lambda2_tab_lin[QP_MAX_MPEG2+1];
+extern const uint16_t x262_lambda_tab_lin[QP_MAX_MPEG2+1];
+
+
 void x264_rdo_init( void );
 
 int x264_macroblock_probe_skip( x264_t *h, int b_bidir );

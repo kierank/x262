@@ -187,22 +187,28 @@ static void update_predictor( predictor_t *p, double q, double var, double bits 
  */
 static inline double qp2qscale( x264_t *h, double qp )
 {
-    if( h->param.b_mpeg2 )
-        return pow( 2.0, ( qp ) / 8.0 ); //FIXME
+    if( MPEG2 )
+        return h->param.b_nonlinear_quant ? 1.7 * pow( 2.0, ( qp ) / 8.0 ) : qp * 0.425 + 1.7;
     else
         return 0.85 * pow( 2.0, ( qp - 12.0 ) / 6.0 );
 }
 static inline double qscale2qp( x264_t *h, double qscale )
 {
-    if( h->param.b_mpeg2 )
-        return 8.0 * log2( qscale ); //FIXME
+    if( MPEG2 )
+        return h->param.b_nonlinear_quant ? 8.0 * log2( qscale/1.7 ) : ( qscale - 1.7 ) / 0.425;
     else
         return 12.0 + 6.0 * log2( qscale/0.85 );
 }
-static inline double qptompeg2qp( double qp )
+static inline double qptompeg2qp( x264_t *h, double qp )
 {
-    double qscale = 0.85 * pow( 2.0, ( qp - 12.0 ) / 6.0 );
-    return 8.0 * log2( qscale ); //FIXME
+    /* MPEG-2 qscale ranges only from 1.85 - 24.94 (2.125 - 14.875 linear).
+     * This maps to qp 19-41 in H.264 (qp 21-36 linear).
+     */
+    double qscale = 0.85 * pow( 2.0, ( fabs(qp) - 12.0 ) / 6.0 );
+    if( qscale < 1.7 )
+        return 0;
+    double newqp = h->param.b_nonlinear_quant ? 8.0 * log2( qscale/1.7 ) : ( qscale - 1.7 ) / 0.425;
+    return qp > 0 ? newqp : -newqp;
 }
 
 /* Texture bitrate is not quite inversely proportional to qscale,
@@ -1449,7 +1455,7 @@ int x264_ratecontrol_mb_qp( x264_t *h )
     {
         /* MB-tree currently doesn't adjust quantizers in unreferenced frames. */
         if( MPEG2 )
-            qp += qptompeg2qp( h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy] );
+            qp += qptompeg2qp( h, h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy] );
         else
             qp += h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy];
     }

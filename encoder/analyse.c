@@ -161,6 +161,38 @@ const int x264_lambda2_tab[QP_MAX_MAX+1] = {
 5992238,7549747,9512085,11984476,15099494,19024170,23968953,30198988, /* 56-63 */
 };
 
+/* lambda = pow(2,qp/8+1) */
+const uint16_t x262_lambda_tab_exp[QP_MAX_MPEG2+1] = {
+   0,   2,   2,   3,   3,   3,   3,   4, /*  0- 7 */
+   4,   4,   5,   5,   6,   6,   7,   7, /*  8-15 */
+   8,   9,  10,  10,  11,  12,  13,  15, /* 16-23 */
+  16,  17,  19,  21,  23,  25,  27,  29, /* 24-31 */
+};
+
+/* lambda2 = pow(lambda,2) * .9 * 256 */
+const int x262_lambda2_tab_exp[QP_MAX_MPEG2+1] = {
+      0,   1095,   1303,    1549,    1843,    2191,    2606,    3099, /*  0- 7 */
+   3686,   4383,   5213,    6199,    7372,    8767,   10426,   12399, /*  8-15 */
+  14745,  17535,  20853,   24799,   29491,   35071,   41706,   49598, /* 16-23 */
+  58982,  70142,  83413,   99196,  117964,  140284,  166827,  198392, /* 24-31 */
+};
+
+/* lambda = qp/2+2 */
+const uint16_t x262_lambda_tab_lin[QP_MAX_MPEG2+1] = {
+   0,   3,   3,   4,   4,   5,   5,   6, /*  0- 7 */
+   6,   7,   7,   8,   8,   9,   9,  10, /*  8-15 */
+  10,  11,  11,  12,  12,  13,  13,  14, /* 16-23 */
+  14,  15,  15,  16,  16,  17,  17,  18, /* 24-31 */
+};
+
+/* lambda2 = pow(lambda,2) * .9 * 256 */
+const int x262_lambda2_tab_lin[QP_MAX_MPEG2+1] = {
+      0,   1440,   2073,    2822,    3686,    4665,    5760,    6969, /*  0- 7 */
+   8294,   9734,  11289,   12960,   14745,   16646,   18662,   20793, /*  8-15 */
+  23040,  25401,  27878,   30470,   33177,   36000,   38937,   41990, /* 16-23 */
+  45158,  48441,  51840,   55353,   58982,   62726,   66585,   70560, /* 24-31 */
+};
+
 const uint8_t x264_exp2_lut[64] = {
       0,   3,   6,   8,  11,  14,  17,  20,  23,  26,  29,  32,  36,  39,  42,  45,
      48,  52,  55,  58,  62,  65,  69,  72,  76,  80,  83,  87,  91,  94,  98, 102,
@@ -252,7 +284,12 @@ static UNUSED x264_pthread_mutex_t cost_ref_mutex = X264_PTHREAD_MUTEX_INITIALIZ
 
 int x264_analyse_init_costs( x264_t *h, int qp )
 {
-    int lambda = x264_lambda_tab[qp];
+    const uint16_t *lambda_tab;
+    if( MPEG2 )
+        lambda_tab = h->param.b_nonlinear_quant ? x262_lambda_tab_exp : x262_lambda_tab_lin;
+    else
+        lambda_tab = x264_lambda_tab;
+    int lambda = lambda_tab[qp];
     if( h->cost_mv[lambda] )
         return 0;
     /* factor of 4 from qpel, 2 from sign, and 2 because mv can be opposite from mvp */
@@ -333,12 +370,25 @@ static void x264_mb_analyse_load_costs( x264_t *h, x264_mb_analysis_t *a )
 
 static void x264_mb_analyse_init_qp( x264_t *h, x264_mb_analysis_t *a, int i_qp )
 {
+    const uint16_t *lambda_tab;
+    const int *lambda2_tab;
+    if( MPEG2 )
+    {
+        lambda_tab = h->param.b_nonlinear_quant ? x262_lambda_tab_exp : x262_lambda_tab_lin;
+        lambda2_tab = h->param.b_nonlinear_quant ? x262_lambda2_tab_exp : x262_lambda2_tab_lin;
+    }
+    else
+    {
+        lambda_tab = x264_lambda_tab;
+        lambda2_tab = x264_lambda2_tab;
+    }
+
     /* conduct the analysis using this lamda and QP */
     a->i_qp = h->mb.i_qp = i_qp;
     h->mb.i_chroma_qp = h->chroma_qp_table[i_qp];
 
-    a->i_lambda = x264_lambda_tab[i_qp];
-    a->i_lambda2 = x264_lambda2_tab[i_qp];
+    a->i_lambda = lambda_tab[i_qp];
+    a->i_lambda2 = lambda2_tab[i_qp];
 
     h->mb.b_trellis = h->param.analyse.i_trellis > 1 && a->i_mbrd;
     if( h->param.analyse.i_trellis )
@@ -1006,7 +1056,12 @@ static void x264_intra_rd_refine( x264_t *h, x264_mb_analysis_t *a )
         if( i_max > 0 )
         {
             int i_cbp_chroma_best = h->mb.i_cbp_chroma;
-            int i_chroma_lambda = x264_lambda2_tab[h->mb.i_chroma_qp];
+            const int *lambda2_tab;
+            if( MPEG2 )
+                lambda2_tab = h->param.b_nonlinear_quant ? x262_lambda2_tab_exp : x262_lambda2_tab_lin;
+            else
+                lambda2_tab = x264_lambda2_tab;
+            int i_chroma_lambda = lambda2_tab[h->mb.i_chroma_qp];
             /* the previous thing encoded was x264_intra_rd(), so the pixels and
              * coefs for the current chroma mode are still around, so we only
              * have to recount the bits. */
