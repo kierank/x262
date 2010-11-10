@@ -52,16 +52,16 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
  ******************************* x264 libs **********************************
  *
  ****************************************************************************/
-static float x264_psnr( int64_t i_sqe, int64_t i_size )
+static double x264_psnr( double sqe, double size )
 {
-    double f_mse = (double)i_sqe / (PIXEL_MAX*PIXEL_MAX * (double)i_size);
-    if( f_mse <= 0.0000000001 ) /* Max 100dB */
+    double mse = sqe / (PIXEL_MAX*PIXEL_MAX * size);
+    if( mse <= 0.0000000001 ) /* Max 100dB */
         return 100;
 
-    return -10.0 * log10( f_mse );
+    return -10.0 * log10( mse );
 }
 
-static float x264_ssim( float ssim )
+static double x264_ssim( double ssim )
 {
     return -10.0 * log10( 1 - ssim );
 }
@@ -537,7 +537,10 @@ static int x264_validate_parameters( x264_t *h )
         if( score >= 5 )
         {
             x264_log( h, X264_LOG_ERROR, "broken ffmpeg default settings detected\n" );
-            x264_log( h, X264_LOG_ERROR, "use an encoding preset (vpre)\n" );
+            x264_log( h, X264_LOG_ERROR, "use an encoding preset (e.g. -vpre medium)\n" );
+            x264_log( h, X264_LOG_ERROR, "preset usage: -vpre <speed> -vpre <profile>\n" );
+            x264_log( h, X264_LOG_ERROR, "speed presets are listed in x264 --help\n" );
+            x264_log( h, X264_LOG_ERROR, "profile is optional; x264 defaults to high\n" );
             return -1;
         }
     }
@@ -547,11 +550,11 @@ static int x264_validate_parameters( x264_t *h )
         x264_log( h, X264_LOG_ERROR, "no ratecontrol method specified\n" );
         return -1;
     }
-    h->param.rc.f_rf_constant = x264_clip3f( h->param.rc.f_rf_constant, 0, QP_MAX );
+    h->param.rc.f_rf_constant = x264_clip3f( h->param.rc.f_rf_constant, -QP_BD_OFFSET, 51 );
     h->param.rc.i_qp_constant = x264_clip3( h->param.rc.i_qp_constant, 0, QP_MAX );
     if( h->param.rc.i_rc_method == X264_RC_CRF )
     {
-        h->param.rc.i_qp_constant = h->param.rc.f_rf_constant;
+        h->param.rc.i_qp_constant = h->param.rc.f_rf_constant + QP_BD_OFFSET;
         h->param.rc.i_bitrate = 0;
     }
     if( (h->param.rc.i_rc_method == X264_RC_CQP || h->param.rc.i_rc_method == X264_RC_CRF)
@@ -850,9 +853,11 @@ static int x264_validate_parameters( x264_t *h )
             h->param.analyse.i_mv_range = x264_clip3(h->param.analyse.i_mv_range, 32, 512 >> h->param.b_interlaced);
     }
 
-    h->param.analyse.i_weighted_pred = x264_clip3( h->param.analyse.i_weighted_pred, 0, X264_WEIGHTP_SMART );
+    h->param.analyse.i_weighted_pred = x264_clip3( h->param.analyse.i_weighted_pred, X264_WEIGHTP_NONE, X264_WEIGHTP_SMART );
     if( !h->param.analyse.i_weighted_pred && h->param.rc.b_mb_tree && h->param.analyse.b_psy && !h->param.b_interlaced )
         h->param.analyse.i_weighted_pred = X264_WEIGHTP_FAKE;
+    if( h->param.analyse.i_weighted_pred == X264_WEIGHTP_BLIND && BIT_DEPTH > 8 )
+        h->param.analyse.i_weighted_pred = X264_WEIGHTP_NONE;
 
     if( MPEG2 )
     {
@@ -1127,7 +1132,8 @@ x264_t *x264_encoder_open( x264_param_t *param )
         CHECKED_MALLOCZERO( h->frames.blank_unused, h->i_thread_frames * 4 * sizeof(x264_frame_t *) );
     h->i_ref0 = 0;
     h->i_ref1 = 0;
-    h->i_cpb_delay = h->i_coded_fields = h->i_disp_fields = h->i_prev_duration = 0;
+    h->i_cpb_delay = h->i_coded_fields = h->i_disp_fields = 0;
+    h->i_prev_duration = ((uint64_t)h->param.i_fps_den * h->sps->vui.i_time_scale) / ((uint64_t)h->param.i_fps_num * h->sps->vui.i_num_units_in_tick);
     h->i_disp_fields_last_frame = -1;
     x264_rdo_init();
 
@@ -1558,6 +1564,12 @@ int x264_weighted_reference_duplicate( x264_t *h, int i_ref, const x264_weight_t
     if( i <= 1 ) /* empty list, definitely can't duplicate frame */
         return -1;
 
+    /* Duplication is a hack to compensate for crappy rounding in motion compensation.
+     * With high bit depth, it's not worth doing, so turn it off except in the case of
+     * unweighted dupes. */
+    if( BIT_DEPTH > 8 && w != weight_none )
+        return -1;
+
     newframe = x264_frame_pop_blank_unused( h );
 
     //FIXME: probably don't need to copy everything
@@ -1806,13 +1818,14 @@ static void x264_fdec_filter_row( x264_t *h, int mb_y, int b_inloop )
                 h->fdec->plane[0] + min_y * h->fdec->i_stride[0], h->fdec->i_stride[0],
                 h->fenc->plane[0] + min_y * h->fenc->i_stride[0], h->fenc->i_stride[0],
                 h->param.i_width, max_y-min_y );
-            uint64_t ssd_uv = x264_pixel_ssd_nv12( &h->pixf,
+            uint64_t ssd_u, ssd_v;
+            x264_pixel_ssd_nv12( &h->pixf,
                 h->fdec->plane[1] + (min_y>>1) * h->fdec->i_stride[1], h->fdec->i_stride[1],
                 h->fenc->plane[1] + (min_y>>1) * h->fenc->i_stride[1], h->fenc->i_stride[1],
-                h->param.i_width>>1, (max_y-min_y)>>1 );
+                h->param.i_width>>1, (max_y-min_y)>>1, &ssd_u, &ssd_v );
             h->stat.frame.i_ssd[0] += ssd_y;
-            h->stat.frame.i_ssd[1] += (uint32_t)ssd_uv;
-            h->stat.frame.i_ssd[2] += ssd_uv>>32;
+            h->stat.frame.i_ssd[1] += ssd_u;
+            h->stat.frame.i_ssd[2] += ssd_v;
         }
 
         if( h->param.analyse.b_ssim )
@@ -3093,19 +3106,22 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
     }
 
     psz_message[0] = '\0';
+    double dur = h->fenc->f_duration;
+    h->stat.f_frame_duration[h->sh.i_type] += dur;
     if( h->param.analyse.b_psnr )
     {
-        int64_t ssd[3] = {
+        int64_t ssd[3] =
+        {
             h->stat.frame.i_ssd[0],
             h->stat.frame.i_ssd[1],
             h->stat.frame.i_ssd[2],
         };
 
-        h->stat.i_ssd_global[h->sh.i_type] += ssd[0] + ssd[1] + ssd[2];
-        h->stat.f_psnr_average[h->sh.i_type] += x264_psnr( ssd[0] + ssd[1] + ssd[2], 3 * h->param.i_width * h->param.i_height / 2 );
-        h->stat.f_psnr_mean_y[h->sh.i_type] += x264_psnr( ssd[0], h->param.i_width * h->param.i_height );
-        h->stat.f_psnr_mean_u[h->sh.i_type] += x264_psnr( ssd[1], h->param.i_width * h->param.i_height / 4 );
-        h->stat.f_psnr_mean_v[h->sh.i_type] += x264_psnr( ssd[2], h->param.i_width * h->param.i_height / 4 );
+        h->stat.f_ssd_global[h->sh.i_type]   += dur * (ssd[0] + ssd[1] + ssd[2]);
+        h->stat.f_psnr_average[h->sh.i_type] += dur * x264_psnr( ssd[0] + ssd[1] + ssd[2], 3 * h->param.i_width * h->param.i_height / 2 );
+        h->stat.f_psnr_mean_y[h->sh.i_type]  += dur * x264_psnr( ssd[0], h->param.i_width * h->param.i_height );
+        h->stat.f_psnr_mean_u[h->sh.i_type]  += dur * x264_psnr( ssd[1], h->param.i_width * h->param.i_height / 4 );
+        h->stat.f_psnr_mean_v[h->sh.i_type]  += dur * x264_psnr( ssd[2], h->param.i_width * h->param.i_height / 4 );
 
         snprintf( psz_message, 80, " PSNR Y:%5.2f U:%5.2f V:%5.2f",
                   x264_psnr( ssd[0], h->param.i_width * h->param.i_height ),
@@ -3117,7 +3133,7 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
     {
         double ssim_y = h->stat.frame.f_ssim
                       / (((h->param.i_width-6)>>2) * ((h->param.i_height-6)>>2));
-        h->stat.f_ssim_mean_y[h->sh.i_type] += ssim_y;
+        h->stat.f_ssim_mean_y[h->sh.i_type] += ssim_y * dur;
         snprintf( psz_message + strlen(psz_message), 80 - strlen(psz_message),
                   " SSIM Y:%.5f", ssim_y );
     }
@@ -3225,7 +3241,8 @@ void    x264_encoder_close  ( x264_t *h )
 
         if( h->stat.i_frame_count[i_slice] > 0 )
         {
-            const int i_count = h->stat.i_frame_count[i_slice];
+            int i_count = h->stat.i_frame_count[i_slice];
+            double dur =  h->stat.f_frame_duration[i_slice];
             if( h->param.analyse.b_psnr )
             {
                 x264_log( h, X264_LOG_INFO,
@@ -3234,9 +3251,9 @@ void    x264_encoder_close  ( x264_t *h )
                           i_count,
                           h->stat.f_frame_qp[i_slice] / i_count,
                           (double)h->stat.i_frame_size[i_slice] / i_count,
-                          h->stat.f_psnr_mean_y[i_slice] / i_count, h->stat.f_psnr_mean_u[i_slice] / i_count, h->stat.f_psnr_mean_v[i_slice] / i_count,
-                          h->stat.f_psnr_average[i_slice] / i_count,
-                          x264_psnr( h->stat.i_ssd_global[i_slice], i_count * i_yuv_size ) );
+                          h->stat.f_psnr_mean_y[i_slice] / dur, h->stat.f_psnr_mean_u[i_slice] / dur, h->stat.f_psnr_mean_v[i_slice] / dur,
+                          h->stat.f_psnr_average[i_slice] / dur,
+                          x264_psnr( h->stat.f_ssd_global[i_slice], dur * i_yuv_size ) );
             }
             else
             {
@@ -3339,18 +3356,11 @@ void    x264_encoder_close  ( x264_t *h )
         const int i_count = h->stat.i_frame_count[SLICE_TYPE_I] +
                             h->stat.i_frame_count[SLICE_TYPE_P] +
                             h->stat.i_frame_count[SLICE_TYPE_B];
+        const double duration = h->stat.f_frame_duration[SLICE_TYPE_I] +
+                                h->stat.f_frame_duration[SLICE_TYPE_P] +
+                                h->stat.f_frame_duration[SLICE_TYPE_B];
         int64_t i_mb_count = (int64_t)i_count * h->mb.i_mb_count;
-        float fps = (float) h->param.i_fps_num / h->param.i_fps_den;
-        float f_bitrate;
-        /* duration algorithm fails with one frame */
-        if( !h->param.b_vfr_input || i_count == 1 )
-            f_bitrate = fps * SUM3(h->stat.i_frame_size) / i_count / 125;
-        else
-        {
-            float duration = (float)(2 * h->frames.i_largest_pts - h->frames.i_second_largest_pts - h->frames.i_first_pts)
-                           * h->param.i_timebase_num / h->param.i_timebase_den;
-            f_bitrate = SUM3(h->stat.i_frame_size) / duration / 125;
-        }
+        float f_bitrate = SUM3(h->stat.i_frame_size) / duration / 125;
 
         if( h->pps->b_transform_8x8_mode )
         {
@@ -3449,18 +3459,18 @@ void    x264_encoder_close  ( x264_t *h )
 
         if( h->param.analyse.b_ssim )
         {
-            float ssim = SUM3( h->stat.f_ssim_mean_y ) / i_count;
+            float ssim = SUM3( h->stat.f_ssim_mean_y ) / duration;
             x264_log( h, X264_LOG_INFO, "SSIM Mean Y:%.7f (%6.3fdb)\n", ssim, x264_ssim( ssim ) );
         }
         if( h->param.analyse.b_psnr )
         {
             x264_log( h, X264_LOG_INFO,
                       "PSNR Mean Y:%6.3f U:%6.3f V:%6.3f Avg:%6.3f Global:%6.3f kb/s:%.2f\n",
-                      SUM3( h->stat.f_psnr_mean_y ) / i_count,
-                      SUM3( h->stat.f_psnr_mean_u ) / i_count,
-                      SUM3( h->stat.f_psnr_mean_v ) / i_count,
-                      SUM3( h->stat.f_psnr_average ) / i_count,
-                      x264_psnr( SUM3( h->stat.i_ssd_global ), i_count * i_yuv_size ),
+                      SUM3( h->stat.f_psnr_mean_y ) / duration,
+                      SUM3( h->stat.f_psnr_mean_u ) / duration,
+                      SUM3( h->stat.f_psnr_mean_v ) / duration,
+                      SUM3( h->stat.f_psnr_average ) / duration,
+                      x264_psnr( SUM3( h->stat.f_ssd_global ), duration * i_yuv_size ),
                       f_bitrate );
         }
         else

@@ -38,7 +38,7 @@ void x262_macroblock_write_vlc( x264_t *h )
 {
     bs_t *s = &h->out.bs;
     const int i_mb_type = h->mb.i_type;
-    int cbp, i_total;
+    int cbp, quant;
 
 #if RDO_SKIP_BS
     s->i_bits_encoded = 0;
@@ -47,9 +47,11 @@ void x262_macroblock_write_vlc( x264_t *h )
     int       i_mb_pos_tex = 0;
 #endif
 
+    quant = h->mb.i_last_qp != h->mb.i_qp;
+
     // macroblock modes
     if( i_mb_type == I_16x16 )
-        bs_write_vlc( s, x262_i_mb_type[h->sh.i_type][!!h->mb.i_qp] );
+        bs_write_vlc( s, x262_i_mb_type[h->sh.i_type][quant] );
     else if( i_mb_type == P_8x8 )
     {
 
@@ -60,7 +62,7 @@ void x262_macroblock_write_vlc( x264_t *h )
 
     }
 
-    if( h->mb.i_qp )
+    if( quant )
         bs_write( s, 5, h->mb.i_qp ); // quantizer_scale_code
 
     // forward mvs
@@ -84,25 +86,23 @@ void x262_macroblock_write_vlc( x264_t *h )
         // block()
         if( i_mb_type == I_16x16 )
         {
+            h->dct.mpeg2_8x8[i][0] = 0;
             if( i < 4 )
             {
                 // DC coefficient
                 bs_write_vlc( s, x262_dc_luma_code[h->mb.i_dct_dc_size[i]] );
                 if( h->mb.i_dct_dc_size[i] )
                     bs_write( s, h->mb.i_dct_dc_size[i], h->mb.i_dct_dc_diff[i] );
-                h->dct.mpeg2_8x8[i][0] = 0;
-
             }
             else
             {
-
                 bs_write_vlc( s, x262_dc_chroma_code[h->mb.i_dct_dc_size[i]] );
                 if( h->mb.i_dct_dc_size[i] )
                     bs_write( s, h->mb.i_dct_dc_size[i], h->mb.i_dct_dc_diff[i] );
             }
             bs_write_vlc( s, dct_vlcs[h->param.b_alt_intra_vlc][0][0] ); // end of block
         }
-        else if( (cbp & (1<<(5-i))) )
+        else if( cbp & (1<<(5-i)) )
         {
         }
         else

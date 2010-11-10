@@ -452,17 +452,17 @@ static int check_pixel( int cpu_ref, int cpu_new )
     {
         used_asm = 1;
         set_func_name( "ssd_nv12" );
-        uint64_t res_c = pixel_c.ssd_nv12_core(   pbuf1, 368, pbuf2, 368, 360, 8 );
-        uint64_t res_a = pixel_asm.ssd_nv12_core( pbuf1, 368, pbuf2, 368, 360, 8 );
-        if( res_c != res_a )
+        uint64_t res_u_c, res_v_c, res_u_a, res_v_a;
+        pixel_c.ssd_nv12_core(   pbuf1, 368, pbuf2, 368, 360, 8, &res_u_c, &res_v_c );
+        pixel_asm.ssd_nv12_core( pbuf1, 368, pbuf2, 368, 360, 8, &res_u_a, &res_v_a );
+        if( res_u_c != res_u_a || res_v_c != res_v_a )
         {
             ok = 0;
-            fprintf( stderr, "ssd_nv12: %u,%u != %u,%u\n",
-                     (uint32_t)res_c, (uint32_t)(res_c>>32),
-                     (uint32_t)res_a, (uint32_t)(res_a>>32) );
+            fprintf( stderr, "ssd_nv12: %"PRIu64",%"PRIu64" != %"PRIu64",%"PRIu64"\n",
+                     res_u_c, res_v_c, res_u_a, res_v_a );
         }
-        call_c( pixel_c.ssd_nv12_core,   pbuf1, 368, pbuf2, 368, 360, 8 );
-        call_a( pixel_asm.ssd_nv12_core, pbuf1, 368, pbuf2, 368, 360, 8 );
+        call_c( pixel_c.ssd_nv12_core,   pbuf1, 368, pbuf2, 368, 360, 8, &res_u_c, &res_v_c );
+        call_a( pixel_asm.ssd_nv12_core, pbuf1, 368, pbuf2, 368, 360, 8, &res_u_a, &res_v_a );
     }
     report( "ssd_nv12 :" );
 
@@ -1176,14 +1176,14 @@ static int check_mc( int cpu_ref, int cpu_new )
         int stride = 80;\
         set_func_name( #name );\
         used_asm = 1;\
-        memcpy( pbuf3, pbuf1, size*2*stride * sizeof(pixel) );\
-        memcpy( pbuf4, pbuf1, size*2*stride * sizeof(pixel) );\
-        uint16_t *sum = (uint16_t*)pbuf3;\
+        memcpy( buf3, buf1, size*2*stride );\
+        memcpy( buf4, buf1, size*2*stride );\
+        uint16_t *sum = (uint16_t*)buf3;\
         call_c1( mc_c.name, __VA_ARGS__ );\
-        sum = (uint16_t*)pbuf4;\
+        sum = (uint16_t*)buf4;\
         call_a1( mc_a.name, __VA_ARGS__ );\
-        if( memcmp( pbuf3, pbuf4, (stride-8)*2 * sizeof(pixel) )\
-            || (size>9 && memcmp( pbuf3+18*stride, pbuf4+18*stride, (stride-8)*2 * sizeof(pixel) )))\
+        if( memcmp( buf3, buf4, (stride-8)*2 ) \
+            || (size>9 && memcmp( buf3+18*stride, buf4+18*stride, (stride-8)*2 )))\
             ok = 0;\
         call_c2( mc_c.name, __VA_ARGS__ );\
         call_a2( mc_a.name, __VA_ARGS__ );\

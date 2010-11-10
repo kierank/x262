@@ -204,7 +204,7 @@ void x264_log( x264_t *h, int i_level, const char *psz_fmt, ... );
 
 void x264_reduce_fraction( uint32_t *n, uint32_t *d );
 void x264_reduce_fraction64( uint64_t *n, uint64_t *d );
-void x264_init_vlc_tables();
+void x264_init_vlc_tables( void );
 
 static ALWAYS_INLINE pixel x264_clip_pixel( int x )
 {
@@ -826,19 +826,20 @@ struct x264_t
         /* Cumulated stats */
 
         /* per slice info */
-        int     i_frame_count[5];
-        int64_t i_frame_size[5];
-        double  f_frame_qp[5];
+        int     i_frame_count[3];
+        int64_t i_frame_size[3];
+        double  f_frame_qp[3];
         int     i_consecutive_bframes[X264_BFRAME_MAX+1];
         /* */
-        int64_t i_ssd_global[5];
-        double  f_psnr_average[5];
-        double  f_psnr_mean_y[5];
-        double  f_psnr_mean_u[5];
-        double  f_psnr_mean_v[5];
-        double  f_ssim_mean_y[5];
+        double  f_ssd_global[3];
+        double  f_psnr_average[3];
+        double  f_psnr_mean_y[3];
+        double  f_psnr_mean_u[3];
+        double  f_psnr_mean_v[3];
+        double  f_ssim_mean_y[3];
+        double  f_frame_duration[3];
         /* */
-        int64_t i_mb_count[5][19];
+        int64_t i_mb_count[3][19];
         int64_t i_mb_partition[2][17];
         int64_t i_mb_count_8x8dct[2];
         int64_t i_mb_count_ref[2][2][X264_REF_MAX*2];

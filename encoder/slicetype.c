@@ -1037,14 +1037,14 @@ static int scenecut( x264_t *h, x264_mb_analysis_t *a, x264_frame_t **frames, in
     /* Only do analysis during a normal scenecut check. */
     if( real_scenecut && h->param.i_bframe )
     {
-        int maxp1 = p0 + 1;
+        int origmaxp1 = p0 + 1;
         /* Look ahead to avoid coding short flashes as scenecuts. */
         if( h->param.i_bframe_adaptive == X264_B_ADAPT_TRELLIS )
             /* Don't analyse any more frames than the trellis would have covered. */
-            maxp1 += h->param.i_bframe;
+            origmaxp1 += h->param.i_bframe;
         else
-            maxp1++;
-        maxp1 = X264_MIN( maxp1, num_frames );
+            origmaxp1++;
+        int maxp1 = X264_MIN( origmaxp1, num_frames );
 
         /* Where A and B are scenes: AAAAAABBBAAAAAA
          * If BBB is shorter than (maxp1-p0), it is detected as a flash
@@ -1058,9 +1058,10 @@ static int scenecut( x264_t *h, x264_mb_analysis_t *a, x264_frame_t **frames, in
         /* Where A-F are scenes: AAAAABBCCDDEEFFFFFF
          * If each of BB ... EE are shorter than (maxp1-p0), they are
          * detected as flashes and not considered scenecuts.
-         * Instead, the first F frame becomes a scenecut. */
-        for( int curp0 = p0; curp0 < maxp1; curp0++ )
-            if( scenecut_internal( h, a, frames, curp0, maxp1, 0 ) )
+         * Instead, the first F frame becomes a scenecut.
+         * If the video ends before F, no frame becomes a scenecut. */
+        for( int curp0 = p0; curp0 <= maxp1; curp0++ )
+            if( maxp1 != origmaxp1 || (curp0 < maxp1 && scenecut_internal( h, a, frames, curp0, maxp1, 0 )) )
                 /* If cur_p0 is the p0 of a scenecut, it cannot be the p1 of a scenecut. */
                     frames[curp0]->b_scenecut = 0;
     }
@@ -1253,32 +1254,32 @@ void x264_slicetype_decide( x264_t *h )
 
     int lookahead_size = h->lookahead->next.i_size;
 
-    if( h->param.rc.i_rc_method == X264_RC_ABR || h->param.rc.b_stat_write || h->param.rc.i_vbv_buffer_size )
+    for( int i = 0; i < h->lookahead->next.i_size; i++ )
     {
-        for( int i = 0; i < h->lookahead->next.i_size; i++ )
+        if( h->param.b_vfr_input )
         {
-            if( h->param.b_vfr_input )
-            {
-                if( lookahead_size-- > 1 )
-                    h->lookahead->next.list[i]->i_duration = 2 * (h->lookahead->next.list[i+1]->i_pts - h->lookahead->next.list[i]->i_pts);
-                else
-                    h->lookahead->next.list[i]->i_duration = h->i_prev_duration;
-            }
+            if( lookahead_size-- > 1 )
+                h->lookahead->next.list[i]->i_duration = 2 * (h->lookahead->next.list[i+1]->i_pts - h->lookahead->next.list[i]->i_pts);
             else
-                h->lookahead->next.list[i]->i_duration = delta_tfi_divisor[h->lookahead->next.list[i]->i_pic_struct];
-            h->i_prev_duration = h->lookahead->next.list[i]->i_duration;
-
-            if( h->lookahead->next.list[i]->i_frame > h->i_disp_fields_last_frame && lookahead_size > 0 )
-            {
-                h->lookahead->next.list[i]->i_field_cnt = h->i_disp_fields;
-                h->i_disp_fields += h->lookahead->next.list[i]->i_duration;
-                h->i_disp_fields_last_frame = h->lookahead->next.list[i]->i_frame;
-            }
-            else if( lookahead_size == 0 )
-            {
-                h->lookahead->next.list[i]->i_field_cnt = h->i_disp_fields;
                 h->lookahead->next.list[i]->i_duration = h->i_prev_duration;
-            }
+        }
+        else
+            h->lookahead->next.list[i]->i_duration = delta_tfi_divisor[h->lookahead->next.list[i]->i_pic_struct];
+        h->i_prev_duration = h->lookahead->next.list[i]->i_duration;
+        h->lookahead->next.list[i]->f_duration = (double)h->lookahead->next.list[i]->i_duration
+                                               * h->sps->vui.i_num_units_in_tick
+                                               / h->sps->vui.i_time_scale;
+
+        if( h->lookahead->next.list[i]->i_frame > h->i_disp_fields_last_frame && lookahead_size > 0 )
+        {
+            h->lookahead->next.list[i]->i_field_cnt = h->i_disp_fields;
+            h->i_disp_fields += h->lookahead->next.list[i]->i_duration;
+            h->i_disp_fields_last_frame = h->lookahead->next.list[i]->i_frame;
+        }
+        else if( lookahead_size == 0 )
+        {
+            h->lookahead->next.list[i]->i_field_cnt = h->i_disp_fields;
+            h->lookahead->next.list[i]->i_duration = h->i_prev_duration;
         }
     }
 
@@ -1450,20 +1451,17 @@ void x264_slicetype_decide( x264_t *h )
     for( int i = 0; i <= bframes; i++ )
     {
         h->lookahead->next.list[i]->i_coded = i_coded++;
-        if( h->param.rc.i_rc_method == X264_RC_ABR || h->param.rc.b_stat_write || h->param.rc.i_vbv_buffer_size )
+        if( i )
         {
-            if( i )
-            {
-                x264_calculate_durations( h, h->lookahead->next.list[i], h->lookahead->next.list[i-1], &h->i_cpb_delay, &h->i_coded_fields );
-                h->lookahead->next.list[0]->f_planned_cpb_duration[i-1] = (double)h->lookahead->next.list[i-1]->i_cpb_duration *
-                                                                          h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
-            }
-            else
-                x264_calculate_durations( h, h->lookahead->next.list[i], NULL, &h->i_cpb_delay, &h->i_coded_fields );
-
-            h->lookahead->next.list[0]->f_planned_cpb_duration[i] = (double)h->lookahead->next.list[i]->i_cpb_duration *
-                                                                    h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
+            x264_calculate_durations( h, h->lookahead->next.list[i], h->lookahead->next.list[i-1], &h->i_cpb_delay, &h->i_coded_fields );
+            h->lookahead->next.list[0]->f_planned_cpb_duration[i-1] = (double)h->lookahead->next.list[i-1]->i_cpb_duration *
+                                                                      h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
         }
+        else
+            x264_calculate_durations( h, h->lookahead->next.list[i], NULL, &h->i_cpb_delay, &h->i_coded_fields );
+
+        h->lookahead->next.list[0]->f_planned_cpb_duration[i] = (double)h->lookahead->next.list[i]->i_cpb_duration *
+                                                                h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
     }
 }
 
