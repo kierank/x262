@@ -556,6 +556,11 @@ static inline void jpeg_fdct_islow( dctcoef *data )
     /* descale */
     for( int i = 0; i < 64; i++ )
         data[i] = (dctcoef) DESCALE(data[i], 3);
+
+    /* transpose to match zigzag and cqm */
+    for( int i = 0; i < 8; i++ )
+        for( int j = 0; j < i; j++ )
+            XCHG( dctcoef, data[8*i+j], data[8*j+i] );
 }
 
 #define W1 2841 /* 2048*sqrt(2)*cos(1*pi/16) */
