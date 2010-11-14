@@ -4,6 +4,7 @@
  * Copyright (C) 2003-2010 x264 project
  *
  * Authors: Kieran Kunhya <kieran@kunhya.com>
+ *          Phillip Blucas <pblucas@gmail.com> 
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,8 +32,36 @@
 
 #define bs_write_vlc(s,v) bs_write( s, (v).i_size, (v).i_bits )
 
+static void x262_write_dct_vlcs( x264_t *h, dctcoef *l, int intra_tab )
+{
+    bs_t *s = &h->out.bs;
+    x264_run_level_t runlevel;
+    int i_total = 0;
+
+    /* minus one because runlevel is zero-indexed and backwards */
+    i_total = h->quantf.coeff_level_run[5]( l, &runlevel ) - 1;
+    if( runlevel.run[i_total] )
+        runlevel.run[i_total]--; // compensate for the DC coefficient set to zero (FIXME for inter?)
+
+    for( int i = i_total; i >= 0 && runlevel.last > 0 ; i-- )
+    {
+        if( abs( runlevel.level[i] ) <= 40 && runlevel.run[i] <= dct_vlc_largest_run[abs( runlevel.level[i] )] )
+        {
+            bs_write_vlc( s, dct_vlcs[intra_tab][abs( runlevel.level[i] )][runlevel.run[i]] );
+            bs_write1( s, runlevel.level[i] < 0 );
+            if( runlevel.level[i] == 0 ) printf("\n\nbad level!\n\n");
+        }
+        else
+        {
+            bs_write_vlc( s, dct_vlcs[h->param.b_alt_intra_vlc][0][1] ); // escape
+            bs_write( s, 6, runlevel.run[i] );
+            bs_write( s, 12, runlevel.level[i] & ((1<<12)-1) ); // convert to 12-bit signed
+        }
+    }
+}
+
 /*****************************************************************************
- * x264_macroblock_write:
+ * x262_macroblock_write:
  *****************************************************************************/
 void x262_macroblock_write_vlc( x264_t *h )
 {
@@ -88,18 +117,13 @@ void x262_macroblock_write_vlc( x264_t *h )
         {
             h->dct.mpeg2_8x8[i][0] = 0;
             if( i < 4 )
-            {
-                // DC coefficient
                 bs_write_vlc( s, x262_dc_luma_code[h->mb.i_dct_dc_size[i]] );
-                if( h->mb.i_dct_dc_size[i] )
-                    bs_write( s, h->mb.i_dct_dc_size[i], h->mb.i_dct_dc_diff[i] );
-            }
             else
-            {
                 bs_write_vlc( s, x262_dc_chroma_code[h->mb.i_dct_dc_size[i]] );
-                if( h->mb.i_dct_dc_size[i] )
-                    bs_write( s, h->mb.i_dct_dc_size[i], h->mb.i_dct_dc_diff[i] );
-            }
+
+            if( h->mb.i_dct_dc_size[i] )
+                bs_write( s, h->mb.i_dct_dc_size[i], h->mb.i_dct_dc_diff[i] ); // DC
+            x262_write_dct_vlcs( h, h->dct.mpeg2_8x8[i], h->param.b_alt_intra_vlc ); // AC
             bs_write_vlc( s, dct_vlcs[h->param.b_alt_intra_vlc][0][0] ); // end of block
         }
         else if( cbp & (1<<(5-i)) )
