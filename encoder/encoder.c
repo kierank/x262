@@ -331,8 +331,7 @@ static void x262_slice_header_write( x264_t *h, bs_t *s, int i_mb_y )
 {
     if( h->param.i_height > 2800 )
        bs_write( s, 3, 0 ); // FIXME
-
-    bs_write( s, 5, 1 ); // quantiser_scale_code FIXME
+    bs_write( s, 5, h->mb.i_qp ); // quantiser_scale_code
     bs_write1( s, 0 ); // extra_bit_slice
 }
 
@@ -581,10 +580,17 @@ static int x264_validate_parameters( x264_t *h )
     if( h->param.rc.i_rc_method == X264_RC_CQP )
     {
         float qp_p = h->param.rc.i_qp_constant;
-        float qp_i = qp_p - 6*log2f( h->param.rc.f_ip_factor );
-        float qp_b = qp_p + 6*log2f( h->param.rc.f_pb_factor );
-        h->param.rc.i_qp_min = x264_clip3( (int)(X264_MIN3( qp_p, qp_i, qp_b )), 0, QP_MAX );
-        h->param.rc.i_qp_max = x264_clip3( (int)(X264_MAX3( qp_p, qp_i, qp_b ) + .999), 0, QP_MAX );
+        int stepsize = 6;
+        int qp_max = QP_MAX;
+        if( MPEG2 )
+        {
+            stepsize = 8;
+            qp_max = QP_MAX_MPEG2;
+        }
+        float qp_i = qp_p - stepsize*log2f( h->param.rc.f_ip_factor );
+        float qp_b = qp_p + stepsize*log2f( h->param.rc.f_pb_factor );
+        h->param.rc.i_qp_min = x264_clip3( (int)(X264_MIN3( qp_p, qp_i, qp_b )), 0, qp_max );
+        h->param.rc.i_qp_max = x264_clip3( (int)(X264_MAX3( qp_p, qp_i, qp_b ) + .999), 0, qp_max );
         h->param.rc.i_aq_mode = 0;
         h->param.rc.b_mb_tree = 0;
     }

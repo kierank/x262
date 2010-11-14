@@ -37,8 +37,6 @@
 #   include "arm/quant.h"
 #endif
 
-#define DIV(n,d) (((n) + ((d)>>1)) / (d))
-
 #define QUANT_ONE( coef, mf, f ) \
 { \
     if( (coef) > 0 ) \
@@ -51,9 +49,9 @@
 #define QUANT_ONE_MPEG2( coef, mf, f ) \
 { \
     if( (coef) > 0 ) \
-        (coef) = DIV( ( f + (coef<<5) ), (mf) ); \
+        (coef) = ( f + (coef<<5) ) / (mf) ; \
     else \
-        (coef) = - (DIV( ( f - (coef<<5) ), (mf) )); \
+        (coef) = - (( f - (coef<<5) ) / (mf) ); \
     nz |= (coef); \
 }
 
