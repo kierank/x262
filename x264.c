@@ -687,7 +687,7 @@ static void help( x264_param_t *defaults, int longhelp )
     H0( "      --mpeg2                 Encode as MPEG-2 instead of H.264\n" );
     H2( "      --dc <integer>          Specify intra DC precision to use (8 to 11) [%d]\n", defaults->i_intra_dc_precision + 8);
     H2( "      --altscan               Use alternate MPEG-2 VLC scan order, not zigzag\n" );
-    H2( "      --nonlinear-quant       Use MPEG-2 nonlinear quantization table\n" );
+    H2( "      --linear-quant          Use MPEG-2 linear quantization table\n" );
 #endif
     H0( "\n" );
     H0( "Input/Output:\n" );
@@ -864,7 +864,7 @@ static struct option long_options[] =
     { "mpeg2",             no_argument, NULL, 0 },
     { "dc",          required_argument, NULL, 0 },
     { "altscan",           no_argument, NULL, 0 },
-    { "nonlinear-quant",   no_argument, NULL, 0 },
+    { "linear-quant",      no_argument, NULL, 0 },
 #endif
     { "ratetol",     required_argument, NULL, 0 },
     { "vbv-maxrate", required_argument, NULL, 0 },
