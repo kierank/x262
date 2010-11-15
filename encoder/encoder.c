@@ -2878,11 +2878,10 @@ int     x264_encoder_encode( x264_t *h,
 
     if( h->fenc->b_keyframe )
     {
-        // FIXME make this work with MPEG-2
-        if( !MPEG2 && h->param.b_repeat_headers && h->fenc->i_frame == 0 )
+        if( h->param.b_repeat_headers && h->fenc->i_frame == 0 )
         {
             /* identify ourself */
-            x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
+            x264_nal_start( h, MPEG2 ? MPEG2_USER_DATA : NAL_SEI, NAL_PRIORITY_DISPOSABLE );
             if( x264_sei_version_write( h, &h->out.bs ) )
                 return -1;
             if( x264_nal_end( h ) )
