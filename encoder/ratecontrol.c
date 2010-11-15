@@ -646,14 +646,21 @@ int x264_ratecontrol_new( x264_t *h )
         rc->last_non_b_pict_type = SLICE_TYPE_I;
     }
 
-    rc->ip_offset = 6.0 * log2f( h->param.rc.f_ip_factor );
-    rc->pb_offset = 6.0 * log2f( h->param.rc.f_pb_factor );
+    float stepsize = 6.0;
+    float qp_max = QP_MAX;
+    if( MPEG2 )
+    {
+        stepsize = 8.0;
+        qp_max = QP_MAX_MPEG2;
+    }
+    rc->ip_offset = stepsize * log2f( h->param.rc.f_ip_factor );
+    rc->pb_offset = stepsize * log2f( h->param.rc.f_pb_factor );
     rc->qp_constant[SLICE_TYPE_P] = h->param.rc.i_qp_constant;
-    rc->qp_constant[SLICE_TYPE_I] = x264_clip3( h->param.rc.i_qp_constant - rc->ip_offset + 0.5, 0, QP_MAX );
-    rc->qp_constant[SLICE_TYPE_B] = x264_clip3( h->param.rc.i_qp_constant + rc->pb_offset + 0.5, 0, QP_MAX );
+    rc->qp_constant[SLICE_TYPE_I] = x264_clip3( h->param.rc.i_qp_constant - rc->ip_offset + 0.5, 0, qp_max );
+    rc->qp_constant[SLICE_TYPE_B] = x264_clip3( h->param.rc.i_qp_constant + rc->pb_offset + 0.5, 0, qp_max );
     h->mb.ip_offset = rc->ip_offset + 0.5;
 
-    rc->lstep = pow( 2, h->param.rc.i_qp_step / 6.0 );
+    rc->lstep = pow( 2, h->param.rc.i_qp_step / stepsize );
     rc->last_qscale = qp2qscale( h, 26 );
     int num_preds = h->param.b_sliced_threads * h->param.i_threads + 1;
     CHECKED_MALLOC( rc->pred, 5 * sizeof(predictor_t) * num_preds );
@@ -754,6 +761,7 @@ int x264_ratecontrol_new( x264_t *h )
             CMP_OPT_FIRST_PASS( "b_pyramid", h->param.i_bframe_pyramid );
             CMP_OPT_FIRST_PASS( "intra_refresh", h->param.b_intra_refresh );
             CMP_OPT_FIRST_PASS( "open_gop", h->param.i_open_gop );
+            CMP_OPT_FIRST_PASS( "mpeg2", h->param.b_mpeg2 );
 
             if( (p = strstr( opts, "keyint=" )) )
             {

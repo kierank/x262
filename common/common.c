@@ -1262,11 +1262,12 @@ char *x264_param2string( x264_param_t *p, int b_res )
         s += sprintf( s, "%dx%d ", p->i_width, p->i_height );
         s += sprintf( s, "fps=%u/%u ", p->i_fps_num, p->i_fps_den );
         s += sprintf( s, "timebase=%u/%u ", p->i_timebase_num, p->i_timebase_den );
-        s += sprintf( s, "bitdepth=%d", BIT_DEPTH );
+        s += sprintf( s, "bitdepth=%d ", BIT_DEPTH );
     }
 
     s += sprintf( s, "cabac=%d", p->b_cabac );
     s += sprintf( s, " ref=%d", p->i_frame_reference );
+    s += sprintf( s, " mpeg2=%d", p->b_mpeg2 );
     s += sprintf( s, " deblock=%d:%d:%d", p->b_deblocking_filter,
                   p->i_deblocking_filter_alphac0, p->i_deblocking_filter_beta );
     s += sprintf( s, " analyse=%#x:%#x", p->analyse.intra, p->analyse.inter );

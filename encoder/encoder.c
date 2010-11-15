@@ -580,11 +580,11 @@ static int x264_validate_parameters( x264_t *h )
     if( h->param.rc.i_rc_method == X264_RC_CQP )
     {
         float qp_p = h->param.rc.i_qp_constant;
-        int stepsize = 6;
+        float stepsize = 6.0;
         int qp_max = QP_MAX;
         if( MPEG2 )
         {
-            stepsize = 8;
+            stepsize = 8.0;
             qp_max = QP_MAX_MPEG2;
         }
         float qp_i = qp_p - stepsize*log2f( h->param.rc.f_ip_factor );
@@ -594,16 +594,10 @@ static int x264_validate_parameters( x264_t *h )
         h->param.rc.i_aq_mode = 0;
         h->param.rc.b_mb_tree = 0;
     }
-    if( MPEG2 )
-    {
-        h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, 1, QP_MAX_MPEG2 );
-        h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min, 1, h->param.rc.i_qp_max );
-    }
-    else
-    {
-        h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, 0, QP_MAX );
-        h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min, 0, h->param.rc.i_qp_max );
-    }
+
+    h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, 1, MPEG2 ? QP_MAX_MPEG2 : QP_MAX );
+    h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min, 1, h->param.rc.i_qp_max );
+
     if( h->param.rc.i_vbv_buffer_size )
     {
         if( h->param.rc.i_rc_method == X264_RC_CQP )
