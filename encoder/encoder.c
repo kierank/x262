@@ -2858,11 +2858,15 @@ int     x264_encoder_encode( x264_t *h,
     for( int i = 0; i < h->fenc->extra_sei.num_payloads; i++ )
     {
         x264_nal_start( h, MPEG2 ? MPEG2_USER_DATA : NAL_SEI, NAL_PRIORITY_DISPOSABLE );
-        x264_sei_write( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size,
-                        h->fenc->extra_sei.payloads[i].payload_type );
+        if( MPEG2 )
+            x262_user_data_write( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size );
+        else
+            x264_sei_write( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size,
+                            h->fenc->extra_sei.payloads[i].payload_type );
         if( x264_nal_end( h ) )
             return -1;
-        overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1);
+        overhead += h->out.nal[h->out.i_nal-1].i_payload +
+                    ( MPEG2 ? STRUCTURE_OVERHEAD : NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1) );
         if( h->fenc->extra_sei.sei_free && h->fenc->extra_sei.payloads[i].payload )
             h->fenc->extra_sei.sei_free( h->fenc->extra_sei.payloads[i].payload );
     }
@@ -2880,7 +2884,8 @@ int     x264_encoder_encode( x264_t *h,
                 return -1;
             if( x264_nal_end( h ) )
                 return -1;
-            overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1);
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + 
+                        ( MPEG2 ? STRUCTURE_OVERHEAD : NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1) );
         }
 
         if( h->fenc->i_type != X264_TYPE_IDR )
