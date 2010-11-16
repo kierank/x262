@@ -686,6 +686,7 @@ void x262_seq_header_write( x264_t *h, bs_t *s )
     bs_write1( s, 0 ); // load_non_intra_quantiser_matrix
 
     bs_align_0( s );
+    bs_flush( s );
 }
 
 void x262_seq_extension_write( x264_t *h, bs_t *s )
@@ -709,6 +710,7 @@ void x262_seq_extension_write( x264_t *h, bs_t *s )
     bs_write( s, 5, 0 ); // frame_rate_extension_d
 
     bs_align_0( s );
+    bs_flush( s );
 }
 
 void x262_seq_disp_extension_write( x264_t *h, bs_t *s )
@@ -730,6 +732,7 @@ void x262_seq_disp_extension_write( x264_t *h, bs_t *s )
     bs_write( s, 14, h->fenc->i_display_v_size ); // display_vertical_size
 
     bs_align_0( s );
+    bs_flush( s );
 }
 
 void x262_gop_header_write( x264_t *h, bs_t *s )
@@ -748,6 +751,7 @@ void x262_gop_header_write( x264_t *h, bs_t *s )
     bs_write1( s, 0 );   // broken_link
 
     bs_align_0( s );
+    bs_flush( s );
 }
 
 void x262_pic_header_write( x264_t *h, bs_t *s )
@@ -763,6 +767,7 @@ void x262_pic_header_write( x264_t *h, bs_t *s )
     bs_write1( s, 0 ); // extra_bit_picture
 
     bs_align_0( s );
+    bs_flush( s );
 }
 
 void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
@@ -788,6 +793,7 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
     bs_write1( s, 0 ); // composite_display_flag
 
     bs_align_0( s );
+    bs_flush( s );
 }
 
 void x262_pic_display_extension_write( x264_t *h, bs_t *s )
@@ -807,6 +813,7 @@ void x262_pic_display_extension_write( x264_t *h, bs_t *s )
     }
 
     bs_align_0( s );
+    bs_flush( s );
 }
 
 void x262_user_data_write( bs_t *s, uint8_t *payload, int payload_size )
@@ -817,6 +824,7 @@ void x262_user_data_write( bs_t *s, uint8_t *payload, int payload_size )
         bs_write(s, 8, payload[i] );
 
     bs_align_0( s );
+    bs_flush( s );
 }
 
 const x264_level_t x264_levels[] =
