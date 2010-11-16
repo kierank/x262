@@ -46,7 +46,8 @@ typedef struct
     int (*coeff_last[6])( dctcoef *dct );
     int (*coeff_level_run[6])( dctcoef *dct, x264_run_level_t *runlevel );
 
-    int (*quant_8x8_mpeg2)( dctcoef dct[64], const uint8_t qm[64], int qscale );
+    int (*quant_8x8_mpeg2)( dctcoef dct[64], uint16_t mf[64], uint16_t bias[64] );
+    void (*dequant_8x8_mpeg2)( dctcoef dct[64], int dequant_mf[64], uint16_t bias[64] );
 } x264_quant_function_t;
 
 void x264_quant_init( x264_t *h, int cpu, x264_quant_function_t *pf );

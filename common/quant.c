@@ -139,6 +139,23 @@ static void dequant_8x8( dctcoef dct[64], int dequant_mf[6][64], int i_qp )
     }
 }
 
+static void dequant_8x8_mpeg2( dctcoef dct[64], int dequant_mf[64], uint16_t bias[64] )
+{
+    int sum = 0;
+    for( int i = 0; i < 64; i++ )
+    {
+        if( dct[i] > 0 ) 
+            dct[i] = ( (dct[i] * dequant_mf[i]) + bias[i] ) / 32;
+        else
+            dct[i] = ( (dct[i] * dequant_mf[i]) - bias[i] ) / 32;
+        x264_clip3( dct[i], -2048, 2047 );
+        sum ^= dct[i];
+    }
+    /* mismatch control */
+    if( !(sum & 1) )
+        dct[63] ^= 1;
+}
+
 static void dequant_4x4_dc( dctcoef dct[16], int dequant_mf[6][16], int i_qp )
 {
     const int i_qbits = i_qp/6 - 6;
@@ -301,6 +318,9 @@ void x264_quant_init( x264_t *h, int cpu, x264_quant_function_t *pf )
     pf->coeff_level_run[DCT_CHROMA_DC] = x264_coeff_level_run4;
     pf->coeff_level_run[  DCT_LUMA_AC] = x264_coeff_level_run15;
     pf->coeff_level_run[ DCT_LUMA_4x4] = x264_coeff_level_run16;
+    
+    pf->quant_8x8_mpeg2 = quant_8x8_mpeg2;
+    pf->dequant_8x8_mpeg2 = dequant_8x8_mpeg2;
 
 #if !X264_HIGH_BIT_DEPTH
 #if HAVE_MMX
@@ -447,7 +467,4 @@ void x264_quant_init( x264_t *h, int cpu, x264_quant_function_t *pf )
     pf->coeff_level_run[  DCT_LUMA_DC] = pf->coeff_level_run[DCT_LUMA_4x4];
     pf->coeff_level_run[DCT_CHROMA_AC] = pf->coeff_level_run[ DCT_LUMA_AC];
     pf->coeff_level_run[5] = x264_coeff_level_run64;
-
-    if( MPEG2 )
-        pf->quant_8x8 = quant_8x8_mpeg2;
 }
