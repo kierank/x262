@@ -75,6 +75,8 @@ extern const vlc_t x262_p_mb_type[2][2][2];
 extern const vlc_t x262_b_mb_type[3][2][2];
 extern const vlc_large_t x262_dc_luma_code[12];
 extern const vlc_large_t x262_dc_chroma_code[12];
+extern const vlc_t x262_dmvector[3];
+extern const vlc_large_t x262_motion_code[33];
 extern const vlc_large_t dct_vlcs[2][41][32];
 extern const uint8_t dct_vlc_largest_run[41];
 
