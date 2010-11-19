@@ -502,9 +502,8 @@ int x264_param_apply_profile( x264_param_t *param, const char *profile )
             return -1;
         }
     }
-
-    if( (param->rc.i_rc_method == X264_RC_CQP && param->rc.i_qp_constant == 0) ||
-        (param->rc.i_rc_method == X264_RC_CRF && param->rc.f_rf_constant == 0) )
+    if( (param->rc.i_rc_method == X264_RC_CQP && param->rc.i_qp_constant <= 0) ||
+        (param->rc.i_rc_method == X264_RC_CRF && (int)(param->rc.f_rf_constant + QP_BD_OFFSET) <= 0) )
     {
         x264_log( NULL, X264_LOG_ERROR, "%s profile doesn't support lossless\n", profile );
         return -1;
@@ -1017,6 +1016,9 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         p->rc.f_complexity_blur = atof(value);
     OPT("zones")
         p->rc.psz_zones = strdup(value);
+    OPT("crop-rect")
+        b_error |= sscanf( value, "%u,%u,%u,%u", &p->crop_rect.i_left, &p->crop_rect.i_top,
+                                                 &p->crop_rect.i_right, &p->crop_rect.i_bottom ) != 4;
     OPT("psnr")
         p->analyse.b_psnr = atobool(value);
     OPT("ssim")

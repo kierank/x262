@@ -680,6 +680,8 @@ static void help( x264_param_t *defaults, int longhelp )
     H2( "      --nal-hrd <string>      Signal HRD information (requires vbv-bufsize)\n"
         "                                  - none, vbr, cbr (cbr not allowed in .mp4)\n" );
     H2( "      --pic-struct            Force pic_struct in Picture Timing SEI\n" );
+    H2( "      --crop-rect <string>    Add 'left,top,right,bottom' to the bitstream-level\n"
+        "                              cropping rectangle\n" );
 #if MPEG2_ENABLED
     H2( "\n" );
     H2( "MPEG-2 (H.262):\n" );
@@ -927,6 +929,7 @@ static struct option long_options[] =
     { "tcfile-out",  required_argument, NULL, OPT_TCFILE_OUT },
     { "timebase",    required_argument, NULL, OPT_TIMEBASE },
     { "pic-struct",        no_argument, NULL, 0 },
+    { "crop-rect",   required_argument, NULL, 0 },
     { "nal-hrd",     required_argument, NULL, 0 },
     { "pulldown",    required_argument, NULL, OPT_PULLDOWN },
     { "fake-interlaced",   no_argument, NULL, 0 },

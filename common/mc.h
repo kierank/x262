@@ -92,12 +92,13 @@ typedef struct
     void (*plane_copy_interleave)( pixel *dst, int i_dst,
                                    uint8_t *srcu, int i_srcu,
                                    uint8_t *srcv, int i_srcv, int w, int h );
+    /* may write up to 15 pixels off the end of each plane */
     void (*plane_copy_deinterleave)( pixel *dstu, int i_dstu,
                                      pixel *dstv, int i_dstv,
                                      pixel *src, int i_src, int w, int h );
 
     void (*hpel_filter)( pixel *dsth, pixel *dstv, pixel *dstc, pixel *src,
-                         int i_stride, int i_width, int i_height, dctcoef *buf );
+                         int i_stride, int i_width, int i_height, int16_t *buf );
 
     /* prefetch the next few macroblocks of fenc or fdec */
     void (*prefetch_fenc)( pixel *pix_y, int stride_y,

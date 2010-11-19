@@ -76,6 +76,10 @@ cc_check() {
         log_msg "$CC conftest.c $CFLAGS $2 $LDFLAGSCLI $LDFLAGS"
         cat conftest.log >> config.log
         log_msg "--------------------------------------------------"
+        log_msg "Failed program was:"
+        log_msg "--------------------------------------------------"
+        cat conftest.c >> config.log
+        log_msg "--------------------------------------------------"
     fi
     return $res
 }
@@ -95,6 +99,10 @@ cpp_check() {
         log_msg "--------------------------------------------------"
         cat conftest.log >> config.log
         log_msg "--------------------------------------------------"
+        log_msg "Failed program was:"
+        log_msg "--------------------------------------------------"
+        cat conftest.c >> config.log
+        log_msg "--------------------------------------------------"
     fi
     return $res
 }
@@ -112,6 +120,10 @@ as_check() {
         log_msg "--------------------------------------------------"
         log_msg "$AS conftest.asm $ASFLAGS $2 -o conftest.o"
         cat conftest.log >> config.log
+        log_msg "--------------------------------------------------"
+        log_msg "Failed program was:"
+        log_msg "--------------------------------------------------"
+        cat conftest.asm >> config.log
         log_msg "--------------------------------------------------"
     fi
     return $res
@@ -718,10 +730,12 @@ if cc_check '' -Wshadow ; then
 fi
 
 if [ "$bit_depth" -gt "8" ]; then
-    define X264_HIGH_BIT_DEPTH
+    define HIGH_BIT_DEPTH
+    ASFLAGS="$ASFLAGS -DHIGH_BIT_DEPTH"
 fi
 
 define BIT_DEPTH $bit_depth
+ASFLAGS="$ASFLAGS -DBIT_DEPTH=$bit_depth"
 
 if [ $gpl = yes ]; then
     define HAVE_GPL 1

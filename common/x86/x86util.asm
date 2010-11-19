@@ -27,6 +27,15 @@
 %assign FENC_STRIDE 16
 %assign FDEC_STRIDE 32
 
+%assign SIZEOF_PIXEL 1
+%assign SIZEOF_DCTCOEF 2
+%ifdef HIGH_BIT_DEPTH
+    %assign SIZEOF_PIXEL 2
+    %assign SIZEOF_DCTCOEF 4
+%endif
+
+%assign PIXEL_MAX ((1 << BIT_DEPTH)-1)
+
 %macro SBUTTERFLY 4
     mova      m%4, m%2
     punpckl%1 m%2, m%3
@@ -152,6 +161,17 @@
     psubb   %4, %2
     pminub  %1, %3
     pminub  %2, %4
+%endmacro
+
+%macro ABSD2_MMX 4
+    pxor    %3, %3
+    pxor    %4, %4
+    pcmpgtd %3, %1
+    pcmpgtd %4, %2
+    pxor    %1, %3
+    pxor    %2, %4
+    psubd   %1, %3
+    psubd   %2, %4
 %endmacro
 
 %macro ABSB_SSSE3 2
@@ -471,7 +491,10 @@
 
 
 %macro LOAD_DIFF 5
-%ifidn %3, none
+%ifdef HIGH_BIT_DEPTH
+    mova       %1, %4
+    psubw      %1, %5
+%elifidn %3, none
     movh       %1, %4
     movh       %2, %5
     punpcklbw  %1, %2
@@ -557,6 +580,16 @@
     packuswb   %2, %1
 %endmacro
 
+%ifdef HIGH_BIT_DEPTH
+%macro STORE_DIFF 5
+    punpcklwd  %2, %1
+    punpckhwd  %3, %1
+    psrad      %2, 16
+    psrad      %3, 16
+    mova       %4, %2
+    mova       %5, %3
+%endmacro
+%else
 %macro STORE_DIFF 4
     movh       %2, %4
     punpcklbw  %2, %3
@@ -564,4 +597,62 @@
     paddsw     %1, %2
     packuswb   %1, %1
     movh       %4, %1
+%endmacro
+%endif
+
+%macro CLIPW 3 ;(dst, min, max)
+    pmaxsw %1, %2
+    pminsw %1, %3
+%endmacro
+
+%macro HADDD 2 ; sum junk
+%if mmsize == 16
+    movhlps %2, %1
+    paddd   %1, %2
+    pshuflw %2, %1, 0xE
+    paddd   %1, %2
+%else
+    pshufw  %2, %1, 0xE
+    paddd   %1, %2
+%endif
+%endmacro
+
+%macro HADDW 2
+    pmaddwd %1, [pw_1]
+    HADDD   %1, %2
+%endmacro
+
+%macro HADDUW 2
+    mova  %2, %1
+    pslld %1, 16
+    psrld %2, 16
+    psrld %1, 16
+    paddd %1, %2
+    HADDD %1, %2
+%endmacro
+
+%macro FIX_STRIDES 1-*
+%ifdef HIGH_BIT_DEPTH
+%rep %0
+    add %1, %1
+    %rotate 1
+%endrep
+%endif
+%endmacro
+
+%macro SPLATW 2-3 0
+%if mmsize == 16
+    pshuflw    %1, %2, %3*0x55
+    punpcklqdq %1, %1
+%else
+    pshufw     %1, %2, %3*0x55
+%endif
+%endmacro
+
+%macro SPLATD 2-3 0
+%if mmsize == 16
+    pshufd %1, %2, %3*0x55
+%else
+    pshufw %1, %2, %3*0x11 + (%3+1)*0x44
+%endif
 %endmacro

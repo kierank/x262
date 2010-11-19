@@ -114,10 +114,11 @@ typedef union { x264_uint128_t i; uint64_t a[2]; uint32_t b[4]; uint16_t c[8]; u
 #define CP64(dst,src) M64(dst) = M64(src)
 #define CP128(dst,src) M128(dst) = M128(src)
 
-#if X264_HIGH_BIT_DEPTH
+#if HIGH_BIT_DEPTH
     typedef uint16_t pixel;
     typedef uint64_t pixel4;
     typedef int32_t  dctcoef;
+    typedef uint32_t udctcoef;
 
 #   define PIXEL_SPLAT_X4(x) ((x)*0x0001000100010001ULL)
 #   define MPIXEL_X4(src) M64(src)
@@ -125,6 +126,7 @@ typedef union { x264_uint128_t i; uint64_t a[2]; uint32_t b[4]; uint16_t c[8]; u
     typedef uint8_t  pixel;
     typedef uint32_t pixel4;
     typedef int16_t  dctcoef;
+    typedef uint16_t udctcoef;
 
 #   define PIXEL_SPLAT_X4(x) ((x)*0x01010101U)
 #   define MPIXEL_X4(src) M32(src)
@@ -491,10 +493,10 @@ struct x264_t
     int             (*unquant4_mf[4])[16];   /* [4][52][16] */
     int             (*unquant8_mf[2])[64];   /* [2][52][64] */
     /* quantization matrix for deadzone */
-    uint16_t        (*quant4_mf[4])[16];     /* [4][52][16] */
-    uint16_t        (*quant8_mf[2])[64];     /* [2][52][64] */
-    uint16_t        (*quant4_bias[4])[16];   /* [4][52][16] */
-    uint16_t        (*quant8_bias[2])[64];   /* [2][52][64] */
+    udctcoef        (*quant4_mf[4])[16];     /* [4][52][16] */
+    udctcoef        (*quant8_mf[2])[64];     /* [2][52][64] */
+    udctcoef        (*quant4_bias[4])[16];   /* [4][52][16] */
+    udctcoef        (*quant8_bias[2])[64];   /* [2][52][64] */
 
     /* mv/ref cost arrays.  Indexed by lambda instead of
      * qp because, due to rounding, some quantizers share
@@ -851,12 +853,12 @@ struct x264_t
         int     i_direct_score[2];
         int     i_direct_frames[2];
         /* num p-frames weighted */
-        int     i_wpred[3];
+        int     i_wpred[2];
 
     } stat;
 
     ALIGNED_16( uint32_t nr_residual_sum[2][64] );
-    ALIGNED_16( uint16_t nr_offset[2][64] );
+    ALIGNED_16( udctcoef nr_offset[2][64] );
     uint32_t        nr_count[2];
 
     /* Buffers that are allocated per-thread even in sliced threads. */
