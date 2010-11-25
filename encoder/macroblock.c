@@ -799,8 +799,12 @@ void x264_macroblock_encode( x264_t *h )
         /* Don't repeat motion compensation if it was already done in non-RD transform analysis */
         if( !h->mb.b_skip_mc )
             x264_mb_mc( h );
-
-        if( h->mb.b_lossless )
+            
+        if( MPEG2 )
+        {
+            // TODO
+        }
+        else if( h->mb.b_lossless )
         {
             if( h->mb.b_transform_8x8 )
                 for( int i8x8 = 0; i8x8 < 4; i8x8++ )

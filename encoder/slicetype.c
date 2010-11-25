@@ -40,8 +40,13 @@ static int x264_slicetype_frame_cost( x264_t *h, x264_mb_analysis_t *a,
 
 static void x264_lowres_context_init( x264_t *h, x264_mb_analysis_t *a )
 {
+    const uint16_t *lambda_tab;
+    if( MPEG2 )
+        lambda_tab = h->param.b_nonlinear_quant ? x262_lambda_tab_exp : x262_lambda_tab_lin;
+    else
+        lambda_tab = x264_lambda_tab;
     a->i_qp = X264_LOOKAHEAD_QP;
-    a->i_lambda = x264_lambda_tab[ a->i_qp ];
+    a->i_lambda = lambda_tab[ a->i_qp ];
     x264_mb_analyse_load_costs( h, a );
     if( h->param.analyse.i_subpel_refine > 1 )
     {
