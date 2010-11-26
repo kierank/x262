@@ -2857,7 +2857,7 @@ int     x264_encoder_encode( x264_t *h,
     {
         /* generate picture header */
         x264_nal_start( h, MPEG2_PICTURE_HEADER, NAL_PRIORITY_HIGHEST );
-        x262_gop_header_write( h, &h->out.bs );
+        x262_pic_header_write( h, &h->out.bs );
         if( x264_nal_end( h ) )
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
@@ -2897,18 +2897,17 @@ int     x264_encoder_encode( x264_t *h,
     if( h->fenc->extra_sei.sei_free && h->fenc->extra_sei.payloads )
         h->fenc->extra_sei.sei_free( h->fenc->extra_sei.payloads );
 
-    if( h->fenc->b_keyframe )
+    if( h->fenc->b_keyframe && !MPEG2 )
     {
         if( h->param.b_repeat_headers && h->fenc->i_frame == 0 )
         {
             /* identify ourself */
-            x264_nal_start( h, MPEG2 ? MPEG2_USER_DATA : NAL_SEI, NAL_PRIORITY_DISPOSABLE );
+            x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
             if( x264_sei_version_write( h, &h->out.bs ) )
                 return -1;
             if( x264_nal_end( h ) )
                 return -1;
-            overhead += h->out.nal[h->out.i_nal-1].i_payload + 
-                        ( MPEG2 ? STRUCTURE_OVERHEAD : NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1) );
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1) );
         }
 
         if( h->fenc->i_type != X264_TYPE_IDR )

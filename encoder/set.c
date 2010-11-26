@@ -593,9 +593,8 @@ int x264_sei_version_write( x264_t *h, bs_t *s )
              "Copy%s 2003-2010 - http://www.videolan.org/x264.html - options: %s",
              X264_BUILD, X264_VERSION, HAVE_GPL?"left":"right", opts );
     length = strlen(payload)+1;
-
     MPEG2 ? x262_user_data_write( s, (uint8_t *)payload, length ) :
-                      x264_sei_write( s, (uint8_t *)payload, length, SEI_USER_DATA_UNREGISTERED );
+                  x264_sei_write( s, (uint8_t *)payload, length, SEI_USER_DATA_UNREGISTERED );
 
     x264_free( opts );
     x264_free( payload );
@@ -758,12 +757,20 @@ void x262_pic_header_write( x264_t *h, bs_t *s )
 {
     bs_realign( s );
 
-    bs_write1( s, 0 ); // temporal_reference FIXME
+    int temporal_ref = ( h->fenc->i_frame - h->frames.i_last_keyframe ) % 1024;
+    bs_write( s, 10, temporal_ref ); // temporal_reference
     bs_write( s, 3, IS_X264_TYPE_I( h->fenc->i_type ) ? 1 : h->fenc->i_type == X264_TYPE_P ? 2 : 3 ); // picture_coding_type
     bs_write( s, 16, 0xffff ); // vbv_delay FIXME
-
-    // TODO
-
+    if( h->fenc->i_type > 1 ) // X264_TYPE_P or X264_TYPE_B
+    {
+        bs_write1( s, 0 ); // full_pel_forward_vector
+        bs_write( s, 3, 7 ); // forward_f_code
+    }
+    if( h->fenc->i_type > 2 ) // X264_TYPE_B
+    {
+        bs_write1( s, 0 ); // full_pel_forward_vector
+        bs_write( s, 3, 7 ); // forward_f_code
+    }
     bs_write1( s, 0 ); // extra_bit_picture
 
     bs_align_0( s );
