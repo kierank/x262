@@ -55,6 +55,14 @@
 #include <libavutil/pixdesc.h>
 #endif
 
+#if HAVE_SWSCALE
+#include <libswscale/swscale.h>
+#endif
+
+#if HAVE_FFMS
+#include <ffms.h>
+#endif
+
 /* Ctrl-C handler */
 static volatile int b_ctrl_c = 0;
 static int          b_exit_on_ctrl_c = 0;
@@ -208,6 +216,15 @@ static void print_version_info()
 #else
     printf( "x264 0.%d.X\n", X264_BUILD );
 #endif
+#if HAVE_SWSCALE
+    printf( "(libswscale %d.%d.%d)\n", LIBSWSCALE_VERSION_MAJOR, LIBSWSCALE_VERSION_MINOR, LIBSWSCALE_VERSION_MICRO );
+#endif
+#if HAVE_LAVF
+    printf( "(libavformat %d.%d.%d)\n", LIBAVFORMAT_VERSION_MAJOR, LIBAVFORMAT_VERSION_MINOR, LIBAVFORMAT_VERSION_MICRO );
+#endif
+#if HAVE_FFMS
+    printf( "(ffmpegsource %d.%d.%d.%d)\n", FFMS_VERSION >> 24, (FFMS_VERSION & 0xff0000) >> 16, (FFMS_VERSION & 0xff00) >> 8, FFMS_VERSION & 0xff );
+#endif
     printf( "built on " __DATE__ ", " );
 #ifdef __GNUC__
     printf( "gcc: " __VERSION__ "\n" );
@@ -221,9 +238,9 @@ static void print_version_info()
 #else
     printf( "Non-GPL commercial\n" );
 #endif
-#if HAVE_LAVF
-    const char *license = avformat_license();
-    printf( "libavformat license: %s\n", license );
+#if HAVE_SWSCALE
+    const char *license = swscale_license();
+    printf( "libswscale%s%s license: %s\n", HAVE_LAVF ? "/libavformat" : "", HAVE_FFMS ? "/ffmpegsource" : "" , license );
     if( !strcmp( license, "nonfree and unredistributable" ) ||
        (!HAVE_GPL && (!strcmp( license, "GPL version 2 or later" )
                   ||  !strcmp( license, "GPL version 3 or later" ))))
@@ -419,15 +436,16 @@ static void help( x264_param_t *defaults, int longhelp )
         "                                  - superfast:\n"
         "                                    --no-mbtree --me dia --no-mixed-refs\n"
         "                                    --partitions i8x8,i4x4 --rc-lookahead 0\n"
-        "                                    --ref 1 --subme 1 --trellis 0 --weightp 0\n"
+        "                                    --ref 1 --subme 1 --trellis 0 --weightp 1\n"
         "                                  - veryfast:\n"
         "                                    --no-mixed-refs --rc-lookahead 10\n"
-        "                                    --ref 1 --subme 2 --trellis 0 --weightp 0\n"
+        "                                    --ref 1 --subme 2 --trellis 0 --weightp 1\n"
         "                                  - faster:\n"
         "                                    --no-mixed-refs --rc-lookahead 20\n"
         "                                    --ref 2 --subme 4 --weightp 1\n"
         "                                  - fast:\n"
         "                                    --rc-lookahead 30 --ref 2 --subme 6\n"
+        "                                    --weightp 1\n"
         "                                  - medium:\n"
         "                                    Default settings apply.\n"
         "                                  - slow:\n"
@@ -592,8 +610,8 @@ static void help( x264_param_t *defaults, int longhelp )
     H2( "      --no-weightb            Disable weighted prediction for B-frames\n" );
     H1( "      --weightp <integer>     Weighted prediction for P-frames [%d]\n"
         "                                  - 0: Disabled\n"
-        "                                  - 1: Blind offset\n"
-        "                                  - 2: Smart analysis\n", defaults->analyse.i_weighted_pred );
+        "                                  - 1: Weighted refs\n"
+        "                                  - 2: Weighted refs + Duplicates\n", defaults->analyse.i_weighted_pred );
     H1( "      --me <string>           Integer pixel motion estimation method [\"%s\"]\n",
                                        strtable_lookup( x264_motion_est_names, defaults->analyse.i_me_method ) );
     H2( "                                  - dia: diamond search, radius 1 (fast)\n"
@@ -1644,7 +1662,8 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
     i_start = x264_mdate();
     /* ticks/frame = ticks/second / frames/second */
     ticks_per_frame = (int64_t)param->i_timebase_den * param->i_fps_den / param->i_timebase_num / param->i_fps_num;
-    FAIL_IF_ERROR( ticks_per_frame < 1, "ticks_per_frame invalid: %"PRId64"\n", ticks_per_frame )
+    FAIL_IF_ERROR( ticks_per_frame < 1 && !param->b_vfr_input, "ticks_per_frame invalid: %"PRId64"\n", ticks_per_frame )
+    ticks_per_frame = X264_MAX( ticks_per_frame, 1 );
 
     if( !param->b_repeat_headers )
     {

@@ -39,7 +39,7 @@
 
 #include <stdarg.h>
 
-#define X264_BUILD 108
+#define X264_BUILD 110
 
 /* x264_t:
  *      opaque handler for encoder */
@@ -173,7 +173,7 @@ typedef struct
 #define X264_B_ADAPT_FAST            1
 #define X264_B_ADAPT_TRELLIS         2
 #define X264_WEIGHTP_NONE            0
-#define X264_WEIGHTP_BLIND           1
+#define X264_WEIGHTP_SIMPLE          1
 #define X264_WEIGHTP_SMART           2
 #define X264_B_PYRAMID_NONE          0
 #define X264_B_PYRAMID_STRICT        1
@@ -836,6 +836,10 @@ void    x264_encoder_close  ( x264_t * );
  *      return the number of currently delayed (buffered) frames
  *      this should be used at the end of the stream, to know when you have all the encoded frames. */
 int     x264_encoder_delayed_frames( x264_t * );
+/* x264_encoder_maximum_delayed_frames( x264_t *h ):
+ *      return the maximum number of delayed (buffered) frames that can occur with the current
+ *      parameters. */
+int     x264_encoder_maximum_delayed_frames( x264_t *h );
 /* x264_encoder_intra_refresh:
  *      If an intra refresh is not in progress, begin one with the next P-frame.
  *      If an intra refresh is in progress, begin one as soon as the current one finishes.
