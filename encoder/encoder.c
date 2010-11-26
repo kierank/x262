@@ -2907,7 +2907,7 @@ int     x264_encoder_encode( x264_t *h,
                 return -1;
             if( x264_nal_end( h ) )
                 return -1;
-            overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1) );
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1);
         }
 
         if( h->fenc->i_type != X264_TYPE_IDR )
