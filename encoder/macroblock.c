@@ -329,6 +329,11 @@ static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
     h->mb.i_intra_dc_predictor[idx] = dcb;
 }
 
+static void x262_mb_encode_p_block( x264_t *h, int idx, int i_qp )
+{
+
+}
+
 static inline int idct_dequant_round_2x2_dc( dctcoef ref[4], dctcoef dct[4], int dequant_mf[6][16], int i_qp )
 {
     dctcoef out[4];
@@ -799,10 +804,15 @@ void x264_macroblock_encode( x264_t *h )
         /* Don't repeat motion compensation if it was already done in non-RD transform analysis */
         if( !h->mb.b_skip_mc )
             x264_mb_mc( h );
-            
+
         if( MPEG2 )
         {
-            // TODO
+            for( int i = 0; i < 4; i++ )
+            {
+                pixel *p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
+                //h->predict_mpeg2_8x8( p_dst, 0 );
+                x262_mb_encode_p_block( h, i, i_qp );
+            }
         }
         else if( h->mb.b_lossless )
         {

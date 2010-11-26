@@ -785,7 +785,7 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
     if( ( h->sps->i_profile_idc == MPEG2_PROFILE_SIMPLE && !h->param.i_bframe ) || IS_X264_TYPE_I( h->fenc->i_type ) )
         bs_write( s, 16, 0xffff ); // f_code[s][t]
     else
-        bs_write( s, 16, 0x0000 ); // FIXME
+        bs_write( s, 16, 0x7700 ); // FIXME
     bs_write( s, 2, h->param.i_intra_dc_precision ); // intra_dc_precision
     bs_write( s, 2, !h->param.b_interlaced ? 3 : h->param.b_tff ? 1 : 2 ); // picture_structure
     bs_write1( s, h->param.b_interlaced ? h->param.b_tff : 0 ); // top_field_first
