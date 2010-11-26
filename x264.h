@@ -737,12 +737,6 @@ typedef struct
     int     i_pic_struct;
     /* In: MPEG-2 ONLY - repeat first field flag. Only valid for progressive input. */
     int     b_rff;
-    /* In: MPEG-2 ONLY - position display rectangle.  Useful for implementing pan-scan. 
-           Display sizes are measured in pixels, but offsets are measured in 1/16 pixels. */
-    int     i_display_h_size;
-    int     i_display_v_size;
-    int     i_offset_h;
-    int     i_offset_v;
     /* Out: whether this frame is a keyframe.  Important when using modes that result in
      * SEI recovery points being used instead of IDR frames. */
     int     b_keyframe;

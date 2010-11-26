@@ -2838,11 +2838,27 @@ int     x264_encoder_encode( x264_t *h,
             overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
             /* generate sequence display extension */
-            x264_nal_start( h, MPEG2_SEQ_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
-            x262_seq_disp_extension_write( h, &h->out.bs );
-            if( x264_nal_end( h ) )
-                return -1;
-            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+            if( h->sps->vui.i_vidformat != 5 || h->sps->vui.b_color_description_present ||
+                h->param.crop_rect.i_left || h->param.crop_rect.i_right ||
+                h->param.crop_rect.i_top || h->param.crop_rect.i_bottom )
+            {
+                x264_nal_start( h, MPEG2_SEQ_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
+                x262_seq_disp_extension_write( h, &h->out.bs );
+                if( x264_nal_end( h ) )
+                    return -1;
+                overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+            }
+
+            if( h->fenc->b_keyframe && h->param.b_repeat_headers && h->fenc->i_frame == 0 )
+            {
+                /* identify ourself */
+                x264_nal_start( h, MPEG2_USER_DATA, NAL_PRIORITY_HIGHEST );
+                if( x264_sei_version_write( h, &h->out.bs ) )
+                    return -1;
+                if( x264_nal_end( h ) )
+                    return -1;
+                overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+            }
 
             /* generate gop header */
             x264_nal_start( h, MPEG2_GOP_HEADER, NAL_PRIORITY_HIGHEST );
@@ -2870,11 +2886,15 @@ int     x264_encoder_encode( x264_t *h,
         overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
         /* generate picture display extension */
-        x264_nal_start( h, MPEG2_PICTURE_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
-        x262_pic_display_extension_write( h, &h->out.bs );
-        if( x264_nal_end( h ) )
-            return -1;
-        overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+        if( h->param.crop_rect.i_left || h->param.crop_rect.i_right ||
+            h->param.crop_rect.i_top || h->param.crop_rect.i_bottom )
+        {
+            x264_nal_start( h, MPEG2_PICTURE_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
+            x262_pic_display_extension_write( h, &h->out.bs );
+            if( x264_nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+        }
     }
 
     /* write extra sei (H.264) / user data (MPEG-2) */

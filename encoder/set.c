@@ -726,9 +726,9 @@ void x262_seq_disp_extension_write( x264_t *h, bs_t *s )
         bs_write( s, 8, sps->vui.i_transfer );
         bs_write( s, 8, sps->vui.i_colmatrix );
     }
-    bs_write( s, 14, h->fenc->i_display_h_size ); // display_horizontal_size
+    bs_write( s, 14, h->param.i_width - h->param.crop_rect.i_left - h->param.crop_rect.i_right ); // display_horizontal_size
     bs_write1( s, 1 ); // marker_bit
-    bs_write( s, 14, h->fenc->i_display_v_size ); // display_vertical_size
+    bs_write( s, 14, h->param.i_height - h->param.crop_rect.i_top - h->param.crop_rect.i_bottom ); // display_vertical_size
 
     bs_align_0( s );
     bs_flush( s );
@@ -807,15 +807,17 @@ void x262_pic_display_extension_write( x264_t *h, bs_t *s )
 {
     int offsets = !h->param.b_interlaced ? h->fenc->b_rff ? h->param.b_tff ? 3 : 2 : 1 :
                    h->param.b_interlaced ? 1 : h->fenc->b_rff ? 3 : 2;
-
     bs_realign( s );
 
     bs_write( s, 4, MPEG2_PIC_DISPLAY_EXT_ID ); // extension_start_code_identifier
+
+    int cx = h->param.i_width / 2;
+    int cy = h->param.i_height / 2;
     for( int i = 0; i < offsets; i++ )
     {
-        bs_write( s, 16, h->fenc->i_offset_h ); // frame_centre_horizontal_offset
+        bs_write( s, 16, ( cx - h->param.crop_rect.i_left ) * 16 ); // frame_centre_horizontal_offset
         bs_write1( s, 1 ); // marker_bit
-        bs_write( s, 16, h->fenc->i_offset_v ); // frame_centre_vertical_offset
+        bs_write( s, 16, ( cy - h->param.crop_rect.i_top ) * 16 ); // frame_centre_vertical_offset
         bs_write1( s, 1 ); // marker_bit
     }
 
@@ -827,8 +829,8 @@ void x262_user_data_write( bs_t *s, uint8_t *payload, int payload_size )
 {
     bs_realign( s );
 
-    for( int i = 0; i < payload_size; i++ )
-        bs_write(s, 8, payload[i] );
+    for( int i = 0; i < payload_size; i++ ) // payload cannot contain a start code
+        bs_write( s, 8, payload[i] );
 
     bs_align_0( s );
     bs_flush( s );
