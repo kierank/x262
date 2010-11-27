@@ -329,9 +329,39 @@ static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
     h->mb.i_intra_dc_predictor[idx] = dcb;
 }
 
-static void x262_mb_encode_p_block( x264_t *h, int idx, int i_qp )
+static void x262_mb_encode_inter_block( x264_t *h, int idx, int i_qp )
 {
+    pixel *p_src;
+    pixel *p_dst;
+    ALIGNED_ARRAY_16( dctcoef, dct8x8,[64] );
+    int nz, delta;
 
+    if( idx < 4 )
+    {
+        int x = idx&1;
+        int y = idx>>1;
+        p_src = &h->mb.pic.p_fenc[0][8*x + 8*y*FENC_STRIDE];
+        p_dst = &h->mb.pic.p_fdec[0][8*x + 8*y*FDEC_STRIDE];
+    }
+    else
+    {
+        p_src = h->mb.pic.p_fenc[idx-3];
+        p_dst = h->mb.pic.p_fdec[idx-3];
+    }
+
+    h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
+
+    nz = h->quantf.quant_8x8_mpeg2( dct8x8, h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] );
+    if( nz )
+    {
+        if( idx < 4 )
+            h->mb.i_cbp_luma |= 1<<(3-idx);
+        else
+            h->mb.i_cbp_chroma |= 1<<(5-idx);
+        h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
+        h->quantf.dequant_8x8_mpeg2( dct8x8, h->dequant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] );
+        h->dctf.add8x8_idct8( p_dst, dct8x8 );
+    }
 }
 
 static inline int idct_dequant_round_2x2_dc( dctcoef ref[4], dctcoef dct[4], int dequant_mf[6][16], int i_qp )
@@ -548,6 +578,9 @@ static void x264_macroblock_encode_skip( x264_t *h )
  *****************************************************************************/
 static void x264_macroblock_encode_pskip( x264_t *h )
 {
+    if( MPEG2 )
+        memset( h->mb.mvp, 0, sizeof(h->mb.mvp) );
+
     /* don't do pskip motion compensation if it was already done in macroblock_analyse */
     if( !h->mb.b_skip_mc )
     {
@@ -722,13 +755,19 @@ void x264_macroblock_encode( x264_t *h )
             h->predict_16x16[i_mode]( h->mb.pic.p_fdec[0] );
 
         /* encode the 16x16 macroblock */
-        if( MPEG2)
+        if( MPEG2 )
+        {
             for( int i = 0; i < 4; i++ )
             {
                 pixel *p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
                 h->predict_mpeg2_8x8( p_dst, 0 );
                 x262_mb_encode_i_block( h, i, i_qp );
             }
+
+            /* reset mvp */
+            if( h->sh.i_type == SLICE_TYPE_P || h->sh.i_type == SLICE_TYPE_B )
+                memset( h->mb.mvp, 0, sizeof(h->mb.mvp) );
+        }
         else
         {
             x264_mb_encode_i16x16( h, i_qp );
@@ -810,8 +849,7 @@ void x264_macroblock_encode( x264_t *h )
             for( int i = 0; i < 4; i++ )
             {
                 pixel *p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
-                //h->predict_mpeg2_8x8( p_dst, 0 );
-                x262_mb_encode_p_block( h, i, i_qp );
+                x262_mb_encode_inter_block( h, i, i_qp );
             }
         }
         else if( h->mb.b_lossless )

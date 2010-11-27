@@ -2079,7 +2079,10 @@ static int x264_slice_write( x264_t *h )
             x264_fdec_filter_row( h, i_mb_y, 1 );
 
         if( MPEG2 && ( i_skip || i_mb_x == 0 || !IS_INTRA( h->mb.i_type ) ) )
-             x262_reset_intra_dc_predictor( h );
+            x262_reset_intra_dc_predictor( h );
+
+        if( MPEG2 && i_mb_x == 0 )
+            memset( h->mb.mvp, 0, sizeof(h->mb.mvp) );
 
         /* load cache */
         x264_macroblock_cache_load( h, i_mb_x, i_mb_y );

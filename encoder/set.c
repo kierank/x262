@@ -761,14 +761,14 @@ void x262_pic_header_write( x264_t *h, bs_t *s )
     bs_write( s, 10, temporal_ref ); // temporal_reference
     bs_write( s, 3, IS_X264_TYPE_I( h->fenc->i_type ) ? 1 : h->fenc->i_type == X264_TYPE_P ? 2 : 3 ); // picture_coding_type
     bs_write( s, 16, 0xffff ); // vbv_delay FIXME
-    if( h->fenc->i_type > 1 ) // X264_TYPE_P or X264_TYPE_B
+    if( h->fenc->i_type > 1 )  // X264_TYPE_P or X264_TYPE_B
     {
-        bs_write1( s, 0 ); // full_pel_forward_vector
+        bs_write1( s, 0 );   // full_pel_forward_vector
         bs_write( s, 3, 7 ); // forward_f_code
     }
     if( h->fenc->i_type > 2 ) // X264_TYPE_B
     {
-        bs_write1( s, 0 ); // full_pel_forward_vector
+        bs_write1( s, 0 );   // full_pel_forward_vector
         bs_write( s, 3, 7 ); // forward_f_code
     }
     bs_write1( s, 0 ); // extra_bit_picture
