@@ -672,7 +672,6 @@ struct x264_t
         int     i_dct_dc_diff[6];
         int16_t mvp[2][2];
 
-
         int     i_cbp_luma;
         int     i_cbp_chroma;
 

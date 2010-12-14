@@ -1006,11 +1006,12 @@ void x264_macroblock_encode( x264_t *h )
             x264_predict_lossless_8x8_chroma( h, i_mode );
         else if( MPEG2 )
         {
+            h->mb.i_cbp_chroma = 0;
             h->predict_mpeg2_8x8( h->mb.pic.p_fdec[1], 0 );
             h->predict_mpeg2_8x8( h->mb.pic.p_fdec[2], 0 );
 
             for( int i = 4; i < 6; i++ )
-                x262_mb_encode_i_block( h, i, i_qp ); /* encode intra block */
+                x262_mb_encode_i_block( h, i, i_qp ); /* encode intra chroma */
         }
         else
         {
@@ -1018,14 +1019,18 @@ void x264_macroblock_encode( x264_t *h )
             h->predict_8x8c[i_mode]( h->mb.pic.p_fdec[2] );
         }
     }
-
     /* encode the 8x8 blocks */
-    if( MPEG2 )
-    {
-        // TODO inter MPEG-2
-    }
     else
-        x264_mb_encode_8x8_chroma( h, !IS_INTRA( h->mb.i_type ), h->mb.i_chroma_qp );
+    {
+        if( MPEG2 )
+        {
+            h->mb.i_cbp_chroma = 0;
+            for( int i = 4; i < 6; i++ )
+                x262_mb_encode_inter_block( h, i, i_qp ); /* encode inter chroma */
+        }
+        else
+            x264_mb_encode_8x8_chroma( h, !IS_INTRA( h->mb.i_type ), h->mb.i_chroma_qp );
+    }
 
     /* store cbp */ // FIXME do we need to make this into mpeg-2 cbp
     int cbp = h->mb.i_cbp_chroma << 4 | h->mb.i_cbp_luma;

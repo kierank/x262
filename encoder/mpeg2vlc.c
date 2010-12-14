@@ -43,13 +43,17 @@ static void x262_write_dct_vlcs( x264_t *h, dctcoef *l, int intra_tab )
     if( runlevel.run[i_total] && h->mb.i_type == I_16x16)
         runlevel.run[i_total]--; // compensate for the DC coefficient set to zero
 
-    for( int i = i_total; i >= 0 && runlevel.last > 0 ; i-- )
+    for( int i = i_total; i >= 0 && ( runlevel.last > 0 || h->mb.i_type != I_16x16 ); i-- )
     {
         if( abs( runlevel.level[i] ) <= 40 && runlevel.run[i] <= dct_vlc_largest_run[abs( runlevel.level[i] )] )
         {
-            bs_write_vlc( s, dct_vlcs[intra_tab][abs( runlevel.level[i] )][runlevel.run[i]] );
+            /* special case in table B.14 for abs(DC) == 1 */
+            if( !intra_tab && i == i_total && runlevel.run[i] == 0
+                && ( runlevel.level[i] == 1 || runlevel.level[i] == -1 ) )
+                bs_write1( s, 1 );
+            else
+                bs_write_vlc( s, dct_vlcs[intra_tab][abs( runlevel.level[i] )][runlevel.run[i]] );
             bs_write1( s, runlevel.level[i] < 0 );
-            if( runlevel.level[i] == 0 ) printf("\n\nbad level!\n\n");
         }
         else
         {
@@ -67,7 +71,7 @@ void x262_macroblock_write_vlc( x264_t *h )
 {
     bs_t *s = &h->out.bs;
     const int i_mb_type = h->mb.i_type;
-    int cbp, quant, mc, r_size;
+    int mc[2], r_size[2];
 
 #if RDO_SKIP_BS
     s->i_bits_encoded = 0;
@@ -76,18 +80,20 @@ void x262_macroblock_write_vlc( x264_t *h )
     int       i_mb_pos_tex = 0;
 #endif
 
-    cbp = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma; // coded block pattern
-    quant = h->mb.i_last_qp != h->mb.i_qp;
-    mc = 1; // FIXME
-    r_size = 6; // f_code[s][t] - 1 FIXME
+    mc[0] = mc[1] = 1; // FIXME
+
+    int cbp = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma; // coded_block_pattern_420
+    int quant = h->mb.i_last_qp != h->mb.i_qp;
+    int mcoded = mc[0] || mc[1];
+    r_size[0] = h->fenc->mv_fcode[0][0] - 1;
+    r_size[1] = h->fenc->mv_fcode[0][1] - 1;
 
     // macroblock modes
     if( i_mb_type == I_16x16 )
         bs_write_vlc( s, x262_i_mb_type[h->sh.i_type][quant] );
     else if( i_mb_type == P_L0 )
     {
-        bs_write_vlc( s, x262_p_mb_type[mc][!!cbp][quant] );
-        bs_write( s , 2, h->param.b_interlaced ? 1 : 2 ); // frame_motion_type
+        bs_write_vlc( s, x262_p_mb_type[mcoded][!!cbp][quant] );
     }
     else //if( i_mb_type == B_8x8 )
     {
@@ -97,15 +103,15 @@ void x262_macroblock_write_vlc( x264_t *h )
     if( quant )
         bs_write( s, 5, h->mb.i_qp ); // quantizer_scale_code
 
-    /* r = 1st or 2nd mv in macroblock
-       s = forward or backward
-       t = horizontal or vertical */
-
     // forward mvs
-    if( i_mb_type == P_L0 )
+    if( i_mb_type == P_L0 && mcoded )
     {
-        bs_write_vlc( s, x262_motion_code[mc+16] ); // motion_code
-        bs_write( s, r_size, 3 ); // motion_residual FIXME
+        for( int i = 0; i < 2; i++ )
+        {
+            bs_write_vlc( s, x262_motion_code[mc[i] + 16] ); // motion_code
+            if( mc[i] )
+                bs_write( s, r_size[i], 3+i ); // motion_residual FIXME
+        }
     }
     // backward mvs
 
@@ -135,8 +141,6 @@ void x262_macroblock_write_vlc( x264_t *h )
         }
         else if( cbp & (1<<(5-i)) )
         {
-            h->dct.mpeg2_8x8[i][0] = 100; // junk
-            h->dct.mpeg2_8x8[i][1] = 10; // more junk
             x262_write_dct_vlcs( h, h->dct.mpeg2_8x8[i], 0 );
             bs_write_vlc( s, dct_vlcs[0][0][0] ); // end of block
         }

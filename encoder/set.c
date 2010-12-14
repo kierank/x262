@@ -782,10 +782,23 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
     bs_realign( s );
 
     bs_write( s, 4, MPEG2_PIC_CODING_EXT_ID ); // extension_start_code_identifier
+
+    h->fenc->mv_fcode[0][0] = h->fenc->mv_fcode[0][1] = 7; // FIXME
+    // f_code[s][t]
     if( ( h->sps->i_profile_idc == MPEG2_PROFILE_SIMPLE && !h->param.i_bframe ) || IS_X264_TYPE_I( h->fenc->i_type ) )
-        bs_write( s, 16, 0xffff ); // f_code[s][t]
+        bs_write( s, 16, 0xffff );
+    else if( h->fenc->i_type == X264_TYPE_P )
+    {
+        for( int i = 0; i < 2; i++ )
+            bs_write( s, 4, h->fenc->mv_fcode[0][i] );
+        bs_write( s, 8, 0xff );
+    }
     else
-        bs_write( s, 16, 0x7700 ); // FIXME
+    {
+        for( int j = 0; j < 2; j++ )
+            for( int i = 0; i < 2; i++ )
+                bs_write( s, 4, h->fenc->mv_fcode[j][i] );
+    }
     bs_write( s, 2, h->param.i_intra_dc_precision ); // intra_dc_precision
     bs_write( s, 2, !h->param.b_interlaced ? 3 : h->param.b_tff ? 1 : 2 ); // picture_structure
     bs_write1( s, h->param.b_interlaced ? h->param.b_tff : 0 ); // top_field_first
