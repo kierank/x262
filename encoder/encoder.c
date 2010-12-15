@@ -367,7 +367,7 @@ fail:
     return -1;
 }
 
-#if HAVE_PTHREAD
+#if HAVE_THREAD
 static void x264_encoder_thread_init( x264_t *h )
 {
     if( h->param.i_sync_lookahead )
@@ -491,8 +491,8 @@ static int x264_validate_parameters( x264_t *h )
     h->param.i_threads = x264_clip3( h->param.i_threads, 1, X264_THREAD_MAX );
     if( h->param.i_threads > 1 )
     {
-#if !HAVE_PTHREAD
-        x264_log( h, X264_LOG_WARNING, "not compiled with pthread support!\n");
+#if !HAVE_THREAD
+        x264_log( h, X264_LOG_WARNING, "not compiled with thread support!\n");
         h->param.i_threads = 1;
 #endif
         /* Avoid absurdly small thread slices as they can reduce performance
@@ -529,6 +529,8 @@ static int x264_validate_parameters( x264_t *h )
             h->param.analyse.i_weighted_pred = X264_WEIGHTP_NONE;
         }
     }
+
+    h->param.i_frame_packing = x264_clip3( h->param.i_frame_packing, -1, 5 );
 
     /* Detect default ffmpeg settings and terminate with an error. */
     {
@@ -582,8 +584,8 @@ static int x264_validate_parameters( x264_t *h )
         h->param.analyse.i_noise_reduction = 0;
         h->param.analyse.b_psy = 0;
         h->param.i_bframe = 0;
-        /* 8x8dct is not useful at all in CAVLC lossless */
-        if( !h->param.b_cabac )
+        /* 8x8dct is not useful without RD in CAVLC lossless */
+        if( !h->param.b_cabac && h->param.analyse.i_subpel_refine < 6 )
             h->param.analyse.b_transform_8x8 = 0;
     }
     if( h->param.rc.i_rc_method == X264_RC_CQP )
@@ -729,7 +731,7 @@ static int x264_validate_parameters( x264_t *h )
     }
     if( h->param.rc.b_stat_read )
         h->param.rc.i_lookahead = 0;
-#if HAVE_PTHREAD
+#if HAVE_THREAD
     if( h->param.i_sync_lookahead < 0 )
         h->param.i_sync_lookahead = h->param.i_bframe + 1;
     h->param.i_sync_lookahead = X264_MIN( h->param.i_sync_lookahead, X264_LOOKAHEAD_MAX );
@@ -1044,6 +1046,12 @@ x264_t *x264_encoder_open( x264_param_t *param )
     if( param->param_free )
         param->param_free( param );
 
+    if( x264_threading_init() )
+    {
+        x264_log( h, X264_LOG_ERROR, "unable to initialize threading\n" );
+        goto fail;
+    }
+
     if( x264_validate_parameters( h ) < 0 )
         goto fail;
 
@@ -1341,6 +1349,7 @@ int x264_encoder_reconfig( x264_t *h, x264_param_t *param )
     COPY( b_deblocking_filter );
     COPY( i_deblocking_filter_alphac0 );
     COPY( i_deblocking_filter_beta );
+    COPY( i_frame_packing );
     COPY( analyse.inter );
     COPY( analyse.intra );
     COPY( analyse.i_direct_mv_pred );
@@ -2938,7 +2947,17 @@ int     x264_encoder_encode( x264_t *h,
             int time_to_recovery = h->param.i_open_gop ? 0 : X264_MIN( h->mb.i_mb_width - 1, h->param.i_keyint_max ) + h->param.i_bframe - 1;
             x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
             x264_sei_recovery_point_write( h, &h->out.bs, time_to_recovery );
-            x264_nal_end( h );
+            if( x264_nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1);
+        }
+
+        if ( h->param.i_frame_packing >= 0 )
+        {
+            x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
+            x264_sei_frame_packing_write( h, &h->out.bs );
+            if( x264_nal_end( h ) )
+                return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1);
         }
     }

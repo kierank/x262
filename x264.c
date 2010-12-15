@@ -254,10 +254,7 @@ int main( int argc, char **argv )
     cli_opt_t opt;
     int ret;
 
-#if PTW32_STATIC_LIB
-    pthread_win32_process_attach_np();
-    pthread_win32_thread_attach_np();
-#endif
+    FAIL_IF_ERROR( x264_threading_init(), "unable to initialize threading\n" )
 
 #ifdef _WIN32
     _setmode(_fileno(stdin), _O_BINARY);
@@ -272,11 +269,6 @@ int main( int argc, char **argv )
     signal( SIGINT, sigint_handler );
 
     ret = encode( &param, &opt );
-
-#if PTW32_STATIC_LIB
-    pthread_win32_thread_detach_np();
-    pthread_win32_process_detach_np();
-#endif
 
     return ret;
 }
@@ -551,6 +543,13 @@ static void help( x264_param_t *defaults, int longhelp )
     H2( "      --fake-interlaced       Flag stream as interlaced but encode progressive.\n"
         "                              Makes it possible to encode 25p and 30p Blu-Ray\n"
         "                              streams. Ignored in interlaced mode.\n" );
+    H2( "      --frame-packing <integer> For stereoscopic videos define frame arrangement\n"
+        "                                  - 0: checkerboard - pixels are alternatively from L and R\n"
+        "                                  - 1: column alternation - L and R are interlaced by column\n"
+        "                                  - 2: row alternation - L and R are interlaced by row\n"
+        "                                  - 3: side by side - L is on the left, R on the right\n"
+        "                                  - 4: top bottom - L is on top, R on bottom\n"
+        "                                  - 5: frame alternation - one view per frame\n" );
     H0( "\n" );
     H0( "Ratecontrol:\n" );
     H0( "\n" );
@@ -951,6 +950,7 @@ static struct option long_options[] =
     { "nal-hrd",     required_argument, NULL, 0 },
     { "pulldown",    required_argument, NULL, OPT_PULLDOWN },
     { "fake-interlaced",   no_argument, NULL, 0 },
+    { "frame-packing",     required_argument, NULL, 0 },
     { "vf",          required_argument, NULL, OPT_VIDEO_FILTER },
     { "video-filter", required_argument, NULL, OPT_VIDEO_FILTER },
     { "input-res",   required_argument, NULL, OPT_INPUT_RES },
@@ -1409,7 +1409,7 @@ generic_option:
     else FAIL_IF_ERROR( !info.vfr && input_opt.timebase, "--timebase is incompatible with cfr input\n" )
 
     /* init threaded input while the information about the input video is unaltered by filtering */
-#if HAVE_PTHREAD
+#if HAVE_THREAD
     if( info.thread_safe && (b_thread_input || param->i_threads > 1
         || (param->i_threads == X264_THREADS_AUTO && x264_cpu_num_processors() > 1)) )
     {

@@ -41,7 +41,7 @@
 
 #include "x264_config.h"
 
-#define X264_BUILD 110
+#define X264_BUILD 112
 
 /* x264_t:
  *      opaque handler for encoder */
@@ -431,6 +431,9 @@ typedef struct x264_param_t
         unsigned int i_right;
         unsigned int i_bottom;
     } crop_rect;
+
+    /* frame packing arrangement flag */
+    int i_frame_packing;
 
     /* Muxing parameters */
     int b_aud;                  /* generate access unit delimiters */

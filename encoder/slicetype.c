@@ -196,7 +196,7 @@ static NOINLINE unsigned int x264_weight_cost_chroma( x264_t *h, x264_frame_t *f
     pixel *src = ref + i_offset;
     ALIGNED_ARRAY_16( pixel, buf, [8*8] );
     int pixoff = 0;
-    ALIGNED_16( static pixel flat[9] ) = {0,0,0,0,0,0,0,0,1}; //hack for win32
+    ALIGNED_16( static pixel flat[8] );
     if( w )
     {
         for( int y = 0; y < i_lines; y += 8, pixoff = y*i_stride )
@@ -243,8 +243,8 @@ void x264_weights_analyse( x264_t *h, x264_frame_t *fenc, x264_frame_t *ref, int
         float fenc_var = fenc->i_pixel_ssd[plane] + !ref->i_pixel_ssd[plane];
         float ref_var  =  ref->i_pixel_ssd[plane] + !ref->i_pixel_ssd[plane];
         float guess_scale = sqrtf( fenc_var / ref_var );
-        float fenc_mean = (float)fenc->i_pixel_sum[plane] / (fenc->i_lines[!!plane] * fenc->i_width[!!plane]);
-        float ref_mean  = (float) ref->i_pixel_sum[plane] / (fenc->i_lines[!!plane] * fenc->i_width[!!plane]);
+        float fenc_mean = (float)fenc->i_pixel_sum[plane] / (fenc->i_lines[!!plane] * fenc->i_width[!!plane]) / (1 << (BIT_DEPTH - 8));
+        float ref_mean  = (float) ref->i_pixel_sum[plane] / (fenc->i_lines[!!plane] * fenc->i_width[!!plane]) / (1 << (BIT_DEPTH - 8));
 
         //early termination
         if( fabsf( ref_mean - fenc_mean ) < 0.5f && fabsf( 1.f - guess_scale ) < epsilon )
