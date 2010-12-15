@@ -110,7 +110,7 @@ endif
 endif
 
 # VIS optims
-ifeq ($(ARCH),UltraSparc)
+ifeq ($(ARCH),UltraSPARC)
 ifeq ($(findstring HIGH_BIT_DEPTH, $(CONFIG)),)
 ASMSRC += common/sparc/pixel.asm
 OBJASM  = $(ASMSRC:%.asm=%.o)
@@ -206,7 +206,7 @@ clean:
 	- sed -e 's/ *-fprofile-\(generate\|use\)//g' config.mak > config.mak2 && mv config.mak2 config.mak
 
 distclean: clean
-	rm -f config.mak config.h config.log x264.pc
+	rm -f config.mak x264_config.h config.h config.log x264.pc
 	rm -rf test/
 
 install: x264$(EXE) $(SONAME)
@@ -215,6 +215,7 @@ install: x264$(EXE) $(SONAME)
 	install -d $(DESTDIR)$(libdir)
 	install -d $(DESTDIR)$(libdir)/pkgconfig
 	install -m 644 x264.h $(DESTDIR)$(includedir)
+	install -m 644 x264_config.h $(DESTDIR)$(includedir)
 	install -m 644 libx264.a $(DESTDIR)$(libdir)
 	install -m 644 x264.pc $(DESTDIR)$(libdir)/pkgconfig
 	install x264$(EXE) $(DESTDIR)$(bindir)
@@ -228,7 +229,7 @@ endif
 	$(if $(IMPLIBNAME), install -m 644 $(IMPLIBNAME) $(DESTDIR)$(libdir))
 
 uninstall:
-	rm -f $(DESTDIR)$(includedir)/x264.h $(DESTDIR)$(libdir)/libx264.a
+	rm -f $(DESTDIR)$(includedir)/x264.h $(DESTDIR)$(includedir)/x264_config.h $(DESTDIR)$(libdir)/libx264.a
 	rm -f $(DESTDIR)$(bindir)/x264$(EXE) $(DESTDIR)$(libdir)/pkgconfig/x264.pc
 	$(if $(SONAME), rm -f $(DESTDIR)$(libdir)/$(SONAME) $(DESTDIR)$(libdir)/libx264.$(SOSUFFIX))
 

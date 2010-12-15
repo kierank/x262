@@ -209,7 +209,10 @@ static int parse_tcfile( FILE *tcfile_in, timecode_hnd_t *h, video_info_t *info 
             }
         }
         if( fpss )
+        {
             free( fpss );
+            fpss = NULL;
+        }
 
         h->assume_fps = assume_fps;
         h->last_timecode = timecodes[timecodes_num - 1];
@@ -239,6 +242,7 @@ static int parse_tcfile( FILE *tcfile_in, timecode_hnd_t *h, video_info_t *info 
 
         fgets( buff, sizeof(buff), tcfile_in );
         ret = sscanf( buff, "%lf", &timecodes[0] );
+        timecodes[0] *= 1e-3;         /* Timecode format v2 is expressed in milliseconds. */
         FAIL_IF_ERROR( ret != 1, "invalid input tcfile for frame 0\n" )
         for( num = 1; num < timecodes_num; )
         {
@@ -262,7 +266,7 @@ static int parse_tcfile( FILE *tcfile_in, timecode_hnd_t *h, video_info_t *info 
             for( num = 0; num < timecodes_num - 1; num++ )
             {
                 fpss[num] = 1 / (timecodes[num + 1] - timecodes[num]);
-                if( h->timebase_den >= 0 )
+                if( h->auto_timebase_den )
                 {
                     int i = 1;
                     uint64_t fps_num, fps_den;
@@ -288,6 +292,7 @@ static int parse_tcfile( FILE *tcfile_in, timecode_hnd_t *h, video_info_t *info 
                 if( try_mkv_timebase_den( fpss, h, timecodes_num - 1 ) < 0 )
                     goto fail;
             free( fpss );
+            fpss = NULL;
         }
 
         if( timecodes_num > 1 )
@@ -310,11 +315,10 @@ static int parse_tcfile( FILE *tcfile_in, timecode_hnd_t *h, video_info_t *info 
     h->pts = malloc( h->stored_pts_num * sizeof(int64_t) );
     if( !h->pts )
         goto fail;
-    h->pts[0] = 0;
-    for( num = 1; num < h->stored_pts_num; num++ )
+    for( num = 0; num < h->stored_pts_num; num++ )
     {
         h->pts[num] = timecodes[num] * ((double)h->timebase_den / h->timebase_num) + 0.5;
-        FAIL_IF_ERROR( h->pts[num] <= h->pts[num - 1], "invalid timebase or timecode for frame %d\n", num )
+        FAIL_IF_ERROR( num > 0 && h->pts[num] <= h->pts[num - 1], "invalid timebase or timecode for frame %d\n", num )
     }
 
     free( timecodes );
@@ -406,12 +410,13 @@ static int64_t get_frame_pts( timecode_hnd_t *h, int frame, int real_frame )
 static int read_frame( cli_pic_t *pic, hnd_t handle, int frame )
 {
     timecode_hnd_t *h = handle;
-    int ret = h->input.read_frame( pic, h->p_handle, frame );
+    if( h->input.read_frame( pic, h->p_handle, frame ) )
+        return -1;
 
     pic->pts = get_frame_pts( h, frame, 1 );
     pic->duration = get_frame_pts( h, frame + 1, 0 ) - pic->pts;
 
-    return ret;
+    return 0;
 }
 
 static int release_frame( cli_pic_t *pic, hnd_t handle )
