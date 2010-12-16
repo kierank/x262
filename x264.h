@@ -80,6 +80,7 @@ enum mpeg2_level_e
     MPEG2_LEVEL_MAIN       =  8,
     MPEG2_LEVEL_HIGH_1440  =  6,
     MPEG2_LEVEL_HIGH       =  4,
+    MPEG2_LEVEL_HIGHP      =  2,
 };
 
 enum mpeg2_structure_type_e
@@ -545,15 +546,17 @@ extern const x264_level_t x264_levels[];
 
 typedef struct {
     int level_idc;
-    int luma_rate;    /* max luminance sample rate (samples/sec) */
+    int luma_main;    /* max luminance sample rate for main profile (samples/sec) */
+    int luma_high;    /* max luminance sample rate for high profile (samples/sec) */    
     int width;        /* max frame width (pixel/line) */
-    int height;       /* max frame height (lines) */
-    int framerate;    /* max frame rate (Hz) */
-    int bitrate;      /* max bitrate (kbit/sec) */
-    int vbv;          /* max vbv buffer (kbit) */
-    int mv_range;     /* max vertical mv component range (pixels) */
-    int dc_precision; /* max intra_dc_precision value */
-    int frame_only;   /* forbid interlacing */
+    int height;       /* max frame height (lines/picture) */
+    int fps_code;     /* max frame_rate_code */
+    int bitrate_main; /* max bitrate (kbit/sec) */
+    int bitrate_high; /* max bitrate (kbit/sec) */
+    int vbv_buf_main; /* max vbv buffer for main profile (bit/sec) */
+    int vbv_buf_high; /* max vbv buffer for high profile (bit/sec) */
+    int mv_max_h;     /* max horizontal motion vector range (pixels) */
+    int mv_max_v;     /* max vertical motion vector range (pixels) */
 } x262_level_t;
 
 /* all of the levels defined in the standard, terminated by .level_idc=0 */

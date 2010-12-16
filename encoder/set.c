@@ -109,7 +109,7 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
     {
         if( param->i_intra_dc_precision > 2 )
             sps->i_profile_idc = MPEG2_PROFILE_HIGH;
-        else if( param->i_bframe )
+        else if( param->i_bframe > 0 || param->b_interlaced )
             sps->i_profile_idc = MPEG2_PROFILE_MAIN;
         else
             sps->i_profile_idc = MPEG2_PROFILE_SIMPLE;
@@ -824,9 +824,27 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
 
     bs_write( s, 4, MPEG2_PIC_CODING_EXT_ID ); // extension_start_code_identifier
 
-    h->fenc->mv_fcode[0][0] = h->fenc->mv_fcode[0][1] = 7; // FIXME
+    // FIXME decide fcodes during lookahead
+    int fcode_max[2];
+    switch( h->param.i_level_idc )
+    {
+    case MPEG2_LEVEL_LOW:
+        fcode_max[0] = 7;
+        fcode_max[1] = 4;
+        break;
+    case MPEG2_LEVEL_MAIN:
+        fcode_max[0] = 8;
+        fcode_max[1] = 5;
+        break;
+    default:
+        fcode_max[0] = 9;
+        fcode_max[1] = 5;
+    }
+    h->fenc->mv_fcode[0][0] = h->fenc->mv_fcode[1][0] = fcode_max[0];
+    h->fenc->mv_fcode[0][1] = h->fenc->mv_fcode[1][1] = fcode_max[1];
+
     // f_code[s][t]
-    if( ( h->sps->i_profile_idc == MPEG2_PROFILE_SIMPLE && !h->param.i_bframe ) || IS_X264_TYPE_I( h->fenc->i_type ) )
+    if( IS_X264_TYPE_I( h->fenc->i_type ) )
         bs_write( s, 16, 0xffff );
     else if( h->fenc->i_type == X264_TYPE_P )
     {
@@ -913,21 +931,26 @@ const x264_level_t x264_levels[] =
 
 const x262_level_t x262_levels[] =
 {
-    { 10,  3041280,  352,  288, 30,  4000,  475,  64,  8, 1 },
-    {  8, 14745600,  720,  567, 30, 15000, 1835, 128, 10, 0 },
-    {  6, 62668800, 1440, 1152, 60, 60000, 7340, 128, 10, 0 },
-    {  4, 83558400, 1920, 1152, 60, 80000, 9781, 128, 11, 0 },
+    { 10,   3041280,        0,  352,  288, 5,  4000,      0,  475136,        0,  512,  64 },
+    {  8,  10368000, 14745600,  720,  576, 5, 15000,  20000, 1835008,  2441216, 1024, 128 },
+    {  6,  47001600, 62668800, 1440, 1088, 8, 60000,  80000, 7340032,  9781248, 2048, 128 },
+    {  4,  62668800, 83558400, 1920, 1088, 8, 80000, 100000, 9781248, 12222464, 2048, 128 },
+    {  2, 125337600,        0, 1920, 1088, 8, 80000,      0, 9781248,        0, 2048, 128 },
     { 0 }
 };
 
-const x262_fps_t x262_allowed_fps[9] =
+const x262_fps_t x262_allowed_fps[13] =
 {
     { 1, 24000, 1001 },
     { 2, 24, 1 },
+    { 2, 24000, 1000 },
     { 3, 25, 1 },
+    { 3, 25000, 1000 },
     { 4, 30000, 1001 },
     { 5, 30, 1 },
+    { 5, 30000, 1000 },
     { 6, 50, 1 },
+    { 6, 50000, 1000 },
     { 7, 60000, 1001 },
     { 8, 60, 1 },
     { 0 }
@@ -960,18 +983,20 @@ int x264_validate_levels( x264_t *h, int verbose )
         while( m->level_idc != 0 && m->level_idc != h->param.i_level_idc )
             m++;
 
+        const x262_fps_t *f = x262_allowed_fps;
+        while( f->fps_code != 0 && ( h->param.i_fps_num == f->fps_num && h->param.i_fps_den == f->fps_den ) )
+            f++;
+        CHECK( "framerate", m->fps_code, f->fps_code );
+        h->sps->frame_rate_code = f->fps_code;
+
         if( h->param.i_fps_den > 0 )
-        {
-            CHECK( "Luma sample rate", m->luma_rate, (int64_t)mbs * h->param.i_fps_num / h->param.i_fps_den );
-            CHECK( "framerate", m->framerate, h->param.i_fps_num / h->param.i_fps_den );
-        }
+            CHECK( "luminance sample rate", m->luma_main, h->param.i_width * h->param.i_height *
+                                                          h->param.i_fps_num / h->param.i_fps_den );
         CHECK( "width", m->width, h->param.i_width );
         CHECK( "height", m->height, h->param.i_height );
         // CHECK( "max bitrate", m->bitrate, h->param.rc.i_vbv_max_bitrate );
         // CHECK( "vbv size", m->vbv, h->param.rc.i_vbv_buffer_size );
-        CHECK( "MV range", m->mv_range, h->param.analyse.i_mv_range );
-        CHECK( "Intra DC precision", m->dc_precision, h->param.i_intra_dc_precision );
-        CHECK( "interlaced", !m->frame_only, h->param.b_interlaced );
+        CHECK( "Vertical MV range", m->mv_max_v >> h->param.b_interlaced, h->param.analyse.i_mv_range );
     }
     else
     {

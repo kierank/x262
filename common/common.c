@@ -670,6 +670,11 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
             p->i_level_idc = MPEG2_LEVEL_HIGH;
             p->b_mpeg2 = 1;
         }
+        else if( !strcmp(value, "highp") )
+        {
+            p->i_level_idc = MPEG2_LEVEL_HIGHP;
+            p->b_mpeg2 = 1;
+        }
         else if( atof(value) < 6 )
             p->i_level_idc = (int)(10*atof(value)+.5);
         else

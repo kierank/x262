@@ -859,7 +859,7 @@ static int x264_validate_parameters( x264_t *h )
             }
         }
         if( h->param.analyse.i_mv_range <= 0 )
-            h->param.analyse.i_mv_range = MPEG2 ? m->mv_range : l->mv_range >> h->param.b_interlaced;
+            h->param.analyse.i_mv_range = ( MPEG2 ? m->mv_max_v : l->mv_range ) >> h->param.b_interlaced;
         else
             h->param.analyse.i_mv_range = x264_clip3(h->param.analyse.i_mv_range, 32, 512 >> h->param.b_interlaced);
     }
@@ -875,16 +875,15 @@ static int x264_validate_parameters( x264_t *h )
             x264_log( h, X264_LOG_WARNING, "MPEG-2 + VFR is not allowed\n" );
             h->param.b_vfr_input = 0;
         }
-	else
+        else
         {
             const x262_fps_t *f = x262_allowed_fps;
-            while( f->fps_code != 0 && ( h->param.i_fps_num == f->fps_num && h->param.i_fps_den == f->fps_den ) )
+            while( f->fps_code != 0 && ( h->param.i_fps_num != f->fps_num || h->param.i_fps_den != f->fps_den ) )
                 f++;
 
-            h->sps->frame_rate_code = f->fps_code;
             if( !f->fps_code )
             {
-                x264_log( h, X264_LOG_ERROR, "Chosen fps now allowed in MPEG-2\n" );
+                x264_log( h, X264_LOG_ERROR, "Chosen fps not allowed in MPEG-2\n" );
                 return -1;
             }
         }
@@ -1307,7 +1306,8 @@ x264_t *x264_encoder_open( x264_param_t *param )
         snprintf( level, sizeof(level), "%s", h->sps->i_level_idc == MPEG2_LEVEL_LOW ? "Low" :
                                               h->sps->i_level_idc == MPEG2_LEVEL_MAIN ? "Main" :
                                               h->sps->i_level_idc == MPEG2_LEVEL_HIGH_1440 ? "High-1440" :
-                                              "High" );
+                                              h->sps->i_level_idc == MPEG2_LEVEL_HIGH ? "High" :
+                                              "HighP" );
     }
     else
     {
