@@ -953,6 +953,7 @@ const x262_fps_t x262_allowed_fps[13] =
     { 6, 50000, 1000 },
     { 7, 60000, 1001 },
     { 8, 60, 1 },
+    { 8, 60000, 1000 },    
     { 0 }
 };
 
@@ -984,7 +985,7 @@ int x264_validate_levels( x264_t *h, int verbose )
             m++;
 
         const x262_fps_t *f = x262_allowed_fps;
-        while( f->fps_code != 0 && ( h->param.i_fps_num == f->fps_num && h->param.i_fps_den == f->fps_den ) )
+        while( f->fps_code != 0 && ( h->param.i_fps_num != f->fps_num || h->param.i_fps_den != f->fps_den ) )
             f++;
         CHECK( "framerate", m->fps_code, f->fps_code );
         h->sps->frame_rate_code = f->fps_code;
