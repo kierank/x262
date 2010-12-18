@@ -779,13 +779,24 @@ void x262_gop_header_write( x264_t *h, bs_t *s )
 {
     bs_realign( s );
 
+    int hrs, min, sec;
+    int frames = h->i_frame;
+    int fps = h->param.i_fps_num > 60 ? h->param.i_fps_num / 1000 : h->param.i_fps_num;
+
+    hrs = frames  / ( 60 * 60 * fps );
+    frames -= hrs * ( 60 * 60 * fps );
+    min = frames  / ( 60 * fps );
+    frames -= min * ( 60 * fps );
+    sec = frames  / ( fps );
+    frames -= sec * ( fps );
+
     // timecode
     bs_write1( s, 0 );   // drop_frame_flag
-    bs_write( s, 5, 0 ); // time_code_hours
-    bs_write( s, 6, 0 ); // time_code_minutes
+    bs_write( s, 5, hrs % 24 ); // time_code_hours
+    bs_write( s, 6, min ); // time_code_minutes
     bs_write1( s, 1 );   // marker_bit
-    bs_write( s, 6, 0 ); // time_code_seconds
-    bs_write( s, 6, 0 ); // time_code_pictures
+    bs_write( s, 6, sec ); // time_code_seconds
+    bs_write( s, 6, frames ); // time_code_pictures
 
     bs_write1( s, !h->param.i_open_gop ); // closed_gop
     bs_write1( s, 0 );   // broken_link
