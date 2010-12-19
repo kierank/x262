@@ -64,6 +64,29 @@ static void x262_write_dct_vlcs( x264_t *h, dctcoef *l, int intra_tab )
     }
 }
 
+static void x262_write_mv_vlcs( x264_t *h, int mvd, int f_code )
+{
+    bs_t *s = &h->out.bs;
+    int r_size = f_code - 1;
+    int f = 1 << r_size;
+    int low = -(f << 4);
+    int high = f << 4 - 1;
+    int range =  f << 5;
+
+    if( mvd > high )
+        mvd -= range;
+    else if( mvd < low  )
+        mvd += range;
+
+    int m_residual = abs( mvd ) + f - 1;
+    int m_code = m_residual >> r_size;
+    if( mvd < 0 )
+        m_code = -m_code;
+    bs_write_vlc( s, x262_motion_code[m_code + 16] ); // motion_code
+    if( r_size && m_code )
+        bs_write( s, r_size, m_residual & (f - 1) ); // motion_residual
+}
+
 /*****************************************************************************
  * x262_macroblock_write:
  *****************************************************************************/
@@ -71,7 +94,6 @@ void x262_macroblock_write_vlc( x264_t *h )
 {
     bs_t *s = &h->out.bs;
     const int i_mb_type = h->mb.i_type;
-    int mc[2], r_size[2];
 
 #if RDO_SKIP_BS
     s->i_bits_encoded = 0;
@@ -80,13 +102,10 @@ void x262_macroblock_write_vlc( x264_t *h )
     int       i_mb_pos_tex = 0;
 #endif
 
-    mc[0] = mc[1] = 1; // FIXME
-
     int cbp = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma; // coded_block_pattern_420
     int quant = h->mb.i_last_qp != h->mb.i_qp;
-    int mcoded = mc[0] || mc[1];
-    r_size[0] = h->fenc->mv_fcode[0][0] - 1;
-    r_size[1] = h->fenc->mv_fcode[0][1] - 1;
+    int mcoded = h->mb.cache.mv[0][x264_scan8[0]][0] ||
+                 h->mb.cache.mv[0][x264_scan8[0]][1];
 
     // macroblock modes
     if( i_mb_type == I_16x16 )
@@ -94,6 +113,8 @@ void x262_macroblock_write_vlc( x264_t *h )
     else if( i_mb_type == P_L0 )
     {
         bs_write_vlc( s, x262_p_mb_type[mcoded][!!cbp][quant] );
+        if( !mcoded )
+             memset( h->mb.mvp, 0, sizeof(h->mb.mvp) );
     }
     else //if( i_mb_type == B_8x8 )
     {
@@ -108,9 +129,10 @@ void x262_macroblock_write_vlc( x264_t *h )
     {
         for( int i = 0; i < 2; i++ )
         {
-            bs_write_vlc( s, x262_motion_code[mc[i] + 16] ); // motion_code
-            if( mc[i] )
-                bs_write( s, r_size[i], 3+i ); // motion_residual FIXME
+            x262_write_mv_vlcs( h, ( h->mb.cache.mv[0][x264_scan8[0]][i] - h->mb.mvp[0][i] ) >> 1,
+                                h->fenc->mv_fcode[0][i] );
+            // update predictors
+            h->mb.mvp[0][i] = h->mb.cache.mv[0][x264_scan8[0]][i];
         }
     }
     // backward mvs
