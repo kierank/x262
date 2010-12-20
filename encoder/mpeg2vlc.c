@@ -70,7 +70,7 @@ static void x262_write_mv_vlcs( x264_t *h, int mvd, int f_code )
     int r_size = f_code - 1;
     int f = 1 << r_size;
     int low = -(f << 4);
-    int high = f << 4 - 1;
+    int high = -low - 1;
     int range =  f << 5;
 
     if( mvd > high )
@@ -104,8 +104,8 @@ void x262_macroblock_write_vlc( x264_t *h )
 
     int cbp = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma; // coded_block_pattern_420
     int quant = h->mb.i_last_qp != h->mb.i_qp;
-    int mcoded = h->mb.cache.mv[0][x264_scan8[0]][0] ||
-                 h->mb.cache.mv[0][x264_scan8[0]][1];
+    int mcoded = h->mb.cache.mv[0][x264_scan8[X264_SCAN8_0]][0] ||
+                 h->mb.cache.mv[0][x264_scan8[X264_SCAN8_0]][1];
 
     // macroblock modes
     if( i_mb_type == I_16x16 )
