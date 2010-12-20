@@ -419,7 +419,6 @@ static void add16x16_idct_dc( pixel *p_dst, dctcoef dct[16] )
 #define FIX_2_562915447  ((int32_t)  20995)     /* FIX(2.562915447) */
 #define FIX_3_072711026  ((int32_t)  25172)     /* FIX(3.072711026) */
 
-/* jpeg_fdct_islow() from libjpeg */
 static inline void jpeg_fdct_islow( dctcoef *data )
 {
     int_fast32_t tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7;
@@ -580,121 +579,131 @@ void x264_idct_init_mpeg2( void )
         iclp[i] = (i < -256) ? -256 : ((i > 255) ? 255 : i);
 }
 
-/* jpeg_idct_islow() from libjpeg */
+static void idctrow( dctcoef *blk )
+{
+    int_fast32_t X0, X1, X2, X3, X4, X5, X6, X7, X8;
+
+    if( !( (X1 = blk[4] << 11) | (X2 = blk[6]) | (X3 = blk[2]) |
+           (X4 = blk[1])       | (X5 = blk[7]) | (X6 = blk[5]) | (X7 = blk[3]) ) )
+    {
+        blk[0] = blk[1] = blk[2] = blk[3] = blk[4] = blk[5] = blk[6] =
+        blk[7] = blk[0] << 3;
+        return;
+    }
+
+    X0 = (blk[0] << 11) + 128; /* for proper rounding in the fourth stage  */
+
+    /* first stage  */
+    X8 = W7 * (X4 + X5);
+    X4 = X8 + (W1 - W7) * X4;
+    X5 = X8 - (W1 + W7) * X5;
+    X8 = W3 * (X6 + X7);
+    X6 = X8 - (W3 - W5) * X6;
+    X7 = X8 - (W3 + W5) * X7;
+
+    /* second stage  */
+    X8 = X0 + X1;
+    X0 -= X1;
+    X1 = W6 * (X3 + X2);
+    X2 = X1 - (W2 + W6) * X2;
+    X3 = X1 + (W2 - W6) * X3;
+    X1 = X4 + X6;
+    X4 -= X6;
+    X6 = X5 + X7;
+    X5 -= X7;
+
+    /* third stage  */
+    X7 = X8 + X3;
+    X8 -= X3;
+    X3 = X0 + X2;
+    X0 -= X2;
+    X2 = (181 * (X4 + X5) + 128) >> 8;
+    X4 = (181 * (X4 - X5) + 128) >> 8;
+
+    /* fourth stage  */
+    blk[0] = (X7 + X1) >> 8;
+    blk[1] = (X3 + X2) >> 8;
+    blk[2] = (X0 + X4) >> 8;
+    blk[3] = (X8 + X6) >> 8;
+    blk[4] = (X8 - X6) >> 8;
+    blk[5] = (X0 - X4) >> 8;
+    blk[6] = (X3 - X2) >> 8;
+    blk[7] = (X7 - X1) >> 8;
+}
+
+static void idctcol( dctcoef *blk )
+{
+    int_fast32_t X0, X1, X2, X3, X4, X5, X6, X7, X8;
+
+    /* shortcut  */
+    if( !( (X1 = (blk[8 * 4] << 8)) | (X2 = blk[8 * 6]) |
+           (X3 =  blk[8 * 2])       | (X4 = blk[8 * 1]) |
+           (X5 =  blk[8 * 7])       | (X6 = blk[8 * 5]) | (X7 = blk[8 * 3]) ) )
+    {
+        blk[8 * 0] = blk[8 * 1] = blk[8 * 2] =
+        blk[8 * 3] = blk[8 * 4] = blk[8 * 5] = 
+        blk[8 * 6] = blk[8 * 7] = iclp[(blk[8 * 0] + 32) >> 6];
+        return;
+    }
+
+    X0 = (blk[8 * 0] << 8) + 8192;
+
+    /* first stage  */
+    X8 = W7 * (X4 + X5) + 4;
+    X4 = (X8 + (W1 - W7) * X4) >> 3;
+    X5 = (X8 - (W1 + W7) * X5) >> 3;
+    X8 = W3 * (X6 + X7) + 4;
+    X6 = (X8 - (W3 - W5) * X6) >> 3;
+    X7 = (X8 - (W3 + W5) * X7) >> 3;
+
+    /* second stage  */
+    X8 = X0 + X1;
+    X0 -= X1;
+    X1 = W6 * (X3 + X2) + 4;
+    X2 = (X1 - (W2 + W6) * X2) >> 3;
+    X3 = (X1 + (W2 - W6) * X3) >> 3;
+    X1 = X4 + X6;
+    X4 -= X6;
+    X6 = X5 + X7;
+    X5 -= X7;
+
+    /* third stage  */
+    X7 = X8 + X3;
+    X8 -= X3;
+    X3 = X0 + X2;
+    X0 -= X2;
+    X2 = (181 * (X4 + X5) + 128) >> 8;
+    X4 = (181 * (X4 - X5) + 128) >> 8;
+
+    /* fourth stage  */
+    blk[8 * 0] = iclp[(X7 + X1) >> 14];
+    blk[8 * 1] = iclp[(X3 + X2) >> 14];
+    blk[8 * 2] = iclp[(X0 + X4) >> 14];
+    blk[8 * 3] = iclp[(X8 + X6) >> 14];
+    blk[8 * 4] = iclp[(X8 - X6) >> 14];
+    blk[8 * 5] = iclp[(X0 - X4) >> 14];
+    blk[8 * 6] = iclp[(X3 - X2) >> 14];
+    blk[8 * 7] = iclp[(X7 - X1) >> 14];
+}
+
 static void add8x8_idct_mpeg2( pixel *p_dst, dctcoef dct[64] )
 {
     dctcoef tmp[64];
-    dctcoef *out_dct;
-    dctcoef *blk;
-    pixel *out_p;
 
-    int_fast32_t X0, X1, X2, X3, X4, X5, X6, X7, X8;
+    /* transpose to match zigzag and cqm */
+    for( int i = 0; i < 8; i++ )
+        for( int j = 0; j < 8; j++ )
+            tmp[i * 8 + j] = dct[j * 8 + i];
 
-    for( int i = 0; i < 8; i++ ) /* idct rows */
-    {
-        blk = dct + (i << 3);
-        out_dct = tmp + (i << 3);
-        if( !( (X1 = blk[4] << 11) | (X2 = blk[6]) | (X3 = blk[2]) |
-               (X4 = blk[1])       | (X5 = blk[7]) | (X6 = blk[5]) | (X7 = blk[3]) ) )
-        {
-            out_dct[0] = blk[1] = blk[2] = blk[3] = blk[4] = blk[5] = blk[6] =
-            blk[7] = blk[0] << 3;
-            continue;
-        }
+    for( int i = 0; i < 8; i++ )
+        idctrow( tmp + i * 8 );
 
-        X0 = (blk[0] << 11) + 128; /* for proper rounding in the fourth stage  */
+    for( int i = 0; i < 8; i++ )
+        idctcol( tmp + i );
 
-        /* first stage  */
-        X8 = W7 * (X4 + X5);
-        X4 = X8 + (W1 - W7) * X4;
-        X5 = X8 - (W1 + W7) * X5;
-        X8 = W3 * (X6 + X7);
-        X6 = X8 - (W3 - W5) * X6;
-        X7 = X8 - (W3 + W5) * X7;
-
-        /* second stage  */
-        X8 = X0 + X1;
-        X0 -= X1;
-        X1 = W6 * (X3 + X2);
-        X2 = X1 - (W2 + W6) * X2;
-        X3 = X1 + (W2 - W6) * X3;
-        X1 = X4 + X6;
-        X4 -= X6;
-        X6 = X5 + X7;
-        X5 -= X7;
-
-        /* third stage  */
-        X7 = X8 + X3;
-        X8 -= X3;
-        X3 = X0 + X2;
-        X0 -= X2;
-        X2 = (181 * (X4 + X5) + 128) >> 8;
-        X4 = (181 * (X4 - X5) + 128) >> 8;
-
-        /* fourth stage  */
-        out_dct[0] = (dctcoef) ((X7 + X1) >> 8);
-        out_dct[1] = (dctcoef) ((X3 + X2) >> 8);
-        out_dct[2] = (dctcoef) ((X0 + X4) >> 8);
-        out_dct[3] = (dctcoef) ((X8 + X6) >> 8);
-        out_dct[4] = (dctcoef) ((X8 - X6) >> 8);
-        out_dct[5] = (dctcoef) ((X0 - X4) >> 8);
-        out_dct[6] = (dctcoef) ((X3 - X2) >> 8);
-        out_dct[7] = (dctcoef) ((X7 - X1) >> 8);
-    }
-
-    for( int i = 0; i < 8; i++ ) /* idct columns */
-    {
-        out_p = p_dst + i;
-        blk = tmp + i;
-        /* shortcut  */
-        if( !( (X1 = (blk[8 * 4] << 8)) | (X2 = blk[8 * 6]) |
-               (X3 = blk[8 * 2])        | (X4 = blk[8 * 1]) |
-               (X5 = blk[8 * 7])        | (X6 = blk[8 * 5]) | (X7 = blk[8 * 3]) ) )
-        {
-            out_p[8 * 0] = blk[8 * 1] = blk[8 * 2] = blk[8 * 3] = blk[8 * 4] =
-            blk[8 * 5] = blk[8 * 6] = blk[8 * 7] = iclp[(blk[8 * 0] + 32) >> 6];
-            continue;
-        }
-
-        X0 = (blk[8 * 0] << 8) + 8192;
-
-        /* first stage  */
-        X8 = W7 * (X4 + X5) + 4;
-        X4 = (X8 + (W1 - W7) * X4) >> 3;
-        X5 = (X8 - (W1 + W7) * X5) >> 3;
-        X8 = W3 * (X6 + X7) + 4;
-        X6 = (X8 - (W3 - W5) * X6) >> 3;
-        X7 = (X8 - (W3 + W5) * X7) >> 3;
-
-        /* second stage  */
-        X8 = X0 + X1;
-        X0 -= X1;
-        X1 = W6 * (X3 + X2) + 4;
-        X2 = (X1 - (W2 + W6) * X2) >> 3;
-        X3 = (X1 + (W2 - W6) * X3) >> 3;
-        X1 = X4 + X6;
-        X4 -= X6;
-        X6 = X5 + X7;
-        X5 -= X7;
-
-        /* third stage  */
-        X7 = X8 + X3;
-        X8 -= X3;
-        X3 = X0 + X2;
-        X0 -= X2;
-        X2 = (181 * (X4 + X5) + 128) >> 8;
-        X4 = (181 * (X4 - X5) + 128) >> 8;
-
-        /* fourth stage  */
-        out_p[FDEC_STRIDE * 0] = iclp[(X7 + X1) >> 14];
-        out_p[FDEC_STRIDE * 1] = iclp[(X3 + X2) >> 14];
-        out_p[FDEC_STRIDE * 2] = iclp[(X0 + X4) >> 14];
-        out_p[FDEC_STRIDE * 3] = iclp[(X8 + X6) >> 14];
-        out_p[FDEC_STRIDE * 4] = iclp[(X8 - X6) >> 14];
-        out_p[FDEC_STRIDE * 5] = iclp[(X0 - X4) >> 14];
-        out_p[FDEC_STRIDE * 6] = iclp[(X3 - X2) >> 14];
-        out_p[FDEC_STRIDE * 7] = iclp[(X7 - X1) >> 14];
-    }
+    for( int i = 0; i < 8; i++ )
+        for( int j = 0; j < 8; j++ )
+            p_dst[i*FDEC_STRIDE + j] = tmp[i*8 + j];
 }
 
 static void add16x16_idct_mpeg2( pixel *p_dst, dctcoef dct[4][64] )

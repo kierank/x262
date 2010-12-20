@@ -145,9 +145,9 @@ static void dequant_8x8_mpeg2( dctcoef dct[64], int dequant_mf[64], uint16_t bia
     for( int i = 0; i < 64; i++ )
     {
         if( dct[i] > 0 ) 
-            dct[i] = ( (dct[i] * dequant_mf[i]) + bias[i] ) / 32;
+            dct[i] = ( (dct[i] * dequant_mf[i]) + bias[i] ) >> 5;
         else
-            dct[i] = ( (dct[i] * dequant_mf[i]) - bias[i] ) / 32;
+            dct[i] = ( (dct[i] * dequant_mf[i]) - bias[i] ) >> 5;
         x264_clip3( dct[i], -2048, 2047 );
         sum ^= dct[i];
     }

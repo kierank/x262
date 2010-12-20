@@ -334,7 +334,6 @@ static void x262_mb_encode_inter_block( x264_t *h, int idx, int i_qp )
     pixel *p_src;
     pixel *p_dst;
     ALIGNED_ARRAY_16( dctcoef, dct8x8,[64] );
-    int nz, delta;
 
     if( idx < 4 )
     {
@@ -351,7 +350,7 @@ static void x262_mb_encode_inter_block( x264_t *h, int idx, int i_qp )
 
     h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
 
-    nz = h->quantf.quant_8x8_mpeg2( dct8x8, h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] );
+    int nz = h->quantf.quant_8x8_mpeg2( dct8x8, h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] );
     if( nz )
     {
         if( idx < 4 )
@@ -847,10 +846,7 @@ void x264_macroblock_encode( x264_t *h )
         if( MPEG2 )
         {
             for( int i = 0; i < 4; i++ )
-            {
-                pixel *p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
                 x262_mb_encode_inter_block( h, i, i_qp );
-            }
         }
         else if( h->mb.b_lossless )
         {
@@ -1067,6 +1063,9 @@ void x264_macroblock_encode( x264_t *h )
  *****************************************************************************/
 int x264_macroblock_probe_skip( x264_t *h, int b_bidir )
 {
+    if( MPEG2 ) // FIXME
+        return 0;
+
     ALIGNED_ARRAY_16( dctcoef, dct4x4,[4],[16] );
     ALIGNED_ARRAY_16( dctcoef, dct2x2,[4] );
     ALIGNED_ARRAY_16( dctcoef, dctscan,[16] );
