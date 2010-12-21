@@ -443,9 +443,10 @@ static void x264_mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int i_qp )
         int i_fpel_border = 6; // umh: 1 for diamond, 2 for octagon, 2 for hpel
 
         /* Calculate max allowed MV range */
+        int padding = MPEG2 ? 0 : 24;
 #define CLIP_FMV(mv) x264_clip3( mv, -i_fmv_range, i_fmv_range-1 )
-        h->mb.mv_min[0] = 4*( -16*h->mb.i_mb_x - 24 );
-        h->mb.mv_max[0] = 4*( 16*( h->sps->i_mb_width - h->mb.i_mb_x - 1 ) + 24 );
+        h->mb.mv_min[0] = 4*( -16*h->mb.i_mb_x - padding );
+        h->mb.mv_max[0] = 4*( 16*( h->sps->i_mb_width - h->mb.i_mb_x - 1 ) + padding );
         h->mb.mv_min_spel[0] = CLIP_FMV( h->mb.mv_min[0] );
         h->mb.mv_max_spel[0] = CLIP_FMV( h->mb.mv_max[0] );
         if( h->param.b_intra_refresh && h->sh.i_type == SLICE_TYPE_P )
@@ -487,8 +488,8 @@ static void x264_mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int i_qp )
                 x264_analyse_weight_frame( h, pix_y + thread_mvy_range );
             }
 
-            h->mb.mv_min[1] = 4*( -16*mb_y - 24 );
-            h->mb.mv_max[1] = 4*( 16*( mb_height - mb_y - 1 ) + 24 );
+            h->mb.mv_min[1] = 4*( -16*mb_y - padding );
+            h->mb.mv_max[1] = 4*( 16*( mb_height - mb_y - 1 ) + padding );
             h->mb.mv_min_spel[1] = x264_clip3( h->mb.mv_min[1], -i_fmv_range, i_fmv_range );
             h->mb.mv_max_spel[1] = CLIP_FMV( h->mb.mv_max[1] );
             h->mb.mv_max_spel[1] = X264_MIN( h->mb.mv_max_spel[1], thread_mvy_range*4 );
@@ -3672,6 +3673,20 @@ static void x264_analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
                 x264_log( h, X264_LOG_ERROR, "internal error (invalid MB type)\n" );
                 break;
             }
+    }
+
+    // FIXME Hack to clamp MPEG-2 motion vectors within the frame
+    if( MPEG2 && !IS_INTRA(h->mb.i_type) )
+    {
+        if( h->mb.i_mb_x == 0 )                     // left column
+            a->l0.me16x16.mv[0] = X264_MAX( 0, a->l0.me16x16.mv[0] );
+        if( h->mb.i_mb_width - h->mb.i_mb_x == 1)   // right column
+            a->l0.me16x16.mv[0] = X264_MIN( 0, a->l0.me16x16.mv[0] );
+        if( h->mb.i_mb_y == 0 )                     // top row
+            a->l0.me16x16.mv[1] = X264_MAX( 0, a->l0.me16x16.mv[1] );
+        if( h->mb.i_mb_height - h->mb.i_mb_y == 1 ) // bottom row
+            a->l0.me16x16.mv[1] = X264_MIN( 0, a->l0.me16x16.mv[1] );
+        x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 0, a->l0.me16x16.mv );
     }
 
 #ifndef NDEBUG
