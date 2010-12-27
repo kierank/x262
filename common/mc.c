@@ -256,8 +256,8 @@ static pixel *get_ref( pixel *dst,   int *i_dst_stride,
     }
 }
 
-static void hpel_filter_h262( pixel *dsth, pixel *dstv, pixel *dstc, pixel *src,
-                              int stride, int width, int height, dctcoef *buf )
+static void hpel_filter_mpeg2( pixel *dsth, pixel *dstv, pixel *dstc, pixel *src,
+                               int stride, int width, int height, dctcoef *buf )
 {
     for( int y = 0; y < height; y++ )
     {
@@ -274,22 +274,21 @@ static void hpel_filter_h262( pixel *dsth, pixel *dstv, pixel *dstc, pixel *src,
     }
 }
 
-static void mc_luma_h262( pixel *dst,    int i_dst_stride,
-                          pixel *src[4], int i_src_stride,
-                          int mvx, int mvy,
-                          int i_width, int i_height, const x264_weight_t *weight )
+static void mc_luma_mpeg2( pixel *dst,    int i_dst_stride,
+                           pixel *src[4], int i_src_stride,
+                           int mvx, int mvy,
+                           int i_width, int i_height, const x264_weight_t *weight )
 {
     int idx = ((mvx&2)>>1) + (mvy&2);
     int offset = (mvy>>2)*i_src_stride + (mvx>>2);
     pixel *src1 = src[idx] + offset;
-
     mc_copy( src1, i_src_stride, dst, i_dst_stride, i_width, i_height );
 }
 
-static pixel *get_ref_h262( pixel *dst,   int *i_dst_stride,
-                            pixel *src[4], int i_src_stride,
-                            int mvx, int mvy,
-                            int i_width, int i_height, const x264_weight_t *weight )
+static pixel *get_ref_mpeg2( pixel *dst,   int *i_dst_stride,
+                             pixel *src[4], int i_src_stride,
+                             int mvx, int mvy,
+                             int i_width, int i_height, const x264_weight_t *weight )
 {
     int idx = ((mvx&2)>>1) + (mvy&2);
     int offset = (mvy>>2)*i_src_stride + (mvx>>2);
@@ -585,9 +584,9 @@ void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 )
     // override any simd for the time being
     if( b_mpeg2 )
     {
-        pf->mc_luma   = mc_luma_h262;
-        pf->get_ref   = get_ref_h262;
-        pf->hpel_filter = hpel_filter_h262;
+        pf->mc_luma   = mc_luma_mpeg2;
+        pf->get_ref   = get_ref_mpeg2;
+        pf->hpel_filter = hpel_filter_mpeg2;
     }
 }
 
