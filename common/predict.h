@@ -130,5 +130,6 @@ void x264_predict_8x8_init   ( int cpu, x264_predict8x8_t pf[12], x264_predict_8
 
 void x262_predict_8x8_init ( int cpu, x262_predict_t *pf );
 void x262_reset_intra_dc_predictor( x264_t *h );
+void x262_reset_mv_predictor( x264_t *h );
 
 #endif

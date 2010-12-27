@@ -106,6 +106,12 @@ void x262_macroblock_write_vlc( x264_t *h )
     int quant = h->mb.i_last_qp != h->mb.i_qp;
     int mcoded = h->mb.cache.mv[0][x264_scan8[X264_SCAN8_0]][0] ||
                  h->mb.cache.mv[0][x264_scan8[X264_SCAN8_0]][1];
+    /* must code a zero mv for macroblocks that cannot be (P|B)_SKIP */
+    if( !cbp && !mcoded )
+    {
+        mcoded = 1;
+        x262_reset_mv_predictor( h );
+    }
 
     // macroblock modes
     if( i_mb_type == I_16x16 )
@@ -114,7 +120,7 @@ void x262_macroblock_write_vlc( x264_t *h )
     {
         bs_write_vlc( s, x262_p_mb_type[mcoded][!!cbp][quant] );
         if( !mcoded )
-             memset( h->mb.mvp, 0, sizeof(h->mb.mvp) );
+            x262_reset_mv_predictor( h );
     }
     else //if( i_mb_type == B_8x8 )
     {

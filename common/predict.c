@@ -837,3 +837,8 @@ void x262_reset_intra_dc_predictor( x264_t *h )
     h->mb.i_intra_dc_predictor[4] = 1<<(h->param.i_intra_dc_precision+7);
     h->mb.i_intra_dc_predictor[5] = 1<<(h->param.i_intra_dc_precision+7);
 }
+
+void x262_reset_mv_predictor( x264_t *h )
+{
+    memset( h->mb.mvp, 0, sizeof(h->mb.mvp) );
+}

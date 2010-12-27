@@ -569,6 +569,7 @@ static void x264_macroblock_encode_skip( x264_t *h )
     h->mb.i_cbp_luma = 0;
     h->mb.i_cbp_chroma = 0;
     h->mb.cbp[h->mb.i_mb_xy] = 0;
+    x262_reset_mv_predictor( h );
 }
 
 /*****************************************************************************
@@ -577,9 +578,6 @@ static void x264_macroblock_encode_skip( x264_t *h )
  *****************************************************************************/
 static void x264_macroblock_encode_pskip( x264_t *h )
 {
-    if( MPEG2 )
-        memset( h->mb.mvp, 0, sizeof(h->mb.mvp) );
-
     /* don't do pskip motion compensation if it was already done in macroblock_analyse */
     if( !h->mb.b_skip_mc )
     {
@@ -715,9 +713,8 @@ void x264_macroblock_encode( x264_t *h )
         }
     }
 
-    if( MPEG2 && (((h->mb.i_mb_x == 0 || h->mb.i_mb_x == h->mb.i_mb_width-1) ||
-                             (h->sh.i_type == SLICE_TYPE_B && IS_INTRA( h->mb.i_mb_type_left)))
-                        && IS_SKIP(h->mb.i_type)) )
+    if( MPEG2 && ( (h->mb.i_mb_x == 0 || h->mb.i_mb_x == h->mb.i_mb_width-1) ||
+                   (h->sh.i_type == SLICE_TYPE_B && IS_INTRA( h->mb.i_mb_type_left)) ))
     {
         /* First and last macroblock in a slice is not allowed to be a skip
          * In B-frames a skip cannot follow an intra mb */
@@ -726,6 +723,13 @@ void x264_macroblock_encode( x264_t *h )
             h->mb.i_type = P_L0;
         else if( h->mb.i_type == B_SKIP )
             h->mb.i_type = h->mb.i_mb_type_left;
+    }
+
+    if( MPEG2 && !b_force_no_skip && h->mb.i_type == P_L0 && !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma) &&
+        !( h->mb.cache.mv[0][x264_scan8[X264_SCAN8_0]][0] |
+           h->mb.cache.mv[0][x264_scan8[X264_SCAN8_0]][1] ) )
+    {
+        h->mb.i_type = P_SKIP;
     }
 
     if( h->mb.i_type == P_SKIP )
@@ -765,7 +769,7 @@ void x264_macroblock_encode( x264_t *h )
 
             /* reset mvp */
             if( h->sh.i_type == SLICE_TYPE_P || h->sh.i_type == SLICE_TYPE_B )
-                memset( h->mb.mvp, 0, sizeof(h->mb.mvp) );
+                x262_reset_mv_predictor( h );
         }
         else
         {

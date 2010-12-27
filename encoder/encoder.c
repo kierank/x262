@@ -2091,7 +2091,10 @@ static int x264_slice_write( x264_t *h )
             x262_reset_intra_dc_predictor( h );
 
         if( MPEG2 && i_mb_x == 0 )
-            memset( h->mb.mvp, 0, sizeof(h->mb.mvp) );
+        {
+            i_skip = 0;
+            x262_reset_mv_predictor( h );
+        }
 
         /* load cache */
         x264_macroblock_cache_load( h, i_mb_x, i_mb_y );
@@ -2125,7 +2128,10 @@ static int x264_slice_write( x264_t *h )
         {
 #define bs_write_vlc(s,v) bs_write( s, (v).i_size, (v).i_bits )
             if( IS_SKIP( h->mb.i_type ) )
+            {
                 i_skip++;
+                x262_reset_mv_predictor( h );
+            }
             else
             {
                 while( i_skip > 32 )
