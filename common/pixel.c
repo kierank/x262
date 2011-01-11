@@ -581,12 +581,27 @@ static void ssim_4x4x2_core( const pixel *pix1, int stride1,
 
 static float ssim_end1( int s1, int s2, int ss, int s12 )
 {
+/* Maximum value for 10-bit is: ss*64 = (2^10-1)^2*16*4*64 = 4286582784, which will overflow in some cases.
+ * s1*s1, s2*s2, and s1*s2 also obtain this value for edge cases: ((2^10-1)*16*4)^2 = 4286582784.
+ * Maximum value for 9-bit is: ss*64 = (2^9-1)^2*16*4*64 = 1069551616, which will not overflow. */
+#if BIT_DEPTH > 9
+#define type float
+    static const float ssim_c1 = .01*.01*PIXEL_MAX*PIXEL_MAX*64;
+    static const float ssim_c2 = .03*.03*PIXEL_MAX*PIXEL_MAX*64*63;
+#else
+#define type int
     static const int ssim_c1 = (int)(.01*.01*PIXEL_MAX*PIXEL_MAX*64 + .5);
     static const int ssim_c2 = (int)(.03*.03*PIXEL_MAX*PIXEL_MAX*64*63 + .5);
-    int vars = ss*64 - s1*s1 - s2*s2;
-    int covar = s12*64 - s1*s2;
-    return (float)(2*s1*s2 + ssim_c1) * (float)(2*covar + ssim_c2)
-         / ((float)(s1*s1 + s2*s2 + ssim_c1) * (float)(vars + ssim_c2));
+#endif
+    type fs1 = s1;
+    type fs2 = s2;
+    type fss = ss;
+    type fs12 = s12;
+    type vars = fss*64 - fs1*fs1 - fs2*fs2;
+    type covar = fs12*64 - fs1*fs2;
+    return (float)(2*fs1*fs2 + ssim_c1) * (float)(2*covar + ssim_c2)
+         / ((float)(fs1*fs1 + fs2*fs2 + ssim_c1) * (float)(vars + ssim_c2));
+#undef type
 }
 
 static float ssim_end4( int sum0[5][4], int sum1[5][4], int width )
@@ -778,6 +793,8 @@ void x264_pixel_init( int cpu, x264_pixel_function_t *pixf )
         pixf->intra_sa8d_x3_8x8 = x264_intra_sa8d_x3_8x8_sse2;
 #endif
         pixf->ssd_nv12_core = x264_pixel_ssd_nv12_core_sse2;
+        pixf->ssim_4x4x2_core  = x264_pixel_ssim_4x4x2_core_sse2;
+        pixf->ssim_end4        = x264_pixel_ssim_end4_sse2;
         pixf->var[PIXEL_16x16] = x264_pixel_var_16x16_sse2;
         pixf->var[PIXEL_8x8] = x264_pixel_var_8x8_sse2;
         pixf->var2_8x8 = x264_pixel_var2_8x8_sse2;
@@ -810,6 +827,7 @@ void x264_pixel_init( int cpu, x264_pixel_function_t *pixf )
     }
     if( cpu&X264_CPU_SSSE3 )
     {
+        INIT4_NAME( sad_aligned, sad, _ssse3_aligned );
         INIT7( sad, _ssse3 );
         INIT7( sad_x3, _ssse3 );
         INIT7( sad_x4, _ssse3 );

@@ -740,7 +740,7 @@ typedef struct
     int     i_type;
     /* In: force quantizer for != X264_QP_AUTO */
     int     i_qpplus1;
-    /* In: H.264 ONLY - pic_struct, for pulldown/doubling/etc...used only if b_pic_timing_sei=1.
+    /* In: H.264 ONLY - pic_struct, for pulldown/doubling/etc...used only if b_pic_struct=1.
      *     use pic_struct_e for pic_struct inputs */
     int     i_pic_struct;
     /* In: MPEG-2 ONLY - repeat first field flag. Only valid for progressive input. */

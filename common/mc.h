@@ -88,10 +88,10 @@ typedef struct
     void (*load_deinterleave_8x8x2_fdec)( pixel *dst, pixel *src, int i_src );
 
     void (*plane_copy)( pixel *dst, int i_dst,
-                        uint8_t *src, int i_src, int w, int h );
+                        pixel *src, int i_src, int w, int h );
     void (*plane_copy_interleave)( pixel *dst, int i_dst,
-                                   uint8_t *srcu, int i_srcu,
-                                   uint8_t *srcv, int i_srcv, int w, int h );
+                                   pixel *srcu, int i_srcu,
+                                   pixel *srcv, int i_srcv, int w, int h );
     /* may write up to 15 pixels off the end of each plane */
     void (*plane_copy_deinterleave)( pixel *dstu, int i_dstu,
                                      pixel *dstv, int i_dstv,
@@ -123,7 +123,7 @@ typedef struct
     void (*weight_cache)( x264_t *, x264_weight_t * );
 
     void (*mbtree_propagate_cost)( int *dst, uint16_t *propagate_in, uint16_t *intra_costs,
-                                   uint16_t *inter_costs, uint16_t *inv_qscales, int len );
+                                   uint16_t *inter_costs, uint16_t *inv_qscales, float *fps_factor, int len );
 } x264_mc_functions_t;
 
 void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 );

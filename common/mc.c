@@ -66,32 +66,12 @@ static inline void pixel_avg_wxh( pixel *dst, int i_dst, pixel *src1, int i_src1
 
 /* Implicit weighted bipred only:
  * assumes log2_denom = 5, offset = 0, weight1 + weight2 = 64 */
-#define op_scale2(x) dst[x] = x264_clip_pixel( (src1[x]*i_weight1 + src2[x]*i_weight2 + (1<<5)) >> 6 )
 static inline void pixel_avg_weight_wxh( pixel *dst, int i_dst, pixel *src1, int i_src1, pixel *src2, int i_src2, int width, int height, int i_weight1 )
 {
     const int i_weight2 = 64 - i_weight1;
     for( int y = 0; y<height; y++, dst += i_dst, src1 += i_src1, src2 += i_src2 )
-    {
-        op_scale2(0);
-        op_scale2(1);
-        if(width==2) continue;
-        op_scale2(2);
-        op_scale2(3);
-        if(width==4) continue;
-        op_scale2(4);
-        op_scale2(5);
-        op_scale2(6);
-        op_scale2(7);
-        if(width==8) continue;
-        op_scale2(8);
-        op_scale2(9);
-        op_scale2(10);
-        op_scale2(11);
-        op_scale2(12);
-        op_scale2(13);
-        op_scale2(14);
-        op_scale2(15);
-    }
+        for( int x = 0; x<width; x++ )
+            dst[x] = x264_clip_pixel( (src1[x]*i_weight1 + src2[x]*i_weight2 + (1<<5)) >> 6 );
 }
 #undef op_scale2
 
@@ -342,7 +322,7 @@ MC_COPY( 8 )
 MC_COPY( 4 )
 
 void x264_plane_copy_c( pixel *dst, int i_dst,
-                        uint8_t *src, int i_src, int w, int h )
+                        pixel *src, int i_src, int w, int h )
 {
     while( h-- )
     {
@@ -353,14 +333,14 @@ void x264_plane_copy_c( pixel *dst, int i_dst,
 }
 
 void x264_plane_copy_interleave_c( pixel *dst, int i_dst,
-                                   uint8_t *srcu, int i_srcu,
-                                   uint8_t *srcv, int i_srcv, int w, int h )
+                                   pixel *srcu, int i_srcu,
+                                   pixel *srcv, int i_srcv, int w, int h )
 {
     for( int y=0; y<h; y++, dst+=i_dst, srcu+=i_srcu, srcv+=i_srcv )
         for( int x=0; x<w; x++ )
         {
-            dst[2*x]   = ((pixel*)srcu)[x];
-            dst[2*x+1] = ((pixel*)srcv)[x];
+            dst[2*x]   = srcu[x];
+            dst[2*x+1] = srcv[x];
         }
 }
 
@@ -493,30 +473,19 @@ static void frame_init_lowres_core( pixel *src0, pixel *dst0, pixel *dsth, pixel
     }
 }
 
-#if defined(__GNUC__) && (ARCH_X86 || ARCH_X86_64)
-// gcc isn't smart enough to use the "idiv" instruction
-static ALWAYS_INLINE int32_t div_64_32(int64_t x, int32_t y)
-{
-    int32_t quotient, remainder;
-    asm("idiv %4"
-        :"=a"(quotient), "=d"(remainder)
-        :"a"((uint32_t)x), "d"((int32_t)(x>>32)), "r"(y)
-    );
-    return quotient;
-}
-#else
-#define div_64_32(x,y) ((x)/(y))
-#endif
-
 /* Estimate the total amount of influence on future quality that could be had if we
  * were to improve the reference samples used to inter predict any given macroblock. */
 static void mbtree_propagate_cost( int *dst, uint16_t *propagate_in, uint16_t *intra_costs,
-                                   uint16_t *inter_costs, uint16_t *inv_qscales, int len )
+                                   uint16_t *inter_costs, uint16_t *inv_qscales, float *fps_factor, int len )
 {
+    float fps = *fps_factor / 256.f;
     for( int i = 0; i < len; i++ )
     {
-        int propagate_amount = propagate_in[i] + ((intra_costs[i] * inv_qscales[i] + 128)>>8);
-        dst[i] = div_64_32((int64_t)propagate_amount * (intra_costs[i] - (inter_costs[i] & LOWRES_COST_MASK)), intra_costs[i]);
+        float intra_cost       = intra_costs[i] * inv_qscales[i];
+        float propagate_amount = propagate_in[i] + intra_cost*fps;
+        float propagate_num    = intra_costs[i] - (inter_costs[i] & LOWRES_COST_MASK);
+        float propagate_denom  = intra_costs[i];
+        dst[i] = (int)(propagate_amount * propagate_num / propagate_denom + 0.5f);
     }
 }
 

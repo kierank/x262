@@ -57,8 +57,8 @@ typedef struct
     int16_t i_weight_denom[2];
     int refcount[16];
     int refs;
-    int i_duration;
-    int i_cpb_duration;
+    int64_t i_duration;
+    int64_t i_cpb_duration;
 } ratecontrol_entry_t;
 
 typedef struct
@@ -419,22 +419,22 @@ int x264_reference_build_list_optimal( x264_t *h )
     x264_weight_t weights[16][3];
     int refcount[16];
 
-    if( rce->refs != h->i_ref0 )
+    if( rce->refs != h->i_ref[0] )
         return -1;
 
-    memcpy( frames, h->fref0, sizeof(frames) );
+    memcpy( frames, h->fref[0], sizeof(frames) );
     memcpy( refcount, rce->refcount, sizeof(refcount) );
     memcpy( weights, h->fenc->weight, sizeof(weights) );
     memset( &h->fenc->weight[1][0], 0, sizeof(x264_weight_t[15][3]) );
 
     /* For now don't reorder ref 0; it seems to lower quality
        in most cases due to skips. */
-    for( int ref = 1; ref < h->i_ref0; ref++ )
+    for( int ref = 1; ref < h->i_ref[0]; ref++ )
     {
         int max = -1;
         int bestref = 1;
 
-        for( int i = 1; i < h->i_ref0; i++ )
+        for( int i = 1; i < h->i_ref[0]; i++ )
             /* Favor lower POC as a tiebreaker. */
             COPY2_IF_GT( max, refcount[i], bestref, i );
 
@@ -442,7 +442,7 @@ int x264_reference_build_list_optimal( x264_t *h )
          * that the optimal ordering doesnt place every duplicate. */
 
         refcount[bestref] = -1;
-        h->fref0[ref] = frames[bestref];
+        h->fref[0][ref] = frames[bestref];
         memcpy( h->fenc->weight[ref], weights[bestref], sizeof(weights[bestref]) );
     }
 
@@ -859,7 +859,7 @@ int x264_ratecontrol_new( x264_t *h )
             rce = &rc->entry[frame_number];
             rce->direct_mode = 0;
 
-            e += sscanf( p, " in:%*d out:%*d type:%c dur:%d cpbdur:%d q:%f tex:%d mv:%d misc:%d imb:%d pmb:%d smb:%d d:%c",
+            e += sscanf( p, " in:%*d out:%*d type:%c dur:%"SCNd64" cpbdur:%"SCNd64" q:%f tex:%d mv:%d misc:%d imb:%d pmb:%d smb:%d d:%c",
                    &pict_type, &rce->i_duration, &rce->i_cpb_duration, &qp, &rce->tex_bits,
                    &rce->mv_bits, &rce->misc_bits, &rce->i_count, &rce->p_count,
                    &rce->s_count, &rce->direct_mode );
@@ -1315,15 +1315,15 @@ static double predict_row_size( x264_t *h, int y, double qp )
     x264_ratecontrol_t *rc = h->rc;
     double pred_s = predict_size( rc->row_pred[0], qp2qscale( h, qp ), h->fdec->i_row_satd[y] );
     double pred_t = 0;
-    if( h->sh.i_type == SLICE_TYPE_I || qp >= h->fref0[0]->f_row_qp[y] )
+    if( h->sh.i_type == SLICE_TYPE_I || qp >= h->fref[0][0]->f_row_qp[y] )
     {
         if( h->sh.i_type == SLICE_TYPE_P
-            && h->fref0[0]->i_type == h->fdec->i_type
-            && h->fref0[0]->i_row_satd[y] > 0
-            && (abs(h->fref0[0]->i_row_satd[y] - h->fdec->i_row_satd[y]) < h->fdec->i_row_satd[y]/2))
+            && h->fref[0][0]->i_type == h->fdec->i_type
+            && h->fref[0][0]->i_row_satd[y] > 0
+            && (abs(h->fref[0][0]->i_row_satd[y] - h->fdec->i_row_satd[y]) < h->fdec->i_row_satd[y]/2))
         {
-            pred_t = h->fref0[0]->i_row_bits[y] * h->fdec->i_row_satd[y] / h->fref0[0]->i_row_satd[y]
-                     * qp2qscale( h, h->fref0[0]->f_row_qp[y] ) / qp2qscale( h, qp );
+            pred_t = h->fref[0][0]->i_row_bits[y] * h->fdec->i_row_satd[y] / h->fref[0][0]->i_row_satd[y]
+                     * qp2qscale( h, h->fref[0][0]->f_row_qp[y] ) / qp2qscale( h, qp );
         }
         if( pred_t == 0 )
             pred_t = pred_s;
@@ -1372,7 +1372,7 @@ void x264_ratecontrol_mb( x264_t *h, int bits )
     h->fdec->f_row_qp[y] = rc->qpm;
 
     update_predictor( rc->row_pred[0], qp2qscale( h, rc->qpm ), h->fdec->i_row_satd[y], h->fdec->i_row_bits[y] );
-    if( h->sh.i_type == SLICE_TYPE_P && rc->qpm < h->fref0[0]->f_row_qp[y] )
+    if( h->sh.i_type == SLICE_TYPE_P && rc->qpm < h->fref[0][0]->f_row_qp[y] )
         update_predictor( rc->row_pred[1], qp2qscale( h, rc->qpm ), h->fdec->i_row_satds[0][0][y], h->fdec->i_row_bits[y] );
 
     /* tweak quality based on difference from predicted size */
@@ -1389,7 +1389,7 @@ void x264_ratecontrol_mb( x264_t *h, int bits )
         /* B-frames shouldn't use lower QP than their reference frames. */
         if( h->sh.i_type == SLICE_TYPE_B )
         {
-            qp_min = X264_MAX( qp_min, X264_MAX( h->fref0[0]->f_row_qp[y+1], h->fref1[0]->f_row_qp[y+1] ) );
+            qp_min = X264_MAX( qp_min, X264_MAX( h->fref[0][0]->f_row_qp[y+1], h->fref[1][0]->f_row_qp[y+1] ) );
             rc->qpm = X264_MAX( rc->qpm, qp_min );
         }
 
@@ -1564,7 +1564,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
                           dir_avg>0 ? 's' : dir_avg<0 ? 't' : '-' )
                         : '-';
         if( fprintf( rc->p_stat_file_out,
-                 "in:%d out:%d type:%c dur:%d cpbdur:%d q:%.2f tex:%d mv:%d misc:%d imb:%d pmb:%d smb:%d d:%c ref:",
+                 "in:%d out:%d type:%c dur:%"PRId64" cpbdur:%"PRId64" q:%.2f tex:%d mv:%d misc:%d imb:%d pmb:%d smb:%d d:%c ref:",
                  h->fenc->i_frame, h->i_frame,
                  c_type, h->fenc->i_duration,
                  h->fenc->i_cpb_duration, rc->qpa_rc,
@@ -1579,7 +1579,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
 
         /* Only write information for reference reordering once. */
         int use_old_stats = h->param.rc.b_stat_read && rc->rce->refs > 1;
-        for( int i = 0; i < (use_old_stats ? rc->rce->refs : h->i_ref0); i++ )
+        for( int i = 0; i < (use_old_stats ? rc->rce->refs : h->i_ref[0]); i++ )
         {
             int refcount = use_old_stats         ? rc->rce->refcount[i]
                          : h->param.b_interlaced ? h->stat.frame.i_mb_count_ref[0][i*2]
@@ -1596,12 +1596,12 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
                 goto fail;
             if( h->sh.weight[0][1].weightfn || h->sh.weight[0][2].weightfn )
             {
-                if( fprintf( rc->p_stat_file_out, ",%d,%d,%d,%d,%d\n",
+                if( fprintf( rc->p_stat_file_out, ",%d,%d,%d,%d,%d ",
                              h->sh.weight[0][1].i_denom, h->sh.weight[0][1].i_scale, h->sh.weight[0][1].i_offset,
                              h->sh.weight[0][2].i_scale, h->sh.weight[0][2].i_offset ) < 0 )
                     goto fail;
             }
-            else if( fprintf( rc->p_stat_file_out, "\n" ) < 0 )
+            else if( fprintf( rc->p_stat_file_out, " " ) < 0 )
                 goto fail;
         }
 
@@ -1633,9 +1633,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
             rc->cplxr_sum += bits * qp2qscale( h, rc->qpa_rc ) / (rc->last_rceq * fabs( h->param.rc.f_pb_factor ));
         }
         rc->cplxr_sum *= rc->cbr_decay;
-        double frame_duration = (double)h->fenc->i_duration * h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
-
-        rc->wanted_bits_window += frame_duration * rc->bitrate;
+        rc->wanted_bits_window += h->fenc->f_duration * rc->bitrate;
         rc->wanted_bits_window *= rc->cbr_decay;
     }
 
@@ -1650,7 +1648,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
             if( h->fenc->b_last_minigop_bframe )
             {
                 update_predictor( rc->pred_b_from_p, qp2qscale( h, rc->qpa_rc ),
-                                  h->fref1[h->i_ref1-1]->i_satd, rc->bframe_bits / rc->bframes );
+                                  h->fref[1][h->i_ref[1]-1]->i_satd, rc->bframe_bits / rc->bframes );
                 rc->bframe_bits = 0;
             }
         }
@@ -2058,7 +2056,7 @@ static float rate_estimate_qscale( x264_t *h )
 {
     float q;
     x264_ratecontrol_t *rcc = h->rc;
-    ratecontrol_entry_t rce;
+    ratecontrol_entry_t UNINIT(rce);
     int pict_type = h->sh.i_type;
     int64_t total_bits = 8*(h->stat.i_frame_size[SLICE_TYPE_I]
                           + h->stat.i_frame_size[SLICE_TYPE_P]
@@ -2080,16 +2078,16 @@ static float rate_estimate_qscale( x264_t *h )
         /* B-frames don't have independent ratecontrol, but rather get the
          * average QP of the two adjacent P-frames + an offset */
 
-        int i0 = IS_X264_TYPE_I(h->fref0[0]->i_type);
-        int i1 = IS_X264_TYPE_I(h->fref1[0]->i_type);
-        int dt0 = abs(h->fenc->i_poc - h->fref0[0]->i_poc);
-        int dt1 = abs(h->fenc->i_poc - h->fref1[0]->i_poc);
-        float q0 = h->fref0[0]->f_qp_avg_rc;
-        float q1 = h->fref1[0]->f_qp_avg_rc;
+        int i0 = IS_X264_TYPE_I(h->fref_nearest[0]->i_type);
+        int i1 = IS_X264_TYPE_I(h->fref_nearest[1]->i_type);
+        int dt0 = abs(h->fenc->i_poc - h->fref_nearest[0]->i_poc);
+        int dt1 = abs(h->fenc->i_poc - h->fref_nearest[1]->i_poc);
+        float q0 = h->fref_nearest[0]->f_qp_avg_rc;
+        float q1 = h->fref_nearest[1]->f_qp_avg_rc;
 
-        if( h->fref0[0]->i_type == X264_TYPE_BREF )
+        if( h->fref_nearest[0]->i_type == X264_TYPE_BREF )
             q0 -= rcc->pb_offset/2;
-        if( h->fref1[0]->i_type == X264_TYPE_BREF )
+        if( h->fref_nearest[1]->i_type == X264_TYPE_BREF )
             q1 -= rcc->pb_offset/2;
 
         if( i0 && i1 )
@@ -2109,7 +2107,7 @@ static float rate_estimate_qscale( x264_t *h )
         if( rcc->b_2pass && rcc->b_vbv )
             rcc->frame_size_planned = qscale2bits( &rce, qp2qscale( h, q ) );
         else
-            rcc->frame_size_planned = predict_size( rcc->pred_b_from_p, qp2qscale( h, q ), h->fref1[h->i_ref1-1]->i_satd );
+            rcc->frame_size_planned = predict_size( rcc->pred_b_from_p, qp2qscale( h, q ), h->fref[1][h->i_ref[1]-1]->i_satd );
         h->rc->frame_size_estimated = rcc->frame_size_planned;
 
         /* For row SATDs */
@@ -2214,7 +2212,7 @@ static float rate_estimate_qscale( x264_t *h )
             rcc->last_satd = x264_rc_analyse_slice( h );
             rcc->short_term_cplxsum *= 0.5;
             rcc->short_term_cplxcount *= 0.5;
-            rcc->short_term_cplxsum += rcc->last_satd;
+            rcc->short_term_cplxsum += rcc->last_satd / (CLIP_DURATION(h->fenc->f_duration) / BASE_FRAME_DURATION);
             rcc->short_term_cplxcount ++;
 
             rce.tex_bits = rcc->last_satd;
@@ -2571,10 +2569,11 @@ static int init_pass2( x264_t *h )
 {
     x264_ratecontrol_t *rcc = h->rc;
     uint64_t all_const_bits = 0;
+    double timescale = (double)h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
     double duration = 0;
     for( int i = 0; i < rcc->num_entries; i++ )
         duration += rcc->entry[i].i_duration;
-    duration *= (double)h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
+    duration *= timescale;
     uint64_t all_available_bits = h->param.rc.i_bitrate * 1000. * duration;
     double rate_factor, step_mult;
     double qblur = h->param.rc.f_qblur;
@@ -2613,21 +2612,23 @@ static int init_pass2( x264_t *h )
         for( int j = 1; j < cplxblur*2 && j < rcc->num_entries-i; j++ )
         {
             ratecontrol_entry_t *rcj = &rcc->entry[i+j];
+            double frame_duration = CLIP_DURATION(rcj->i_duration * timescale) / BASE_FRAME_DURATION;
             weight *= 1 - pow( (float)rcj->i_count / rcc->nmb, 2 );
             if( weight < .0001 )
                 break;
             gaussian_weight = weight * exp( -j*j/200.0 );
             weight_sum += gaussian_weight;
-            cplx_sum += gaussian_weight * (qscale2bits(rcj, 1) - rcj->misc_bits);
+            cplx_sum += gaussian_weight * (qscale2bits( rcj, 1 ) - rcj->misc_bits) / frame_duration;
         }
         /* weighted average of cplx of past frames */
         weight = 1.0;
         for( int j = 0; j <= cplxblur*2 && j <= i; j++ )
         {
             ratecontrol_entry_t *rcj = &rcc->entry[i-j];
+            double frame_duration = CLIP_DURATION(rcj->i_duration * timescale) / BASE_FRAME_DURATION;
             gaussian_weight = weight * exp( -j*j/200.0 );
             weight_sum += gaussian_weight;
-            cplx_sum += gaussian_weight * (qscale2bits( rcj, 1 ) - rcj->misc_bits);
+            cplx_sum += gaussian_weight * (qscale2bits( rcj, 1 ) - rcj->misc_bits) / frame_duration;
             weight *= 1 - pow( (float)rcj->i_count / rcc->nmb, 2 );
             if( weight < .0001 )
                 break;

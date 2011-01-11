@@ -633,6 +633,7 @@ static int check_dct( int cpu_ref, int cpu_new )
         qf.quant_8x8( dct8[i], h->quant8_mf[CQM_8IY][20], h->quant8_bias[CQM_8IY][20] );
         qf.dequant_8x8( dct8[i], h->dequant8_mf[CQM_8IY], 20 );
     }
+    x264_cqm_delete( h );
 
 #define TEST_IDCT( name, src ) \
     if( dct_asm.name != dct_ref.name ) \
@@ -1079,7 +1080,7 @@ static int check_mc( int cpu_ref, int cpu_new )
             int src_stride = plane_specs[i].src_stride;
             int dst_stride = (w + 127) & ~63;
             assert( dst_stride * h <= 0x1000 );
-            uint8_t *src1 = buf1 + X264_MAX(0, -src_stride) * (h-1);
+            pixel *src1 = pbuf1 + X264_MAX(0, -src_stride) * (h-1);
             memset( pbuf3, 0, 0x1000*sizeof(pixel) );
             memset( pbuf4, 0, 0x1000*sizeof(pixel) );
             call_c( mc_c.plane_copy, pbuf3, dst_stride, src1, src_stride, w, h );
@@ -1105,7 +1106,7 @@ static int check_mc( int cpu_ref, int cpu_new )
             int src_stride = (plane_specs[i].src_stride + 1) >> 1;
             int dst_stride = (2*w + 127) & ~63;
             assert( dst_stride * h <= 0x1000 );
-            uint8_t *src1 = buf1 + X264_MAX(0, -src_stride) * (h-1);
+            pixel *src1 = pbuf1 + X264_MAX(0, -src_stride) * (h-1);
             memset( pbuf3, 0, 0x1000*sizeof(pixel) );
             memset( pbuf4, 0, 0x1000*sizeof(pixel) );
             call_c( mc_c.plane_copy_interleave, pbuf3, dst_stride, src1, src_stride, src1+1024, src_stride+16, w, h );
@@ -1235,29 +1236,34 @@ static int check_mc( int cpu_ref, int cpu_new )
 
     if( mc_a.mbtree_propagate_cost != mc_ref.mbtree_propagate_cost )
     {
-        ok = 1; used_asm = 1;
-        set_func_name( "mbtree_propagate" );
-        int *dsta = (int*)buf3;
-        int *dstc = dsta+400;
-        uint16_t *prop = (uint16_t*)buf1;
-        uint16_t *intra = (uint16_t*)buf4;
-        uint16_t *inter = intra+400;
-        uint16_t *qscale = inter+400;
-        uint16_t *rnd = (uint16_t*)buf2;
         x264_emms();
-        for( int i = 0; i < 400; i++ )
+        for( int i = 0; i < 10; i++ )
         {
-            intra[i]  = *rnd++ & 0x7fff;
-            intra[i] += !intra[i];
-            inter[i]  = *rnd++ & 0x7fff;
-            qscale[i] = *rnd++ & 0x7fff;
+            float fps_factor = (rand()&65535) / 256.;
+            ok = 1; used_asm = 1;
+            set_func_name( "mbtree_propagate" );
+            int *dsta = (int*)buf3;
+            int *dstc = dsta+400;
+            uint16_t *prop = (uint16_t*)buf1;
+            uint16_t *intra = (uint16_t*)buf4;
+            uint16_t *inter = intra+100;
+            uint16_t *qscale = inter+100;
+            uint16_t *rnd = (uint16_t*)buf2;
+            x264_emms();
+            for( int j = 0; j < 100; j++ )
+            {
+                intra[j]  = *rnd++ & 0x7fff;
+                intra[j] += !intra[j];
+                inter[j]  = *rnd++ & 0x7fff;
+                qscale[j] = *rnd++ & 0x7fff;
+            }
+            call_c( mc_c.mbtree_propagate_cost, dstc, prop, intra, inter, qscale, &fps_factor, 100 );
+            call_a( mc_a.mbtree_propagate_cost, dsta, prop, intra, inter, qscale, &fps_factor, 100 );
+            // I don't care about exact rounding, this is just how close the floating-point implementation happens to be
+            x264_emms();
+            for( int j = 0; j < 100; j++ )
+                ok &= abs( dstc[j]-dsta[j] ) <= 1 || fabs( (double)dstc[j]/dsta[j]-1 ) < 1e-4;
         }
-        call_c( mc_c.mbtree_propagate_cost, dstc, prop, intra, inter, qscale, 400 );
-        call_a( mc_a.mbtree_propagate_cost, dsta, prop, intra, inter, qscale, 400 );
-        // I don't care about exact rounding, this is just how close the floating-point implementation happens to be
-        x264_emms();
-        for( int i = 0; i < 400; i++ )
-            ok &= abs( dstc[i]-dsta[i] ) <= 1 || fabs( (double)dstc[i]/dsta[i]-1 ) < 1e-6;
         report( "mbtree propagate :" );
     }
 
@@ -1384,7 +1390,6 @@ static int check_quant( int cpu_ref, int cpu_new )
     h->pps = h->pps_array;
     x264_param_default( &h->param );
     h->chroma_qp_table = i_chroma_qp_table + 12;
-    h->param.rc.i_qp_min = 26 + QP_BD_OFFSET;
     h->param.analyse.b_transform_8x8 = 1;
 
     for( int i_cqm = 0; i_cqm < 4; i_cqm++ )
@@ -1415,6 +1420,8 @@ static int check_quant( int cpu_ref, int cpu_new )
             h->param.i_cqm_preset = h->pps->i_cqm_preset = X264_CQM_CUSTOM;
         }
 
+        h->param.rc.i_qp_min = 0;
+        h->param.rc.i_qp_max = QP_MAX;
         x264_cqm_init( h );
         x264_quant_init( h, 0, &qf_c );
         x264_quant_init( h, cpu_ref, &qf_ref );
@@ -1445,7 +1452,7 @@ static int check_quant( int cpu_ref, int cpu_new )
         { \
             set_func_name( #name ); \
             used_asms[0] = 1; \
-            for( int qp = QP_MAX; qp > 0; qp-- ) \
+            for( int qp = h->param.rc.i_qp_max; qp >= h->param.rc.i_qp_min; qp-- ) \
             { \
                 for( int j = 0; j < 2; j++ ) \
                 { \
@@ -1471,7 +1478,7 @@ static int check_quant( int cpu_ref, int cpu_new )
         { \
             set_func_name( #qname ); \
             used_asms[0] = 1; \
-            for( int qp = QP_MAX; qp > 0; qp-- ) \
+            for( int qp = h->param.rc.i_qp_max; qp >= h->param.rc.i_qp_min; qp-- ) \
             { \
                 for( int j = 0; j < 2; j++ ) \
                 { \
@@ -1502,7 +1509,7 @@ static int check_quant( int cpu_ref, int cpu_new )
         { \
             set_func_name( "%s_%s", #dqname, i_cqm?"cqm":"flat" ); \
             used_asms[1] = 1; \
-            for( int qp = QP_MAX; qp > 0; qp-- ) \
+            for( int qp = h->param.rc.i_qp_max; qp >= h->param.rc.i_qp_min; qp-- ) \
             { \
                 INIT_QUANT##w(1) \
                 call_c1( qf_c.qname, dct1, h->quant##w##_mf[block][qp], h->quant##w##_bias[block][qp] ); \
@@ -1530,7 +1537,7 @@ static int check_quant( int cpu_ref, int cpu_new )
         { \
             set_func_name( "%s_%s", #dqname, i_cqm?"cqm":"flat" ); \
             used_asms[1] = 1; \
-            for( int qp = QP_MAX; qp > 0; qp-- ) \
+            for( int qp = h->param.rc.i_qp_max; qp >= h->param.rc.i_qp_min; qp-- ) \
             { \
                 for( int i = 0; i < 16; i++ ) \
                     dct1[i] = rand()%(PIXEL_MAX*16*2+1) - PIXEL_MAX*16; \
@@ -1692,6 +1699,7 @@ static int check_intra( int cpu_ref, int cpu_new )
     int ret = 0, ok = 1, used_asm = 0;
     ALIGNED_16( pixel edge[33] );
     ALIGNED_16( pixel edge2[33] );
+    ALIGNED_16( pixel fdec[FDEC_STRIDE*20] );
     struct
     {
         x264_predict_t      predict_16x16[4+3];
@@ -1716,18 +1724,20 @@ static int check_intra( int cpu_ref, int cpu_new )
     x264_predict_8x8_init( cpu_new, ip_a.predict_8x8, &ip_a.predict_8x8_filter );
     x264_predict_4x4_init( cpu_new, ip_a.predict_4x4 );
 
-    ip_c.predict_8x8_filter( pbuf1+48, edge, ALL_NEIGHBORS, ALL_NEIGHBORS );
+    memcpy( fdec, pbuf1, 32*20 * sizeof(pixel) );\
 
-#define INTRA_TEST( name, dir, w, ... )\
+    ip_c.predict_8x8_filter( fdec+48, edge, ALL_NEIGHBORS, ALL_NEIGHBORS );
+
+#define INTRA_TEST( name, dir, w, bench, ... )\
     if( ip_a.name[dir] != ip_ref.name[dir] )\
     {\
         set_func_name( "intra_%s_%s", #name, intra_##name##_names[dir] );\
         used_asm = 1;\
-        memcpy( pbuf3, pbuf1, 32*20 * sizeof(pixel) );\
-        memcpy( pbuf4, pbuf1, 32*20 * sizeof(pixel) );\
-        call_c( ip_c.name[dir], pbuf3+48, ##__VA_ARGS__ );\
-        call_a( ip_a.name[dir], pbuf4+48, ##__VA_ARGS__ );\
-        if( memcmp( pbuf3, pbuf4, 32*20 * sizeof(pixel) ) )\
+        memcpy( pbuf3, fdec, FDEC_STRIDE*20 * sizeof(pixel) );\
+        memcpy( pbuf4, fdec, FDEC_STRIDE*20 * sizeof(pixel) );\
+        call_c##bench( ip_c.name[dir], pbuf3+48, ##__VA_ARGS__ );\
+        call_a##bench( ip_a.name[dir], pbuf4+48, ##__VA_ARGS__ );\
+        if( memcmp( pbuf3, pbuf4, FDEC_STRIDE*20 * sizeof(pixel) ) )\
         {\
             fprintf( stderr, #name "[%d] :  [FAILED]\n", dir );\
             ok = 0;\
@@ -1738,7 +1748,7 @@ static int check_intra( int cpu_ref, int cpu_new )
             {\
                 printf( "%2x ", edge[14-j] );\
                 for( int k = 0; k < w; k++ )\
-                    printf( "%2x ", pbuf4[48+k+j*32] );\
+                    printf( "%2x ", pbuf4[48+k+j*FDEC_STRIDE] );\
                 printf( "\n" );\
             }\
             printf( "\n" );\
@@ -1746,20 +1756,20 @@ static int check_intra( int cpu_ref, int cpu_new )
             {\
                 printf( "   " );\
                 for( int k = 0; k < w; k++ )\
-                    printf( "%2x ", pbuf3[48+k+j*32] );\
+                    printf( "%2x ", pbuf3[48+k+j*FDEC_STRIDE] );\
                 printf( "\n" );\
             }\
         }\
     }
 
     for( int i = 0; i < 12; i++ )
-        INTRA_TEST( predict_4x4, i, 4 );
+        INTRA_TEST(   predict_4x4, i,  4, );
     for( int i = 0; i < 7; i++ )
-        INTRA_TEST( predict_8x8c, i, 8 );
+        INTRA_TEST(  predict_8x8c, i,  8, );
     for( int i = 0; i < 7; i++ )
-        INTRA_TEST( predict_16x16, i, 16 );
+        INTRA_TEST( predict_16x16, i, 16, );
     for( int i = 0; i < 12; i++ )
-        INTRA_TEST( predict_8x8, i, 8, edge );
+        INTRA_TEST(   predict_8x8, i,  8, , edge );
 
     set_func_name("intra_predict_8x8_filter");
     if( ip_a.predict_8x8_filter != ip_ref.predict_8x8_filter )
@@ -1778,6 +1788,32 @@ static int check_intra( int cpu_ref, int cpu_new )
         }
     }
 
+#define EXTREMAL_PLANE(size) \
+    { \
+        int max[7]; \
+        for( int j = 0; j < 7; j++ ) \
+            max[j] = test ? rand()&PIXEL_MAX : PIXEL_MAX; \
+        fdec[48-1-FDEC_STRIDE] = (i&1)*max[0]; \
+        for( int j = 0; j < size/2; j++ ) \
+            fdec[48+j-FDEC_STRIDE] = (!!(i&2))*max[1]; \
+        for( int j = size/2; j < size-1; j++ ) \
+            fdec[48+j-FDEC_STRIDE] = (!!(i&4))*max[2]; \
+        fdec[48+(size-1)-FDEC_STRIDE] = (!!(i&8))*max[3]; \
+        for( int j = 0; j < size/2; j++ ) \
+            fdec[48+j*FDEC_STRIDE-1] = (!!(i&16))*max[4]; \
+        for( int j = size/2; j < size-1; j++ ) \
+            fdec[48+j*FDEC_STRIDE-1] = (!!(i&32))*max[5]; \
+        fdec[48+(size-1)*FDEC_STRIDE-1] = (!!(i&64))*max[6]; \
+    }
+    /* Extremal test case for planar prediction. */
+    for( int test = 0; test < 100 && ok; test++ )
+        for( int i = 0; i < 128 && ok; i++ )
+        {
+            EXTREMAL_PLANE(  8 );
+            INTRA_TEST(  predict_8x8c, I_PRED_CHROMA_P,  8, 1 );
+            EXTREMAL_PLANE( 16 );
+            INTRA_TEST( predict_16x16,  I_PRED_16x16_P, 16, 1 );
+        }
     report( "intra pred :" );
     return ret;
 }

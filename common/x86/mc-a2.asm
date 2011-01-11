@@ -40,6 +40,7 @@ deinterleave_shuf: db 0,2,4,6,8,10,12,14,1,3,5,7,9,11,13,15
 
 pd_16: times 4 dd 16
 pd_0f: times 4 dd 0xffff
+pf_inv256: times 4 dd 0.00390625
 
 pad10: times 8 dw    10*PIXEL_MAX
 pad20: times 8 dw    20*PIXEL_MAX
@@ -59,7 +60,7 @@ cextern pw_32
 cextern pw_00ff
 cextern pw_3fff
 cextern pw_pixel_max
-cextern pd_128
+cextern pd_ffff
 
 %macro LOAD_ADD 4
     movh       %4, %3
@@ -153,10 +154,10 @@ cextern pd_128
 ;-----------------------------------------------------------------------------
 %macro HPEL_FILTER 1
 cglobal hpel_filter_v_%1, 5,6,11*(mmsize/16)
+    FIX_STRIDES r3d, r4d
 %ifdef WIN64
     movsxd     r4, r4d
 %endif
-    FIX_STRIDES r3, r4
     lea        r5, [r1+r3]
     sub        r1, r3
     sub        r1, r3
@@ -824,11 +825,13 @@ HPEL ssse3
 %endif ; !HIGH_BIT_DEPTH
 
 ;-----------------------------------------------------------------------------
-; void plane_copy_core( uint8_t *dst, int i_dst,
-;                       uint8_t *src, int i_src, int w, int h)
+; void plane_copy_core( pixel *dst, int i_dst,
+;                       pixel *src, int i_src, int w, int h)
 ;-----------------------------------------------------------------------------
 ; assumes i_dst and w are multiples of 16, and i_dst>w
+INIT_MMX
 cglobal plane_copy_core_mmxext, 6,7
+    FIX_STRIDES r1d, r3d, r4d
     movsxdifnidn r1, r1d
     movsxdifnidn r3, r3d
     movsxdifnidn r4, r4d
@@ -839,22 +842,22 @@ cglobal plane_copy_core_mmxext, 6,7
     sub    r6d, 63
 .loopx:
     prefetchnta [r2+256]
-    movq   mm0, [r2   ]
-    movq   mm1, [r2+ 8]
-    movntq [r0   ], mm0
-    movntq [r0+ 8], mm1
-    movq   mm2, [r2+16]
-    movq   mm3, [r2+24]
-    movntq [r0+16], mm2
-    movntq [r0+24], mm3
-    movq   mm4, [r2+32]
-    movq   mm5, [r2+40]
-    movntq [r0+32], mm4
-    movntq [r0+40], mm5
-    movq   mm6, [r2+48]
-    movq   mm7, [r2+56]
-    movntq [r0+48], mm6
-    movntq [r0+56], mm7
+    movq   m0, [r2   ]
+    movq   m1, [r2+ 8]
+    movntq [r0   ], m0
+    movntq [r0+ 8], m1
+    movq   m2, [r2+16]
+    movq   m3, [r2+24]
+    movntq [r0+16], m2
+    movntq [r0+24], m3
+    movq   m4, [r2+32]
+    movq   m5, [r2+40]
+    movntq [r0+32], m4
+    movntq [r0+40], m5
+    movq   m6, [r2+48]
+    movq   m7, [r2+56]
+    movntq [r0+48], m6
+    movntq [r0+56], m7
     add    r2,  64
     add    r0,  64
     sub    r6d, 64
@@ -863,10 +866,10 @@ cglobal plane_copy_core_mmxext, 6,7
     add    r6d, 63
     jle .end16
 .loop16:
-    movq   mm0, [r2  ]
-    movq   mm1, [r2+8]
-    movntq [r0  ], mm0
-    movntq [r0+8], mm1
+    movq   m0, [r2  ]
+    movq   m1, [r2+8]
+    movntq [r0  ], m0
+    movntq [r0+8], m1
     add    r2,  16
     add    r0,  16
     sub    r6d, 16
@@ -880,55 +883,21 @@ cglobal plane_copy_core_mmxext, 6,7
     emms
     RET
 
+
+%macro INTERLEAVE 4-5 ; dst, srcu, srcv, is_aligned, nt_hint
 %ifdef HIGH_BIT_DEPTH
-
-%macro INTERLEAVE 4-5 ; dst, srcu, srcv, is_aligned, nt_hint
-%if mmsize==16
-    mov%4       m0, [%2]
-    mov%4       m1, [%3]
-    SBUTTERFLY  wd, 0, 1, 2
-    mov%5a [%1+ 0], m0
-    mov%5a [%1+16], m1
+%assign x 0
+%rep 16/mmsize
+    mov%4     m0, [%2+(x/2)*mmsize]
+    mov%4     m1, [%3+(x/2)*mmsize]
+    mova      m2, m0
+    punpcklwd m0, m1
+    punpckhwd m2, m1
+    mov%5a    [%1+(x+0)*mmsize], m0
+    mov%5a    [%1+(x+1)*mmsize], m2
+    %assign x (x+2)
+%endrep
 %else
-    movq        m0, [%2+0]
-    movq        m1, [%3+0]
-    SBUTTERFLY  wd, 0, 1, 2
-    mov%5q [%1+ 0], m0
-    mov%5q [%1+ 8], m1
-    movq        m0, [%2+8]
-    movq        m1, [%3+8]
-    SBUTTERFLY  wd, 0, 1, 2
-    mov%5q [%1+16], m0
-    mov%5q [%1+24], m1
-%endif
-%endmacro
-
-%macro PLANE_INTERLEAVE 1
-;-----------------------------------------------------------------------------
-; void store_interleave_8x8x2( uint16_t *dst, int i_dst, uint16_t *srcu, uint16_t *srcv )
-;-----------------------------------------------------------------------------
-cglobal store_interleave_8x8x2_%1, 4,5
-    mov    r4d, 16
-    FIX_STRIDES r1
-.loop:
-    INTERLEAVE r0, r2, r3, a
-    add    r2, FDEC_STRIDEB
-    add    r3, FDEC_STRIDEB
-    add    r0, r1
-    dec    r4d
-    jg .loop
-    REP_RET
-
-%endmacro ; PLANE_INTERLEAVE
-
-INIT_MMX
-PLANE_INTERLEAVE mmxext
-INIT_XMM
-PLANE_INTERLEAVE sse2
-
-%else ;!HIGH_BIT_DEPTH
-
-%macro INTERLEAVE 4-5 ; dst, srcu, srcv, is_aligned, nt_hint
     movq   m0, [%2]
 %if mmsize==16
 %ifidn %4, a
@@ -943,12 +912,31 @@ PLANE_INTERLEAVE sse2
     mova   m2, m0
     punpcklbw m0, m1
     punpckhbw m2, m1
-    mov%5a [%1], m0
+    mov%5a [%1+0], m0
     mov%5a [%1+8], m2
 %endif
+%endif ; HIGH_BIT_DEPTH
 %endmacro
 
-%macro DEINTERLEAVE 6 ; dstu, dstv, src, dstv==dstu+8, cpu, shuffle constant
+%macro DEINTERLEAVE 7 ; dstu, dstv, src, dstv==dstu+8, cpu, shuffle constant, is aligned
+%ifdef HIGH_BIT_DEPTH
+%assign n 0
+%rep 16/mmsize
+    mova     m0, [%3+(n+0)*mmsize]
+    mova     m1, [%3+(n+1)*mmsize]
+    mova     m2, m0
+    mova     m3, m1
+    pand     m0, %6
+    pand     m1, %6
+    psrld    m2, 16
+    psrld    m3, 16
+    packssdw m0, m1
+    packssdw m2, m3
+    mov%7    [%1+(n/2)*mmsize], m0
+    mov%7    [%2+(n/2)*mmsize], m2
+    %assign n (n+2)
+%endrep
+%else ; !HIGH_BIT_DEPTH
 %if mmsize==16
     mova   m0, [%3]
 %ifidn %5, ssse3
@@ -978,7 +966,8 @@ PLANE_INTERLEAVE sse2
     packuswb m2, m3
     mova   [%1], m0
     mova   [%2], m2
-%endif
+%endif ; mmsize == 16
+%endif ; HIGH_BIT_DEPTH
 %endmacro
 
 %macro PLANE_INTERLEAVE 1
@@ -988,11 +977,17 @@ PLANE_INTERLEAVE sse2
 ;                                  uint8_t *srcv, int i_srcv, int w, int h )
 ;-----------------------------------------------------------------------------
 ; assumes i_dst and w are multiples of 16, and i_dst>2*w
-cglobal plane_copy_interleave_core_%1, 6,7
-    mov    r6d, r6m
+cglobal plane_copy_interleave_core_%1, 7,7
+    FIX_STRIDES r1d, r3d, r5d, r6d
+%ifdef HIGH_BIT_DEPTH
+    mov   r1m, r1d
+    mov   r3m, r3d
+    mov   r6m, r6d
+%endif
     movsxdifnidn r1, r1d
     movsxdifnidn r3, r3d
     movsxdifnidn r5, r5d
+    movsxdifnidn r6, r6d
     lea    r0, [r0+r6*2]
     add    r2,  r6
     add    r4,  r6
@@ -1001,10 +996,10 @@ cglobal plane_copy_interleave_core_%1, 6,7
 %else
     DECLARE_REG_TMP 1,3
 %endif
+    mov  t1, r1
+    shr  t1, SIZEOF_PIXEL
+    sub  t1, r6
     mov  t0d, r7m
-    mov  t1d, r1d
-    shr  t1d, 1
-    sub  t1d, r6d
 .loopy:
     mov    r6d, r6m
     neg    r6
@@ -1016,21 +1011,25 @@ cglobal plane_copy_interleave_core_%1, 6,7
     mov    r6d, r6m
     neg    r6
 .loopx:
-    INTERLEAVE r0+r6*2,    r2+r6,   r4+r6,   u, nt
-    INTERLEAVE r0+r6*2+16, r2+r6+8, r4+r6+8, u, nt
-    add    r6, 16
+    INTERLEAVE r0+r6*2+ 0*SIZEOF_PIXEL, r2+r6+0*SIZEOF_PIXEL, r4+r6+0*SIZEOF_PIXEL, u, nt
+    INTERLEAVE r0+r6*2+16*SIZEOF_PIXEL, r2+r6+8*SIZEOF_PIXEL, r4+r6+8*SIZEOF_PIXEL, u, nt
+    add    r6, 16*SIZEOF_PIXEL
     jl .loopx
 .pad:
+%assign n 0
+%rep SIZEOF_PIXEL
 %if mmsize==8
-    movntq [r0+r6*2], m0
-    movntq [r0+r6*2+8], m0
-    movntq [r0+r6*2+16], m0
-    movntq [r0+r6*2+24], m0
+    movntq [r0+r6*2+(n+ 0)], m0
+    movntq [r0+r6*2+(n+ 8)], m0
+    movntq [r0+r6*2+(n+16)], m0
+    movntq [r0+r6*2+(n+24)], m0
 %else
-    movntdq [r0+r6*2], m0
-    movntdq [r0+r6*2+16], m0
+    movntdq [r0+r6*2+(n+ 0)], m0
+    movntdq [r0+r6*2+(n+16)], m0
 %endif
-    add    r6, 16
+    %assign n n+32
+%endrep
+    add    r6, 16*SIZEOF_PIXEL
     cmp    r6, t1
     jl .pad
     add    r0, r1mp
@@ -1047,11 +1046,12 @@ cglobal plane_copy_interleave_core_%1, 6,7
 ;-----------------------------------------------------------------------------
 cglobal store_interleave_8x8x2_%1, 4,5
     mov    r4d, 4
+    FIX_STRIDES r1d
 .loop:
-    INTERLEAVE r0, r2, r3, a
-    INTERLEAVE r0+r1, r2+FDEC_STRIDE, r3+FDEC_STRIDE, a
-    add    r2, FDEC_STRIDE*2
-    add    r3, FDEC_STRIDE*2
+    INTERLEAVE r0+ 0, r2+           0, r3+           0, a
+    INTERLEAVE r0+r1, r2+FDEC_STRIDEB, r3+FDEC_STRIDEB, a
+    add    r2, FDEC_STRIDEB*2
+    add    r3, FDEC_STRIDEB*2
     lea    r0, [r0+r1*2]
     dec    r4d
     jg .loop
@@ -1059,22 +1059,28 @@ cglobal store_interleave_8x8x2_%1, 4,5
 %endmacro ; PLANE_INTERLEAVE
 
 %macro DEINTERLEAVE_START 1
-%ifidn %1, ssse3
+%ifdef HIGH_BIT_DEPTH
+    mova   m4, [pd_ffff]
+%elifidn %1, ssse3
     mova   m4, [deinterleave_shuf]
 %else
     mova   m4, [pw_00ff]
-%endif
+%endif ; HIGH_BIT_DEPTH
 %endmacro
 
 %macro PLANE_DEINTERLEAVE 1
 ;-----------------------------------------------------------------------------
-; void plane_copy_deinterleave( uint8_t *dstu, int i_dstu,
-;                               uint8_t *dstv, int i_dstv,
-;                               uint8_t *src, int i_src, int w, int h )
+; void plane_copy_deinterleave( pixel *dstu, int i_dstu,
+;                               pixel *dstv, int i_dstv,
+;                               pixel *src, int i_src, int w, int h )
 ;-----------------------------------------------------------------------------
 cglobal plane_copy_deinterleave_%1, 6,7
     DEINTERLEAVE_START %1
     mov    r6d, r6m
+    FIX_STRIDES r1d, r3d, r5d, r6d
+%ifdef HIGH_BIT_DEPTH
+    mov    r6m, r6d
+%endif
     movsxdifnidn r1, r1d
     movsxdifnidn r3, r3d
     movsxdifnidn r5, r5d
@@ -1085,9 +1091,9 @@ cglobal plane_copy_deinterleave_%1, 6,7
     mov    r6d, r6m
     neg    r6
 .loopx:
-    DEINTERLEAVE r0+r6,   r2+r6,   r4+r6*2,    0, %1, m4
-    DEINTERLEAVE r0+r6+8, r2+r6+8, r4+r6*2+16, 0, %1, m4
-    add    r6, 16
+    DEINTERLEAVE r0+r6+0*SIZEOF_PIXEL, r2+r6+0*SIZEOF_PIXEL, r4+r6*2+ 0*SIZEOF_PIXEL, 0, %1, m4, u
+    DEINTERLEAVE r0+r6+8*SIZEOF_PIXEL, r2+r6+8*SIZEOF_PIXEL, r4+r6*2+16*SIZEOF_PIXEL, 0, %1, m4, u
+    add    r6, 16*SIZEOF_PIXEL
     jl .loopx
     add    r0, r1
     add    r2, r3
@@ -1097,36 +1103,46 @@ cglobal plane_copy_deinterleave_%1, 6,7
     REP_RET
 
 ;-----------------------------------------------------------------------------
-; void load_deinterleave_8x8x2_fenc( uint8_t *dst, uint8_t *src, int i_src )
+; void load_deinterleave_8x8x2_fenc( pixel *dst, pixel *src, int i_src )
 ;-----------------------------------------------------------------------------
 cglobal load_deinterleave_8x8x2_fenc_%1, 3,4
     DEINTERLEAVE_START %1
     mov    r3d, 4
+    FIX_STRIDES r2d
 .loop:
-    DEINTERLEAVE r0, r0+FENC_STRIDE/2, r1, 1, %1, m4
-    DEINTERLEAVE r0+FENC_STRIDE, r0+FENC_STRIDE*3/2, r1+r2, 1, %1, m4
-    add    r0, FENC_STRIDE*2
+    DEINTERLEAVE r0+           0, r0+FENC_STRIDEB*1/2, r1+ 0, 1, %1, m4, a
+    DEINTERLEAVE r0+FENC_STRIDEB, r0+FENC_STRIDEB*3/2, r1+r2, 1, %1, m4, a
+    add    r0, FENC_STRIDEB*2
     lea    r1, [r1+r2*2]
     dec    r3d
     jg .loop
     REP_RET
 
 ;-----------------------------------------------------------------------------
-; void load_deinterleave_8x8x2_fdec( uint8_t *dst, uint8_t *src, int i_src )
+; void load_deinterleave_8x8x2_fdec( pixel *dst, pixel *src, int i_src )
 ;-----------------------------------------------------------------------------
 cglobal load_deinterleave_8x8x2_fdec_%1, 3,4
     DEINTERLEAVE_START %1
     mov    r3d, 4
+    FIX_STRIDES r2d
 .loop:
-    DEINTERLEAVE r0, r0+FDEC_STRIDE/2, r1, 0, %1, m4
-    DEINTERLEAVE r0+FDEC_STRIDE, r0+FDEC_STRIDE*3/2, r1+r2, 0, %1, m4
-    add    r0, FDEC_STRIDE*2
+    DEINTERLEAVE r0+           0, r0+FDEC_STRIDEB*1/2, r1+ 0, 0, %1, m4, a
+    DEINTERLEAVE r0+FDEC_STRIDEB, r0+FDEC_STRIDEB*3/2, r1+r2, 0, %1, m4, a
+    add    r0, FDEC_STRIDEB*2
     lea    r1, [r1+r2*2]
     dec    r3d
     jg .loop
     REP_RET
 %endmacro ; PLANE_DEINTERLEAVE
 
+%ifdef HIGH_BIT_DEPTH
+INIT_MMX
+PLANE_INTERLEAVE mmxext
+PLANE_DEINTERLEAVE mmx
+INIT_XMM
+PLANE_INTERLEAVE sse2
+PLANE_DEINTERLEAVE sse2
+%else
 INIT_MMX
 PLANE_INTERLEAVE mmxext
 PLANE_DEINTERLEAVE mmx
@@ -1134,8 +1150,7 @@ INIT_XMM
 PLANE_INTERLEAVE sse2
 PLANE_DEINTERLEAVE sse2
 PLANE_DEINTERLEAVE ssse3
-
-%endif ; HIGH_BIT_DEPTH
+%endif
 
 ; These functions are not general-use; not only do the SSE ones require aligned input,
 ; but they also will fail if given a non-mod16 size or a size less than 64.
@@ -1432,14 +1447,64 @@ cglobal integral_init4v_ssse3, 3,5
     mova    [%2], m2
 %endmacro
 
+%macro FILT8xU 3
+    mova      m3, [r0+%3+8]
+    mova      m2, [r0+%3]
+    pavgw     m3, [r0+%3+r5+8]
+    pavgw     m2, [r0+%3+r5]
+    movu      m1, [r0+%3+10]
+    movu      m0, [r0+%3+2]
+    pavgw     m1, [r0+%3+r5+10]
+    pavgw     m0, [r0+%3+r5+2]
+    pavgw     m1, m3
+    pavgw     m0, m2
+    mova      m3, m1
+    mova      m2, m0
+    pand      m1, m7
+    pand      m0, m7
+    psrld     m3, 16
+    psrld     m2, 16
+    packssdw  m0, m1
+    packssdw  m2, m3
+    movu    [%1], m0
+    mova    [%2], m2
+%endmacro
+
+%macro FILT8xA 4
+    mova      m3, [r0+%4+mmsize]
+    mova      m2, [r0+%4]
+    pavgw     m3, [r0+%4+r5+mmsize]
+    pavgw     m2, [r0+%4+r5]
+    PALIGNR   %1, m3, 2, m6
+    pavgw     %1, m3
+    PALIGNR   m3, m2, 2, m6
+    pavgw     m3, m2
+    mova      m5, m3
+    mova      m4, %1
+    pand      m3, m7
+    pand      %1, m7
+    psrld     m5, 16
+    psrld     m4, 16
+    packssdw  m3, %1
+    packssdw  m5, m4
+    mova    [%2], m3
+    mova    [%3], m5
+    mova      %1, m2
+%endmacro
+
 ;-----------------------------------------------------------------------------
 ; void frame_init_lowres_core( uint8_t *src0, uint8_t *dst0, uint8_t *dsth, uint8_t *dstv, uint8_t *dstc,
 ;                              int src_stride, int dst_stride, int width, int height )
 ;-----------------------------------------------------------------------------
-%macro FRAME_INIT_LOWRES 1-2 0 ; FIXME
-cglobal frame_init_lowres_core_%1, 6,7,%2
+%macro FRAME_INIT_LOWRES 1
+cglobal frame_init_lowres_core_%1, 6,7,(12-4*(BIT_DEPTH/9))*(mmsize/16) ; 8 for HIGH_BIT_DEPTH, 12 otherwise
+%ifdef HIGH_BIT_DEPTH
+    shl   dword r6m, 1
+    FIX_STRIDES r5d
+    shl   dword r7m, 1
+%endif
 %ifdef WIN64
-    movsxd   r5, r5d
+    movsxd    r5, r5d
 %endif
     ; src += 2*(height-1)*stride + 2*width
     mov      r6d, r8m
@@ -1466,6 +1531,33 @@ cglobal frame_init_lowres_core_%1, 6,7,%2
     shl      r6d, 1
     PUSH      r6
     %define src_gap [rsp]
+%ifdef HIGH_BIT_DEPTH
+    pcmpeqw   m7, m7
+    psrld     m7, 16
+.vloop:
+    mov      r6d, r7m
+%ifnidn %1,mmxext
+    mova      m0, [r0]
+    mova      m1, [r0+r5]
+    pavgw     m0, m1
+    pavgw     m1, [r0+r5*2]
+%endif
+.hloop:
+    sub       r0, mmsize*2
+    sub       r1, mmsize
+    sub       r2, mmsize
+    sub       r3, mmsize
+    sub       r4, mmsize
+%ifidn %1,mmxext
+    FILT8xU r1, r2, 0
+    FILT8xU r3, r4, r5
+%else
+    FILT8xA m0, r1, r2, 0
+    FILT8xA m1, r3, r4, r5
+%endif
+    sub      r6d, mmsize
+    jg .hloop
+%else ; !HIGH_BIT_DEPTH
 %if mmsize == 16
     ; adjust for the odd end case
     mov      r6d, r7m
@@ -1529,6 +1621,7 @@ cglobal frame_init_lowres_core_%1, 6,7,%2
 %endif
     sub      r6d, mmsize
     jg .hloop
+%endif ; HIGH_BIT_DEPTH
 .skip:
     mov       r6, dst_gap
     sub       r0, src_gap
@@ -1550,53 +1643,55 @@ FRAME_INIT_LOWRES mmxext
 FRAME_INIT_LOWRES cache32_mmxext
 %endif
 INIT_XMM
-FRAME_INIT_LOWRES sse2, 12
+FRAME_INIT_LOWRES sse2
 %define PALIGNR PALIGNR_SSSE3
-FRAME_INIT_LOWRES ssse3, 12
+FRAME_INIT_LOWRES ssse3
 
 ;-----------------------------------------------------------------------------
 ; void mbtree_propagate_cost( int *dst, uint16_t *propagate_in, uint16_t *intra_costs,
-;                             uint16_t *inter_costs, uint16_t *inv_qscales, int len )
+;                             uint16_t *inter_costs, uint16_t *inv_qscales, float *fps_factor, int len )
 ;-----------------------------------------------------------------------------
-cglobal mbtree_propagate_cost_sse2, 6,6,7
-    shl r5d, 1
-    lea r0, [r0+r5*2]
-    add r1, r5
-    add r2, r5
-    add r3, r5
-    add r4, r5
-    neg r5
-    pxor      xmm5, xmm5
-    movdqa    xmm6, [pw_3fff]
-    movdqa    xmm4, [pd_128]
+cglobal mbtree_propagate_cost_sse2, 7,7,7
+    shl        r6d, 1
+    lea         r0, [r0+r6*2]
+    add         r1, r6
+    add         r2, r6
+    add         r3, r6
+    add         r4, r6
+    neg         r6
+    pxor      xmm4, xmm4
+    movss     xmm6, [r5]
+    shufps    xmm6, xmm6, 0
+    mulps     xmm6, [pf_inv256]
+    movdqa    xmm5, [pw_3fff]
 .loop:
-    movq      xmm2, [r2+r5] ; intra
-    movq      xmm0, [r4+r5] ; invq
-    movq      xmm3, [r3+r5] ; inter
-    movq      xmm1, [r1+r5] ; prop
-    punpcklwd xmm2, xmm5
-    punpcklwd xmm0, xmm5
+    movq      xmm2, [r2+r6] ; intra
+    movq      xmm0, [r4+r6] ; invq
+    movq      xmm3, [r3+r6] ; inter
+    movq      xmm1, [r1+r6] ; prop
+    punpcklwd xmm2, xmm4
+    punpcklwd xmm0, xmm4
     pmaddwd   xmm0, xmm2
-    pand      xmm3, xmm6
-    punpcklwd xmm1, xmm5
-    punpcklwd xmm3, xmm5
-    paddd     xmm0, xmm4
-    psrld     xmm0, 8       ; intra*invq>>8
-    paddd     xmm0, xmm1    ; prop + (intra*invq>>8)
+    pand      xmm3, xmm5
+    punpcklwd xmm1, xmm4
+    punpcklwd xmm3, xmm4
+    cvtdq2ps  xmm0, xmm0
+    mulps     xmm0, xmm6    ; intra*invq*fps_factor>>8
+    cvtdq2ps  xmm1, xmm1    ; prop
+    addps     xmm0, xmm1    ; prop + (intra*invq*fps_factor>>8)
     cvtdq2ps  xmm1, xmm2    ; intra
     psubd     xmm2, xmm3    ; intra - inter
+    cvtdq2ps  xmm2, xmm2    ; intra - inter
     rcpps     xmm3, xmm1    ; 1 / intra 1st approximation
-    cvtdq2ps  xmm0, xmm0
     mulps     xmm1, xmm3    ; intra * (1/intra 1st approx)
-    cvtdq2ps  xmm2, xmm2
     mulps     xmm1, xmm3    ; intra * (1/intra 1st approx)^2
-    mulps     xmm0, xmm2    ; (prop + (intra*invq>>8)) * (intra - inter)
+    mulps     xmm0, xmm2    ; (prop + (intra*invq*fps_factor>>8)) * (intra - inter)
     addps     xmm3, xmm3    ; 2 * (1/intra 1st approx)
     subps     xmm3, xmm1    ; 2nd approximation for 1/intra
     mulps     xmm0, xmm3    ; / intra
-    cvttps2dq xmm0, xmm0    ; truncation isn't really desired, but matches the integer implementation
-    movdqa [r0+r5*2], xmm0
-    add r5, 8
+    cvtps2dq  xmm0, xmm0
+    movdqa [r0+r6*2], xmm0
+    add         r6, 8
     jl .loop
     REP_RET
 

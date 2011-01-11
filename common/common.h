@@ -382,8 +382,7 @@ typedef struct
     int i_num_ref_idx_l0_active;
     int i_num_ref_idx_l1_active;
 
-    int b_ref_pic_list_reordering_l0;
-    int b_ref_pic_list_reordering_l1;
+    int b_ref_pic_list_reordering[2];
     struct
     {
         int idc;
@@ -468,16 +467,16 @@ struct x264_t
     int             i_nal_type;
     int             i_nal_ref_idc;
 
-    int             i_disp_fields;  /* Number of displayed fields (both coded and implied via pic_struct) */
+    int64_t         i_disp_fields;  /* Number of displayed fields (both coded and implied via pic_struct) */
     int             i_disp_fields_last_frame;
-    int             i_prev_duration; /* Duration of previous frame */
-    int             i_coded_fields; /* Number of coded fields (both coded and implied via pic_struct) */
-    int             i_cpb_delay;    /* Equal to number of fields preceding this field
+    int64_t         i_prev_duration; /* Duration of previous frame */
+    int64_t         i_coded_fields; /* Number of coded fields (both coded and implied via pic_struct) */
+    int64_t         i_cpb_delay;    /* Equal to number of fields preceding this field
                                      * since last buffering_period SEI */
-    int             i_coded_fields_lookahead; /* Use separate counters for lookahead */
-    int             i_cpb_delay_lookahead;
+    int64_t         i_coded_fields_lookahead; /* Use separate counters for lookahead */
+    int64_t         i_cpb_delay_lookahead;
 
-    int             i_cpb_delay_pir_offset;
+    int64_t         i_cpb_delay_pir_offset;
 
     int             b_queued_intra_refresh;
     int64_t         i_last_idr_pts;
@@ -557,10 +556,9 @@ struct x264_t
     x264_frame_t    *fdec;
 
     /* references lists */
-    int             i_ref0;
-    x264_frame_t    *fref0[X264_REF_MAX+3];     /* ref list 0 */
-    int             i_ref1;
-    x264_frame_t    *fref1[X264_REF_MAX+3];     /* ref list 1 */
+    int             i_ref[2];
+    x264_frame_t    *fref[2][X264_REF_MAX+3];
+    x264_frame_t    *fref_nearest[2];
     int             b_ref_reorder[2];
 
     /* hrd */
