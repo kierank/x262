@@ -569,10 +569,10 @@ static inline void jpeg_fdct_islow( dctcoef *data )
 #define W6 1108 /* 2048*sqrt(2)*cos(6*pi/16) */
 #define W7 565  /* 2048*sqrt(2)*cos(7*pi/16) */
 
-static pixel iclip[1024]; /* clipping table */
-static pixel *iclp;
+static short iclip[1024]; /* clipping table */
+static short *iclp;
 
-void x264_idct_init_mpeg2( void )
+static void x264_idct_init_mpeg2( void )
 {
     iclp = iclip + 512;
     for( int i = -512; i < 512; i++ )
@@ -593,7 +593,7 @@ static void idctrow( dctcoef *blk )
 
     X0 = (blk[0] << 11) + 128; /* for proper rounding in the fourth stage  */
 
-    /* first stage  */
+    /* first stage */
     X8 = W7 * (X4 + X5);
     X4 = X8 + (W1 - W7) * X4;
     X5 = X8 - (W1 + W7) * X5;
@@ -601,7 +601,7 @@ static void idctrow( dctcoef *blk )
     X6 = X8 - (W3 - W5) * X6;
     X7 = X8 - (W3 + W5) * X7;
 
-    /* second stage  */
+    /* second stage */
     X8 = X0 + X1;
     X0 -= X1;
     X1 = W6 * (X3 + X2);
@@ -612,7 +612,7 @@ static void idctrow( dctcoef *blk )
     X6 = X5 + X7;
     X5 -= X7;
 
-    /* third stage  */
+    /* third stage */
     X7 = X8 + X3;
     X8 -= X3;
     X3 = X0 + X2;
@@ -620,7 +620,7 @@ static void idctrow( dctcoef *blk )
     X2 = (181 * (X4 + X5) + 128) >> 8;
     X4 = (181 * (X4 - X5) + 128) >> 8;
 
-    /* fourth stage  */
+    /* fourth stage */
     blk[0] = (X7 + X1) >> 8;
     blk[1] = (X3 + X2) >> 8;
     blk[2] = (X0 + X4) >> 8;
@@ -635,7 +635,7 @@ static void idctcol( dctcoef *blk )
 {
     int_fast32_t X0, X1, X2, X3, X4, X5, X6, X7, X8;
 
-    /* shortcut  */
+    /* shortcut */
     if( !( (X1 = (blk[8 * 4] << 8)) | (X2 = blk[8 * 6]) |
            (X3 =  blk[8 * 2])       | (X4 = blk[8 * 1]) |
            (X5 =  blk[8 * 7])       | (X6 = blk[8 * 5]) | (X7 = blk[8 * 3]) ) )
@@ -648,7 +648,7 @@ static void idctcol( dctcoef *blk )
 
     X0 = (blk[8 * 0] << 8) + 8192;
 
-    /* first stage  */
+    /* first stage */
     X8 = W7 * (X4 + X5) + 4;
     X4 = (X8 + (W1 - W7) * X4) >> 3;
     X5 = (X8 - (W1 + W7) * X5) >> 3;
@@ -656,7 +656,7 @@ static void idctcol( dctcoef *blk )
     X6 = (X8 - (W3 - W5) * X6) >> 3;
     X7 = (X8 - (W3 + W5) * X7) >> 3;
 
-    /* second stage  */
+    /* second stage */
     X8 = X0 + X1;
     X0 -= X1;
     X1 = W6 * (X3 + X2) + 4;
@@ -667,7 +667,7 @@ static void idctcol( dctcoef *blk )
     X6 = X5 + X7;
     X5 -= X7;
 
-    /* third stage  */
+    /* third stage */
     X7 = X8 + X3;
     X8 -= X3;
     X3 = X0 + X2;
@@ -675,7 +675,7 @@ static void idctcol( dctcoef *blk )
     X2 = (181 * (X4 + X5) + 128) >> 8;
     X4 = (181 * (X4 - X5) + 128) >> 8;
 
-    /* fourth stage  */
+    /* fourth stage */
     blk[8 * 0] = iclp[(X7 + X1) >> 14];
     blk[8 * 1] = iclp[(X3 + X2) >> 14];
     blk[8 * 2] = iclp[(X0 + X4) >> 14];
@@ -703,7 +703,8 @@ static void add8x8_idct_mpeg2( pixel *p_dst, dctcoef dct[64] )
 
     for( int i = 0; i < 8; i++ )
         for( int j = 0; j < 8; j++ )
-            p_dst[i*FDEC_STRIDE + j] = tmp[i*8 + j];
+            p_dst[i*FDEC_STRIDE + j] = 
+                x264_clip_pixel( p_dst[i*FDEC_STRIDE + j] + tmp[i*8 + j] );
 }
 
 static void add16x16_idct_mpeg2( pixel *p_dst, dctcoef dct[4][64] )
