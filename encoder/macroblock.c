@@ -1041,7 +1041,7 @@ void x264_macroblock_encode( x264_t *h )
         if( MPEG2 )
         {
             if( h->mb.i_type == P_L0 && h->mb.i_partition == D_16x16 &&
-                !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma) && 
+                !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma) &&
                 !(h->mb.cache.mv[0][x264_scan8[0]][0]) &&
                 !(h->mb.cache.mv[0][x264_scan8[0]][1]) )
                     h->mb.i_type = P_SKIP;
