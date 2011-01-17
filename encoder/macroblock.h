@@ -41,11 +41,12 @@ extern const uint16_t x262_lambda_tab_lin[QP_MAX_MPEG2+1];
 void x264_rdo_init( void );
 
 int x264_macroblock_probe_skip( x264_t *h, int b_bidir );
+int x264_macroblock_probe_skip_mpeg2( x264_t *h, int b_bidir );
 
 #define x264_macroblock_probe_pskip( h )\
-    x264_macroblock_probe_skip( h, 0 )
+    ( MPEG2 ? x264_macroblock_probe_skip_mpeg2( h, 0 ) : x264_macroblock_probe_skip( h, 0 ) )
 #define x264_macroblock_probe_bskip( h )\
-    x264_macroblock_probe_skip( h, 1 )
+    ( MPEG2 ? x264_macroblock_probe_skip_mpeg2( h, 1 ) : x264_macroblock_probe_skip( h, 1 ) )
 
 void x264_predict_lossless_8x8_chroma( x264_t *h, int i_mode );
 void x264_predict_lossless_4x4( x264_t *h, pixel *p_dst, int idx, int i_mode );

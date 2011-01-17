@@ -1069,9 +1069,6 @@ void x264_macroblock_encode( x264_t *h )
  *****************************************************************************/
 int x264_macroblock_probe_skip( x264_t *h, int b_bidir )
 {
-    if( MPEG2 ) // FIXME
-        return 0;
-
     ALIGNED_ARRAY_16( dctcoef, dct4x4,[4],[16] );
     ALIGNED_ARRAY_16( dctcoef, dct2x2,[4] );
     ALIGNED_ARRAY_16( dctcoef, dctscan,[16] );
@@ -1167,6 +1164,53 @@ int x264_macroblock_probe_skip( x264_t *h, int b_bidir )
                 return 0;
         }
     }
+
+    h->mb.b_skip_mc = 1;
+    return 1;
+}
+
+int x264_macroblock_probe_skip_mpeg2( x264_t *h, int b_bidir )
+{
+    ALIGNED_ARRAY_16( dctcoef, dct8x8,[6],[64] );
+    ALIGNED_ARRAY_16( dctcoef, dctscan8,[64] );
+    ALIGNED_4( int16_t mvp[2] );
+
+    int i_qp = h->mb.i_qp;
+    int thresh, ssd;
+
+    if( !b_bidir )
+    {
+        /* Get the MV */
+        mvp[0] = x264_clip3( h->mb.cache.pskip_mv[0], h->mb.mv_min[0], h->mb.mv_max[0] );
+        mvp[1] = x264_clip3( h->mb.cache.pskip_mv[1], h->mb.mv_min[1], h->mb.mv_max[1] );
+
+        /* Motion compensation */
+        h->mc.mc_luma( h->mb.pic.p_fdec[0],    FDEC_STRIDE,
+                       h->mb.pic.p_fref[0][0], h->mb.pic.i_stride[0],
+                       mvp[0], mvp[1], 16, 16, &h->sh.weight[0][0] );
+    }
+
+    for( int i8x8 = 0, i_decimate_mb = 0; i8x8 < 4; i8x8++ )
+    {
+        int fenc_offset = (i8x8&1) * 8 + (i8x8>>1) * FENC_STRIDE * 8;
+        int fdec_offset = (i8x8&1) * 8 + (i8x8>>1) * FDEC_STRIDE * 8;
+        /* get luma diff */
+        h->dctf.sub8x8_dct8( dct8x8, h->mb.pic.p_fenc[0] + fenc_offset,
+                                     h->mb.pic.p_fdec[0] + fdec_offset );
+        /* encode one 8x8 block */
+        for( int i4x4 = 0; i4x4 < 4; i4x4++ )
+        {
+            if( !h->quantf.quant_8x8_mpeg2( dct8x8[i4x4], h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] ) )
+                continue;
+            h->zigzagf.scan_8x8( dctscan8, dct8x8[i4x4] );
+            i_decimate_mb += h->quantf.decimate_score64( dctscan8 );
+            if( i_decimate_mb >= 6 )
+                return 0;
+        }
+    }
+
+    /* encode chroma */
+    // FIXME
 
     h->mb.b_skip_mc = 1;
     return 1;
