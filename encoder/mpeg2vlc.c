@@ -108,10 +108,7 @@ void x262_macroblock_write_vlc( x264_t *h )
                  h->mb.cache.mv[0][x264_scan8[X264_SCAN8_0]][1];
     /* must code a zero mv for macroblocks that cannot be (P|B)_SKIP */
     if( !cbp && !mcoded )
-    {
         mcoded = 1;
-        x262_reset_mv_predictor( h );
-    }
 
     // macroblock modes
     if( i_mb_type == I_16x16 )
