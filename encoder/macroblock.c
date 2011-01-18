@@ -1195,7 +1195,7 @@ int x264_macroblock_probe_skip_mpeg2( x264_t *h, int b_bidir )
         int fenc_offset = (i8x8&1) * 8 + (i8x8>>1) * FENC_STRIDE * 8;
         int fdec_offset = (i8x8&1) * 8 + (i8x8>>1) * FDEC_STRIDE * 8;
         /* get luma diff */
-        h->dctf.sub8x8_dct8( dct8x8, h->mb.pic.p_fenc[0] + fenc_offset,
+        h->dctf.sub8x8_dct8( dct8x8[i8x8], h->mb.pic.p_fenc[0] + fenc_offset,
                                      h->mb.pic.p_fdec[0] + fdec_offset );
         /* encode one 8x8 block */
         for( int i4x4 = 0; i4x4 < 4; i4x4++ )
