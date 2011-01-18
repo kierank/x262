@@ -49,6 +49,6 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s );
 void x262_pic_display_extension_write( x264_t *h, bs_t *s );
 void x262_user_data_write( bs_t *s, uint8_t *payload, int payload_size );
 
-const x262_fps_t x262_allowed_fps[13];
+const x262_fps_t x262_allowed_fps[14];
 
 #endif

@@ -950,7 +950,7 @@ const x262_level_t x262_levels[] =
     { 0 }
 };
 
-const x262_fps_t x262_allowed_fps[13] =
+const x262_fps_t x262_allowed_fps[14] =
 {
     { 1, 24000, 1001 },
     { 2, 24, 1 },
