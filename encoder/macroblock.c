@@ -319,7 +319,7 @@ static void x262_mb_encode_i_block( x264_t *h, int idx, int i_qp )
         else
             h->mb.i_cbp_chroma |= 1<<(5-idx);
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
-        h->quantf.dequant_8x8_mpeg2( dct8x8, h->dequant8_mf[CQM_8IY][i_qp], h->quant8_bias[CQM_8IY][i_qp] );
+        h->quantf.dequant_mpeg2_intra( dct8x8, h->dequant8_mf[CQM_8IY][i_qp] );
         h->dct.mpeg2_8x8[idx][0] = dct8x8[0] = dcb << (3-h->param.i_intra_dc_precision);
         h->dctf.add8x8_idct8( p_dst, dct8x8 );
     }
@@ -358,7 +358,7 @@ static void x262_mb_encode_inter_block( x264_t *h, int idx, int i_qp )
         else
             h->mb.i_cbp_chroma |= 1<<(5-idx);
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
-        h->quantf.dequant_8x8_mpeg2( dct8x8, h->dequant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] );
+        h->quantf.dequant_mpeg2_inter( dct8x8, h->dequant8_mf[CQM_8PY][i_qp] );
         h->dctf.add8x8_idct8( p_dst, dct8x8 );
     }
 }
