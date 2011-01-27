@@ -1,7 +1,7 @@
 ;*****************************************************************************
 ;* quant-a.asm: x86 quantization and level-run
 ;*****************************************************************************
-;* Copyright (C) 2005-2010 x264 project
+;* Copyright (C) 2005-2011 x264 project
 ;*
 ;* Authors: Loren Merritt <lorenm@u.washington.edu>
 ;*          Jason Garrett-Glaser <darkshikari@gmail.com>
@@ -321,11 +321,6 @@ cglobal quant_%1x%2_%3, 3,3,8*(mmsize/16)
 %define QUANT_END QUANT_END_MMX
 %define PABSD PABSD_MMX
 %define PSIGND PSIGND_MMX
-INIT_MMX
-QUANT_DC 2, 2, mmxext
-QUANT_DC 4, 4, mmxext
-QUANT_AC 4, 4, mmx
-QUANT_AC 8, 8, mmx
 INIT_XMM
 QUANT_DC 2, 2, sse2
 QUANT_DC 4, 4, sse2
@@ -750,8 +745,7 @@ DEQUANT_DC sse2  , w
 ; void denoise_dct( int32_t *dct, uint32_t *sum, uint32_t *offset, int size )
 ;-----------------------------------------------------------------------------
 %macro DENOISE_DCT 1-2 0
-cglobal denoise_dct_%1, 4,5,%2
-    mov       r4d, [r0] ; backup DC coefficient
+cglobal denoise_dct_%1, 4,4,%2
     pxor      m6, m6
 .loop:
     sub       r3, mmsize/2
@@ -778,8 +772,7 @@ cglobal denoise_dct_%1, 4,5,%2
     mova      [r1+r3*4+0*mmsize], m4
     mova      [r1+r3*4+1*mmsize], m5
     jg .loop
-    mov       [r0], r4d ; restore DC coefficient
-    RET
+    REP_RET
 %endmacro
 
 %define PABSD PABSD_MMX
@@ -800,8 +793,7 @@ DENOISE_DCT ssse3, 8
 ; void denoise_dct( int16_t *dct, uint32_t *sum, uint16_t *offset, int size )
 ;-----------------------------------------------------------------------------
 %macro DENOISE_DCT 1-2 0
-cglobal denoise_dct_%1, 4,5,%2
-    movzx     r4d, word [r0]
+cglobal denoise_dct_%1, 4,4,%2
     pxor      m6, m6
 .loop:
     sub       r3, mmsize
@@ -809,31 +801,26 @@ cglobal denoise_dct_%1, 4,5,%2
     mova      m3, [r0+r3*2+1*mmsize]
     PABSW     m0, m2
     PABSW     m1, m3
-    mova      m4, m0
-    mova      m5, m1
-    psubusw   m0, [r2+r3*2+0*mmsize]
-    psubusw   m1, [r2+r3*2+1*mmsize]
-    PSIGNW    m0, m2
-    PSIGNW    m1, m3
-    mova      [r0+r3*2+0*mmsize], m0
-    mova      [r0+r3*2+1*mmsize], m1
-    mova      m2, m4
-    mova      m3, m5
-    punpcklwd m4, m6
-    punpckhwd m2, m6
-    punpcklwd m5, m6
-    punpckhwd m3, m6
-    paddd     m4, [r1+r3*4+0*mmsize]
-    paddd     m2, [r1+r3*4+1*mmsize]
-    paddd     m5, [r1+r3*4+2*mmsize]
-    paddd     m3, [r1+r3*4+3*mmsize]
-    mova      [r1+r3*4+0*mmsize], m4
-    mova      [r1+r3*4+1*mmsize], m2
-    mova      [r1+r3*4+2*mmsize], m5
-    mova      [r1+r3*4+3*mmsize], m3
+    psubusw   m4, m0, [r2+r3*2+0*mmsize]
+    psubusw   m5, m1, [r2+r3*2+1*mmsize]
+    PSIGNW    m4, m2
+    PSIGNW    m5, m3
+    mova      [r0+r3*2+0*mmsize], m4
+    mova      [r0+r3*2+1*mmsize], m5
+    punpcklwd m2, m0, m6
+    punpcklwd m3, m1, m6
+    punpckhwd m0, m6
+    punpckhwd m1, m6
+    paddd     m2, [r1+r3*4+0*mmsize]
+    paddd     m0, [r1+r3*4+1*mmsize]
+    paddd     m3, [r1+r3*4+2*mmsize]
+    paddd     m1, [r1+r3*4+3*mmsize]
+    mova      [r1+r3*4+0*mmsize], m2
+    mova      [r1+r3*4+1*mmsize], m0
+    mova      [r1+r3*4+2*mmsize], m3
+    mova      [r1+r3*4+3*mmsize], m1
     jg .loop
-    mov       [r0], r4w
-    RET
+    REP_RET
 %endmacro
 
 %define PABSW PABSW_MMX
@@ -847,6 +834,8 @@ DENOISE_DCT sse2, 7
 %define PABSW PABSW_SSSE3
 %define PSIGNW PSIGNW_SSSE3
 DENOISE_DCT ssse3, 7
+INIT_AVX
+DENOISE_DCT avx, 7
 
 %endif ; !HIGH_BIT_DEPTH
 
@@ -975,12 +964,14 @@ cglobal decimate_score%1_%2, 1,3
 %endmacro
 
 %ifndef ARCH_X86_64
+INIT_MMX
 %define DECIMATE_MASK DECIMATE_MASK_MMX
 DECIMATE4x4 15, mmxext, 0, 0
 DECIMATE4x4 16, mmxext, 0, 0
 DECIMATE4x4 15, mmxext_slowctz, 1, 0
 DECIMATE4x4 16, mmxext_slowctz, 1, 0
 %endif
+INIT_XMM
 %define DECIMATE_MASK DECIMATE_MASK_SSE2
 DECIMATE4x4 15, sse2, 0, 0
 DECIMATE4x4 16, sse2, 0, 0

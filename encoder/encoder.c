@@ -1,7 +1,7 @@
 /*****************************************************************************
  * encoder.c: top-level encoder functions
  *****************************************************************************
- * Copyright (C) 2003-2010 x264 project
+ * Copyright (C) 2003-2011 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -164,8 +164,8 @@ static void x264_slice_header_init( x264_t *h, x264_slice_header_t *sh,
 
     sh->i_cabac_init_idc = param->i_cabac_init_idc;
 
-    sh->i_qp = i_qp;
-    sh->i_qp_delta = i_qp - pps->i_pic_init_qp;
+    sh->i_qp = SPEC_QP(i_qp);
+    sh->i_qp_delta = sh->i_qp - pps->i_pic_init_qp;
     sh->b_sp_for_swidth = 0;
     sh->i_qs_delta = 0;
 
@@ -596,10 +596,7 @@ static int x264_validate_parameters( x264_t *h )
         float stepsize = 6.0;
         int qp_max = QP_MAX;
         if( MPEG2 )
-        {
             stepsize = 8.0;
-            qp_max = QP_MAX_MPEG2;
-        }
         float qp_i = qp_p - stepsize*log2f( h->param.rc.f_ip_factor );
         float qp_b = qp_p + stepsize*log2f( h->param.rc.f_pb_factor );
         h->param.rc.i_qp_min = x264_clip3( (int)(X264_MIN3( qp_p, qp_i, qp_b )), 0, qp_max );
@@ -608,7 +605,7 @@ static int x264_validate_parameters( x264_t *h )
         h->param.rc.b_mb_tree = 0;
     }
 
-    h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, 1, MPEG2 ? QP_MAX_MPEG2 : QP_MAX );
+    h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, 1, MPEG2 ? QP_MAX_SPEC_MPEG2 : QP_MAX );
     h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min, 1, h->param.rc.i_qp_max );
 
     if( h->param.rc.i_vbv_buffer_size )
@@ -1191,7 +1188,8 @@ x264_t *x264_encoder_open( x264_param_t *param )
         p += sprintf( p, " none!" );
     x264_log( h, X264_LOG_INFO, "%s\n", buf );
 
-    for( qp = h->param.rc.i_qp_min; qp <= h->param.rc.i_qp_max; qp++ )
+    int qp_max = h->param.rc.i_qp_max == QP_MAX_SPEC ? QP_MAX : h->param.rc.i_qp_max;
+    for( qp = h->param.rc.i_qp_min; qp <= qp_max; qp++ )
         if( x264_analyse_init_costs( h, qp ) )
             goto fail;
     if( x264_analyse_init_costs( h, X264_LOOKAHEAD_QP ) )
@@ -1201,7 +1199,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
     {
         static const uint16_t cost_mv_correct[7] = { 24, 47, 95, 189, 379, 757, 1515 };
         /* Checks for known miscompilation issues. */
-        if( h->cost_mv[x264_lambda_tab[X264_LOOKAHEAD_QP]][2013] != cost_mv_correct[BIT_DEPTH-8] )
+        if( h->cost_mv[X264_LOOKAHEAD_QP][2013] != cost_mv_correct[BIT_DEPTH-8] )
         {
             x264_log( h, X264_LOG_ERROR, "MV cost test failed: x264 has been miscompiled!\n" );
             goto fail;
@@ -1598,6 +1596,8 @@ int x264_weighted_reference_duplicate( x264_t *h, int i_ref, const x264_weight_t
         return -1;
 
     newframe = x264_frame_pop_blank_unused( h );
+    if( !newframe )
+        return -1;
 
     //FIXME: probably don't need to copy everything
     *newframe = *h->fref[0][i_ref];
@@ -1987,11 +1987,12 @@ static inline void x264_slice_init( x264_t *h, int i_nal_type, int i_global_qp )
         if( h->param.b_interlaced )
         {
             h->sh.i_delta_poc_bottom = h->param.b_tff ? 1 : -1;
-            if( h->sh.i_delta_poc_bottom == -1 )
-                h->sh.i_poc = h->fdec->i_poc + 1;
+            h->sh.i_poc += h->sh.i_delta_poc_bottom == -1;
         }
         else
             h->sh.i_delta_poc_bottom = 0;
+        h->fdec->i_delta_poc[0] = h->sh.i_delta_poc_bottom == -1;
+        h->fdec->i_delta_poc[1] = h->sh.i_delta_poc_bottom ==  1;
     }
     else if( h->sps->i_poc_type == 1 )
     {
@@ -3004,14 +3005,14 @@ int     x264_encoder_encode( x264_t *h,
     if( h->i_ref[0] )
         h->fdec->i_poc_l0ref0 = h->fref[0][0]->i_poc;
 
+    /* ------------------------ Create slice header  ----------------------- */
+    x264_slice_init( h, i_nal_type, i_global_qp );
+
+    /*------------------------- Weights -------------------------------------*/
     if( h->sh.i_type == SLICE_TYPE_B )
         x264_macroblock_bipred_init( h );
 
-    /*------------------------- Weights -------------------------------------*/
     x264_weighted_pred_init( h );
-
-    /* ------------------------ Create slice header  ----------------------- */
-    x264_slice_init( h, i_nal_type, i_global_qp );
 
     if( i_nal_ref_idc != NAL_PRIORITY_DISPOSABLE )
         h->i_frame_num++;
@@ -3594,10 +3595,13 @@ void    x264_encoder_close  ( x264_t *h )
                     x264_frame_delete( *frame );
             }
             frame = &h->thread[i]->fdec;
-            assert( (*frame)->i_reference_count > 0 );
-            (*frame)->i_reference_count--;
-            if( (*frame)->i_reference_count == 0 )
-                x264_frame_delete( *frame );
+            if( *frame )
+            {
+                assert( (*frame)->i_reference_count > 0 );
+                (*frame)->i_reference_count--;
+                if( (*frame)->i_reference_count == 0 )
+                    x264_frame_delete( *frame );
+            }
             x264_macroblock_cache_free( h->thread[i] );
         }
         x264_macroblock_thread_free( h->thread[i], 0 );

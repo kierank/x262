@@ -1,7 +1,7 @@
 /*****************************************************************************
  * macroblock.h: macroblock encoding
  *****************************************************************************
- * Copyright (C) 2003-2010 x264 project
+ * Copyright (C) 2003-2011 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -32,10 +32,10 @@
 extern const int x264_lambda2_tab[QP_MAX_MAX+1];
 extern const uint16_t x264_lambda_tab[QP_MAX_MAX+1];
 
-extern const int x262_lambda2_tab_exp[QP_MAX_MPEG2+1];
-extern const uint16_t x262_lambda_tab_exp[QP_MAX_MPEG2+1];
-extern const int x262_lambda2_tab_lin[QP_MAX_MPEG2+1];
-extern const uint16_t x262_lambda_tab_lin[QP_MAX_MPEG2+1];
+extern const int x262_lambda2_tab_exp[QP_MAX_MAX+1];
+extern const uint16_t x262_lambda_tab_exp[QP_MAX_MAX+1];
+extern const int x262_lambda2_tab_lin[QP_MAX_MAX+1];
+extern const uint16_t x262_lambda_tab_lin[QP_MAX_MAX+1];
 
 
 void x264_rdo_init( void );

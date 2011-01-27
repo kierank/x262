@@ -1,7 +1,7 @@
 /*****************************************************************************
  * analyse.c: macroblock analysis
  *****************************************************************************
- * Copyright (C) 2003-2010 x264 project
+ * Copyright (C) 2003-2011 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -147,50 +147,85 @@ const uint16_t x264_lambda_tab[QP_MAX_MAX+1] = {
   25,  29,  32,  36,  40,  45,  51,  57, /* 40-47 */
   64,  72,  81,  91, 102, 114, 128, 144, /* 48-55 */
  161, 181, 203, 228, 256, 287, 323, 362, /* 56-63 */
+ 406, 456, 512, 575, 645, 724, 813, 912, /* 64-71 */
+1024,1149,1290,1448,1625,1825,2048,2299, /* 72-79 */
+2048,2299,                               /* 80-81 */
 };
 
 /* lambda2 = pow(lambda,2) * .9 * 256 */
+/* Capped to avoid overflow */
 const int x264_lambda2_tab[QP_MAX_MAX+1] = {
-     14,     18,     22,      28,      36,      45,      57,      72, /*  0- 7 */
-     91,    115,    145,     182,     230,     290,     365,     460, /*  8-15 */
-    580,    731,    921,    1161,    1462,    1843,    2322,    2925, /* 16-23 */
-   3686,   4644,   5851,    7372,    9289,   11703,   14745,   18578, /* 24-31 */
-  23407,  29491,  37156,   46814,   58982,   74313,   93628,  117964, /* 32-39 */
- 148626, 187257, 235929,  297252,  374514,  471859,  594505,  749029, /* 40-47 */
- 943718,1189010,1498059, 1887436, 2378021, 2996119, 3774873, 4756042, /* 48-55 */
-5992238,7549747,9512085,11984476,15099494,19024170,23968953,30198988, /* 56-63 */
+       14,       18,       22,       28,       36,       45,      57,      72, /*  0- 7 */
+       91,      115,      145,      182,      230,      290,     365,     460, /*  8-15 */
+      580,      731,      921,     1161,     1462,     1843,    2322,    2925, /* 16-23 */
+     3686,     4644,     5851,     7372,     9289,    11703,   14745,   18578, /* 24-31 */
+    23407,    29491,    37156,    46814,    58982,    74313,   93628,  117964, /* 32-39 */
+   148626,   187257,   235929,   297252,   374514,   471859,  594505,  749029, /* 40-47 */
+   943718,  1189010,  1498059,  1887436,  2378021,  2996119, 3774873, 4756042, /* 48-55 */
+  5992238,  7549747,  9512085, 11984476, 15099494, 19024170,23968953,30198988, /* 56-63 */
+ 38048341, 47937906, 60397977, 76096683, 95875813,120795955,                   /* 64-69 */
+134217727,134217727,134217727,134217727,134217727,134217727,                   /* 70-75 */
+134217727,134217727,134217727,134217727,134217727,134217727,                   /* 76-81 */
 };
 
 /* lambda = pow(2,qp/8+1) */
-const uint16_t x262_lambda_tab_exp[QP_MAX_MPEG2+1] = {
-   0,   2,   2,   3,   3,   3,   3,   4, /*  0- 7 */
-   4,   4,   5,   5,   6,   6,   7,   7, /*  8-15 */
-   8,   9,  10,  10,  11,  12,  13,  15, /* 16-23 */
-  16,  17,  19,  21,  23,  25,  27,  29, /* 24-31 */
+const uint16_t x262_lambda_tab_exp[QP_MAX_MAX+1] = {
+    0,    2,    2,    3,    3,    3,    3,    4, /*  0- 7 */
+    4,    4,    5,    5,    6,    6,    7,    7, /*  8-15 */
+    8,    9,   10,   10,   11,   12,   13,   15, /* 16-23 */
+   16,   17,   19,   21,   23,   25,   27,   29, /* 24-31 */
+   32,   35,   38,   41,   45,   49,   54,   59, /* 32-39 */
+   64,   70,   76,   83,   91,   99,  108,  117, /* 40-47 */
+  128,  140,  152,  166,  181,  197,  215,  235, /* 48-55 */
+  256,  279,  304,  332,  362,  395,  431,  470, /* 56-63 */
+  512,  559,  609,  664,  724,  789,  861,  939, /* 64-71 */
+ 1024, 1117, 1218, 1328, 1448, 1579, 1722, 1878, /* 72-79 */
+ 2048, 2233,                                     /* 80-81 */
 };
 
 /* lambda2 = pow(lambda,2) * .9 * 256 */
-const int x262_lambda2_tab_exp[QP_MAX_MPEG2+1] = {
-      0,   1095,   1303,    1549,    1843,    2191,    2606,    3099, /*  0- 7 */
-   3686,   4383,   5213,    6199,    7372,    8767,   10426,   12399, /*  8-15 */
-  14745,  17535,  20853,   24799,   29491,   35071,   41706,   49598, /* 16-23 */
-  58982,  70142,  83413,   99196,  117964,  140284,  166827,  198392, /* 24-31 */
+const int x262_lambda2_tab_exp[QP_MAX_MAX+1] = {
+        0,     1095,     1303,     1549,     1843,     2191,    2606,    3099, /*  0- 7 */
+     3686,     4383,     5213,     6199,     7372,     8767,   10426,   12399, /*  8-15 */
+    14745,    17535,    20853,    24799,    29491,    35071,   41706,   49598, /* 16-23 */
+    58982,    70142,    83413,    99196,   117964,   140284,  166827,  198392, /* 24-31 */
+   235930,   280569,   333655,   396785,   471859,   561138,  667310,  793569, /* 32-39 */
+   943718,  1122277,  1334619,  1587139,  1887437,  2244553, 2669239, 3174278, /* 40-47 */
+  3774874,  4489107,  5338477,  6348555,  7549747,  8978213,10676955,12697111, /* 48-55 */
+ 15099494, 17956426, 21353910, 25394221, 30198989, 35912852,42707820,50788443, /* 56-63 */
+ 60397978, 71825705, 85415639,101576886,120795955,134217727,                   /* 64-69 */
+134217727,134217727,134217727,134217727,134217727,134217727,                   /* 70-75 */
+134217727,134217727,134217727,134217727,134217727,134217727,                   /* 76-81 */
 };
 
 /* lambda = qp/2+2 */
-const uint16_t x262_lambda_tab_lin[QP_MAX_MPEG2+1] = {
-   0,   3,   3,   4,   4,   5,   5,   6, /*  0- 7 */
-   6,   7,   7,   8,   8,   9,   9,  10, /*  8-15 */
-  10,  11,  11,  12,  12,  13,  13,  14, /* 16-23 */
-  14,  15,  15,  16,  16,  17,  17,  18, /* 24-31 */
+const uint16_t x262_lambda_tab_lin[QP_MAX_MAX+1] = {
+  0,   3,   3,   4,   4,   5,   5,   6, /*  0- 7 */
+  6,   7,   7,   8,   8,   9,   9,  10, /*  8-15 */
+ 10,  11,  11,  12,  12,  13,  13,  14, /* 16-23 */
+ 14,  15,  15,  16,  16,  17,  17,  18, /* 24-31 */
+ 18,  19,  19,  20,  20,  21,  21,  22, /* 32-39 */
+ 22,  23,  23,  24,  24,  25,  25,  26, /* 40-47 */
+ 26,  27,  27,  28,  28,  29,  29,  30, /* 48-55 */
+ 30,  31,  31,  32,  32,  33,  33,  34, /* 56-63 */
+ 34,  35,  35,  36,  36,  37,  37,  38, /* 64-71 */
+ 38,  39,  39,  40,  40,  41,  41,  42, /* 72-79 */
+ 42,  43,                               /* 80-81 */
 };
 
 /* lambda2 = pow(lambda,2) * .9 * 256 */
-const int x262_lambda2_tab_lin[QP_MAX_MPEG2+1] = {
-      0,   1440,   2073,    2822,    3686,    4665,    5760,    6969, /*  0- 7 */
-   8294,   9734,  11289,   12960,   14745,   16646,   18662,   20793, /*  8-15 */
-  23040,  25401,  27878,   30470,   33177,   36000,   38937,   41990, /* 16-23 */
-  45158,  48441,  51840,   55353,   58982,   62726,   66585,   70560, /* 24-31 */
+const int x262_lambda2_tab_lin[QP_MAX_MAX+1] = {
+      0,   1440,   2073,   2822,   3686,   4665,   5760,   6969, /*  0- 7 */
+   8294,   9734,  11289,  12960,  14745,  16646,  18662,  20793, /*  8-15 */
+  23040,  25401,  27878,  30470,  33177,  36000,  38937,  41990, /* 16-23 */
+  45158,  48441,  51840,  55353,  58982,  62726,  66585,  70560, /* 24-31 */
+  74650,  78854,  83174,  87610,  92160,  96826, 101606, 106502, /* 32-39 */
+ 111514, 116640, 121882, 127238, 132710, 138298, 144000, 149818, /* 40-47 */
+ 155750, 161798, 167962, 174240, 180634, 187142, 193766, 200506, /* 48-55 */
+ 207360, 214330, 221414, 228614, 235930, 243360, 250906, 258566, /* 56-63 */
+ 266342, 274264, 282240, 290362, 298598, 306950, 315418, 324000, /* 64-71 */
+ 332698, 341510, 350438, 359482, 368640, 377914, 387302, 396806, /* 72-79 */
+ 406426, 416160,                                                 /* 80-81 */
 };
 
 const uint8_t x264_exp2_lut[64] = {
@@ -228,32 +263,42 @@ const float x264_log2_lz_lut[32] = {
 // I'm just matching the behaviour of deadzone quant.
 static const int x264_trellis_lambda2_tab[2][QP_MAX_MAX+1] = {
     // inter lambda = .85 * .85 * 2**(qp/3. + 10 - LAMBDA_BITS)
-    {      46,      58,      73,      92,     117,     147,
-          185,     233,     294,     370,     466,     587,
-          740,     932,    1174,    1480,    1864,    2349,
-         2959,    3728,    4697,    5918,    7457,    9395,
-        11837,   14914,   18790,   23674,   29828,   37581,
-        47349,   59656,   75163,   94699,  119313,  150326,
-       189399,  238627,  300652,  378798,  477255,  601304,
-       757596,  954511, 1202608, 1515192, 1909022, 2405217,
-      3030384, 3818045, 4810435, 6060769, 7636091, 9620872,
-     12121539,15272182,19241743,24243077,30544363,38483486,
-     48486154,61088726,76966972,96972308 },
+    {
+               46,       58,       73,       92,      117,      147,
+              185,      233,      294,      370,      466,      587,
+              740,      932,     1174,     1480,     1864,     2349,
+             2959,     3728,     4697,     5918,     7457,     9395,
+            11837,    14914,    18790,    23674,    29828,    37581,
+            47349,    59656,    75163,    94699,   119313,   150326,
+           189399,   238627,   300652,   378798,   477255,   601304,
+           757596,   954511,  1202608,  1515192,  1909022,  2405217,
+          3030384,  3818045,  4810435,  6060769,  7636091,  9620872,
+         12121539, 15272182, 19241743, 24243077, 30544363, 38483486,
+         48486154, 61088726, 76966972, 96972308,
+        122177453,134217727,134217727,134217727,134217727,134217727,
+        134217727,134217727,134217727,134217727,134217727,134217727,
+    },
     // intra lambda = .65 * .65 * 2**(qp/3. + 10 - LAMBDA_BITS)
-    {      27,      34,      43,      54,      68,      86,
-          108,     136,     172,     216,     273,     343,
-          433,     545,     687,     865,    1090,    1374,
-         1731,    2180,    2747,    3461,    4361,    5494,
-         6922,    8721,   10988,   13844,   17442,   21976,
-        27688,   34885,   43953,   55377,   69771,   87906,
-       110755,  139543,  175813,  221511,  279087,  351627,
-       443023,  558174,  703255,  886046, 1116348, 1406511,
-      1772093, 2232697, 2813022, 3544186, 4465396, 5626046,
-      7088374, 8930791,11252092,14176748,17861583,22504184,
-     28353495,35723165,45008368,56706990 }
+    {
+               27,       34,       43,       54,       68,       86,
+              108,      136,      172,      216,      273,      343,
+              433,      545,      687,      865,     1090,     1374,
+             1731,     2180,     2747,     3461,     4361,     5494,
+             6922,     8721,    10988,    13844,    17442,    21976,
+            27688,    34885,    43953,    55377,    69771,    87906,
+           110755,   139543,   175813,   221511,   279087,   351627,
+           443023,   558174,   703255,   886046,  1116348,  1406511,
+          1772093,  2232697,  2813022,  3544186,  4465396,  5626046,
+          7088374,  8930791, 11252092, 14176748, 17861583, 22504184,
+         28353495, 35723165, 45008368, 56706990,
+         71446330, 90016736,113413980,134217727,134217727,134217727,
+        134217727,134217727,134217727,134217727,134217727,134217727,
+        134217727,134217727,134217727,134217727,134217727,134217727,
+    }
 };
 
-static const uint16_t x264_chroma_lambda2_offset_tab[] = {
+#define MAX_CHROMA_LAMBDA_OFFSET 36
+static const uint16_t x264_chroma_lambda2_offset_tab[MAX_CHROMA_LAMBDA_OFFSET+1] = {
        16,    20,    25,    32,    40,    50,
        64,    80,   101,   128,   161,   203,
       256,   322,   406,   512,   645,   812,
@@ -279,7 +324,7 @@ static const uint8_t i_sub_mb_p_cost_table[4] = {
 
 static void x264_analyse_update_cache( x264_t *h, x264_mb_analysis_t *a );
 
-static uint16_t x264_cost_ref[LAMBDA_MAX+1][3][33];
+static uint16_t x264_cost_ref[QP_MAX+1][3][33];
 static UNUSED x264_pthread_mutex_t cost_ref_mutex = X264_PTHREAD_MUTEX_INITIALIZER;
 
 int x264_analyse_init_costs( x264_t *h, int qp )
@@ -290,29 +335,29 @@ int x264_analyse_init_costs( x264_t *h, int qp )
     else
         lambda_tab = x264_lambda_tab;
     int lambda = lambda_tab[qp];
-    if( h->cost_mv[lambda] )
+    if( h->cost_mv[qp] )
         return 0;
     /* factor of 4 from qpel, 2 from sign, and 2 because mv can be opposite from mvp */
-    CHECKED_MALLOC( h->cost_mv[lambda], (4*4*2048 + 1) * sizeof(uint16_t) );
-    h->cost_mv[lambda] += 2*4*2048;
+    CHECKED_MALLOC( h->cost_mv[qp], (4*4*2048 + 1) * sizeof(uint16_t) );
+    h->cost_mv[qp] += 2*4*2048;
     for( int i = 0; i <= 2*4*2048; i++ )
     {
-        h->cost_mv[lambda][-i] =
-        h->cost_mv[lambda][i]  = lambda * (log2f(i+1)*2 + 0.718f + !!i) + .5f;
+        h->cost_mv[qp][-i] =
+        h->cost_mv[qp][i]  = X264_MIN( lambda * (log2f(i+1)*2 + 0.718f + !!i) + .5f, (1<<16)-1 );
     }
     x264_pthread_mutex_lock( &cost_ref_mutex );
     for( int i = 0; i < 3; i++ )
         for( int j = 0; j < 33; j++ )
-            x264_cost_ref[lambda][i][j] = i ? lambda * bs_size_te( i, j ) : 0;
+            x264_cost_ref[qp][i][j] = X264_MIN( i ? lambda * bs_size_te( i, j ) : 0, (1<<16)-1 );
     x264_pthread_mutex_unlock( &cost_ref_mutex );
-    if( h->param.analyse.i_me_method >= X264_ME_ESA && !h->cost_mv_fpel[lambda][0] )
+    if( h->param.analyse.i_me_method >= X264_ME_ESA && !h->cost_mv_fpel[qp][0] )
     {
         for( int j = 0; j < 4; j++ )
         {
-            CHECKED_MALLOC( h->cost_mv_fpel[lambda][j], (4*2048 + 1) * sizeof(uint16_t) );
-            h->cost_mv_fpel[lambda][j] += 2*2048;
+            CHECKED_MALLOC( h->cost_mv_fpel[qp][j], (4*2048 + 1) * sizeof(uint16_t) );
+            h->cost_mv_fpel[qp][j] += 2*2048;
             for( int i = -2*2048; i < 2*2048; i++ )
-                h->cost_mv_fpel[lambda][j][i] = h->cost_mv[lambda][i*4+j];
+                h->cost_mv_fpel[qp][j][i] = h->cost_mv[qp][i*4+j];
         }
     }
     return 0;
@@ -322,7 +367,7 @@ fail:
 
 void x264_analyse_free_costs( x264_t *h )
 {
-    for( int i = 0; i < LAMBDA_MAX+1; i++ )
+    for( int i = 0; i < QP_MAX+1; i++ )
     {
         if( h->cost_mv[i] )
             x264_free( h->cost_mv[i] - 2*4*2048 );
@@ -363,12 +408,12 @@ void x264_analyse_weight_frame( x264_t *h, int end )
 /* initialize an array of lambda*nbits for all possible mvs */
 static void x264_mb_analyse_load_costs( x264_t *h, x264_mb_analysis_t *a )
 {
-    a->p_cost_mv = h->cost_mv[a->i_lambda];
-    a->p_cost_ref[0] = x264_cost_ref[a->i_lambda][x264_clip3(h->sh.i_num_ref_idx_l0_active-1,0,2)];
-    a->p_cost_ref[1] = x264_cost_ref[a->i_lambda][x264_clip3(h->sh.i_num_ref_idx_l1_active-1,0,2)];
+    a->p_cost_mv = h->cost_mv[a->i_qp];
+    a->p_cost_ref[0] = x264_cost_ref[a->i_qp][x264_clip3(h->sh.i_num_ref_idx_l0_active-1,0,2)];
+    a->p_cost_ref[1] = x264_cost_ref[a->i_qp][x264_clip3(h->sh.i_num_ref_idx_l1_active-1,0,2)];
 }
 
-static void x264_mb_analyse_init_qp( x264_t *h, x264_mb_analysis_t *a, int i_qp )
+static void x264_mb_analyse_init_qp( x264_t *h, x264_mb_analysis_t *a, int qp )
 {
     const uint16_t *lambda_tab;
     const int *lambda2_tab;
@@ -383,27 +428,44 @@ static void x264_mb_analyse_init_qp( x264_t *h, x264_mb_analysis_t *a, int i_qp 
         lambda2_tab = x264_lambda2_tab;
     }
 
-    /* conduct the analysis using this lamda and QP */
-    a->i_qp = h->mb.i_qp = i_qp;
-    h->mb.i_chroma_qp = h->chroma_qp_table[i_qp];
-
-    a->i_lambda = lambda_tab[i_qp];
-    a->i_lambda2 = lambda2_tab[i_qp];
+    int effective_chroma_qp = h->chroma_qp_table[SPEC_QP(qp)] + X264_MAX( qp - QP_MAX_SPEC, 0 );
+    a->i_lambda = lambda_tab[qp];
+    a->i_lambda2 = lambda2_tab[qp];
 
     h->mb.b_trellis = h->param.analyse.i_trellis > 1 && a->i_mbrd;
     if( h->param.analyse.i_trellis )
     {
-        h->mb.i_trellis_lambda2[0][0] = x264_trellis_lambda2_tab[0][h->mb.i_qp];
-        h->mb.i_trellis_lambda2[0][1] = x264_trellis_lambda2_tab[1][h->mb.i_qp];
-        h->mb.i_trellis_lambda2[1][0] = x264_trellis_lambda2_tab[0][h->mb.i_chroma_qp];
-        h->mb.i_trellis_lambda2[1][1] = x264_trellis_lambda2_tab[1][h->mb.i_chroma_qp];
+        h->mb.i_trellis_lambda2[0][0] = x264_trellis_lambda2_tab[0][qp];
+        h->mb.i_trellis_lambda2[0][1] = x264_trellis_lambda2_tab[1][qp];
+        h->mb.i_trellis_lambda2[1][0] = x264_trellis_lambda2_tab[0][effective_chroma_qp];
+        h->mb.i_trellis_lambda2[1][1] = x264_trellis_lambda2_tab[1][effective_chroma_qp];
     }
     h->mb.i_psy_rd_lambda = a->i_lambda;
     /* Adjusting chroma lambda based on QP offset hurts PSNR but improves visual quality. */
-    h->mb.i_chroma_lambda2_offset = h->param.analyse.b_psy ? x264_chroma_lambda2_offset_tab[h->mb.i_qp-h->mb.i_chroma_qp+12] : 256;
+    int chroma_offset_idx = X264_MIN( qp-effective_chroma_qp+12, MAX_CHROMA_LAMBDA_OFFSET );
+    h->mb.i_chroma_lambda2_offset = h->param.analyse.b_psy ? x264_chroma_lambda2_offset_tab[chroma_offset_idx] : 256;
+
+    if( qp > QP_MAX_SPEC )
+    {
+        h->nr_offset = h->nr_offset_emergency[qp-QP_MAX_SPEC-1];
+        h->nr_residual_sum = h->nr_residual_sum_buf[1];
+        h->nr_count = h->nr_count_buf[1];
+        h->mb.b_noise_reduction = 1;
+        qp = QP_MAX_SPEC; /* Out-of-spec QPs are just used for calculating lambda values. */
+    }
+    else
+    {
+        h->nr_offset = h->nr_offset_denoise;
+        h->nr_residual_sum = h->nr_residual_sum_buf[0];
+        h->nr_count = h->nr_count_buf[0];
+        h->mb.b_noise_reduction = 0;
+    }
+
+    a->i_qp = h->mb.i_qp = qp;
+    h->mb.i_chroma_qp = h->chroma_qp_table[qp];
 }
 
-static void x264_mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int i_qp )
+static void x264_mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
 {
     int subme = h->param.analyse.i_subpel_refine - (h->sh.i_type == SLICE_TYPE_B);
 
@@ -413,10 +475,9 @@ static void x264_mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int i_qp )
     a->i_mbrd = (subme>=6) + (subme>=8) + (h->param.analyse.i_subpel_refine>=10);
     h->mb.b_deblock_rdo = h->param.analyse.i_subpel_refine >= 9 && h->sh.i_disable_deblocking_filter_idc != 1;
 
-    x264_mb_analyse_init_qp( h, a, i_qp );
+    x264_mb_analyse_init_qp( h, a, qp );
 
     h->mb.b_transform_8x8 = 0;
-    h->mb.b_noise_reduction = 0;
 
     /* I: Intra part */
     a->i_satd_i16x16 =
@@ -3534,7 +3595,8 @@ intra_analysis:
         x264_mb_analyse_qp_rd( h, &analysis );
 
     h->mb.b_trellis = h->param.analyse.i_trellis;
-    h->mb.b_noise_reduction = !!h->param.analyse.i_noise_reduction;
+    h->mb.b_noise_reduction = h->mb.b_noise_reduction || (!!h->param.analyse.i_noise_reduction && !IS_INTRA( h->mb.i_type ));
+
     if( !IS_SKIP(h->mb.i_type) && h->mb.i_psy_trellis && h->param.analyse.i_trellis == 1 )
         x264_psy_trellis_init( h, 0 );
     if( h->mb.b_trellis == 1 || h->mb.b_noise_reduction )

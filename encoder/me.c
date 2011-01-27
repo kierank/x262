@@ -1,7 +1,7 @@
 /*****************************************************************************
  * me.c: motion estimation
  *****************************************************************************
- * Copyright (C) 2003-2010 x264 project
+ * Copyright (C) 2003-2011 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -595,12 +595,7 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
             int delta = x264_pixel_size[sad_size].w;
             int16_t *xs = h->scratch_buffer;
             int xn;
-            const uint16_t *lambda_tab;
-            if( MPEG2 )
-                lambda_tab = h->param.b_nonlinear_quant ? x262_lambda_tab_exp : x262_lambda_tab_lin;
-            else
-                lambda_tab = x264_lambda_tab;
-            uint16_t *cost_fpel_mvx = h->cost_mv_fpel[lambda_tab[h->mb.i_qp]][-m->mvp[0]&3] + (-m->mvp[0]>>2);
+            uint16_t *cost_fpel_mvx = h->cost_mv_fpel[h->mb.i_qp][-m->mvp[0]&3] + (-m->mvp[0]>>2);
 
             h->pixf.sad_x4[sad_size]( zero, p_fenc, p_fenc+delta,
                 p_fenc+delta*FENC_STRIDE, p_fenc+delta+delta*FENC_STRIDE,

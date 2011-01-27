@@ -1,7 +1,7 @@
 /*****************************************************************************
  * set: header writing
  *****************************************************************************
- * Copyright (C) 2003-2010 x264 project
+ * Copyright (C) 2003-2011 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -172,7 +172,7 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
     while( (1 << sps->i_log2_max_frame_num) <= max_frame_num )
         sps->i_log2_max_frame_num++;
 
-    sps->i_poc_type = param->i_bframe ? 0 : 2;
+    sps->i_poc_type = param->i_bframe || param->b_interlaced ? 0 : 2;
     if( sps->i_poc_type == 0 )
     {
         int max_delta_poc = (param->i_bframe + 2) * (!!param->i_bframe_pyramid + 1) * 2;
@@ -347,10 +347,13 @@ void x264_sps_write( bs_t *s, x264_sps_t *sps )
             int i;
             static const struct { uint8_t w, h, sar; } sar[] =
             {
-                { 1,   1, 1 }, { 12, 11, 2 }, { 10, 11, 3 }, { 16, 11, 4 },
+                // aspect_ratio_idc = 0 -> unspecified
+                {  1,  1, 1 }, { 12, 11, 2 }, { 10, 11, 3 }, { 16, 11, 4 },
                 { 40, 33, 5 }, { 24, 11, 6 }, { 20, 11, 7 }, { 32, 11, 8 },
                 { 80, 33, 9 }, { 18, 11, 10}, { 15, 11, 11}, { 64, 33, 12},
-                { 160,99, 13}, { 0, 0, 255 }
+                {160, 99, 13}, {  4,  3, 14}, {  3,  2, 15}, {  2,  1, 16},
+                // aspect_ratio_idc = [17..254] -> reserved
+                { 0, 0, 255 }
             };
             for( i = 0; sar[i].sar != 255; i++ )
             {
@@ -590,7 +593,7 @@ int x264_sei_version_write( x264_t *h, bs_t *s )
 
     memcpy( payload, uuid, 16 );
     sprintf( payload+16, "x264 - core %d%s - H.264/MPEG-4 AVC codec - "
-             "Copy%s 2003-2010 - http://www.videolan.org/x264.html - options: %s",
+             "Copy%s 2003-2011 - http://www.videolan.org/x264.html - options: %s",
              X264_BUILD, X264_VERSION, HAVE_GPL?"left":"right", opts );
     length = strlen(payload)+1;
     MPEG2 ? x262_user_data_write( s, (uint8_t *)payload, length ) :
@@ -673,12 +676,10 @@ void x264_sei_frame_packing_write( x264_t *h, bs_t *s )
     // 0: views are unrelated, 1: left view is on the left, 2: left view is on the right
     bs_write ( &q, 6, 1 );                        // content_interpretation_type
 
-    /* The following flags shall be set to 0 and ignored by the decoder
-     * (Why, then, do they even exist?  Who knows.) */
     bs_write1( &q, 0 );                           // spatial_flipping_flag
     bs_write1( &q, 0 );                           // frame0_flipped_flag
     bs_write1( &q, 0 );                           // field_views_flag
-    bs_write1( &q, 0 );                           // current_frame_is_frame0_flag
+    bs_write1( &q, h->param.i_frame_packing == 5 && !(h->fenc->i_frame&1) ); // current_frame_is_frame0_flag
     bs_write1( &q, 0 );                           // frame0_self_contained_flag
     bs_write1( &q, 0 );                           // frame1_self_contained_flag
     if ( /* quincunx_sampling_flag == 0 && */ h->param.i_frame_packing != 5 )
@@ -689,7 +690,7 @@ void x264_sei_frame_packing_write( x264_t *h, bs_t *s )
         bs_write( &q, 4, 0 );                     // frame1_grid_position_y
     }
     bs_write( &q, 8, 0 );                         // frame_packing_arrangement_reserved_byte
-    bs_write_ue( &q, 0 );                         // frame_packing_arrangement_repetition_period
+    bs_write_ue( &q, 1 );                         // frame_packing_arrangement_repetition_period
     bs_write1( &q, 0 );                           // frame_packing_arrangement_extension_flag
 
     bs_align_10( &q );

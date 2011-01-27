@@ -1,7 +1,7 @@
 /*****************************************************************************
  * input.h: file input
  *****************************************************************************
- * Copyright (C) 2003-2010 x264 project
+ * Copyright (C) 2003-2011 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -34,6 +34,7 @@
 typedef struct
 {
     char *index_file;
+    char *format;
     char *resolution;
     char *colorspace;
     int bit_depth;

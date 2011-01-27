@@ -1,7 +1,7 @@
 /*****************************************************************************
  * common.h: misc common functions
  *****************************************************************************
- * Copyright (C) 2003-2010 x264 project
+ * Copyright (C) 2003-2011 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -59,13 +59,16 @@ do {\
 #define X264_PCM_COST (384*BIT_DEPTH+16)
 #define X264_LOOKAHEAD_MAX 250
 #define QP_BD_OFFSET (6*(BIT_DEPTH-8))
-#define QP_MAX (51+QP_BD_OFFSET)
-#define QP_MAX_MAX (51+2*6)
-#define QP_MAX_MPEG2 31
+#define QP_MAX_SPEC_H264 (51+QP_BD_OFFSET)
+#define QP_MAX_SPEC_MPEG2 31
+#define QP_MAX_SPEC (MPEG2 ? QP_MAX_SPEC_MPEG2 : QP_MAX_SPEC_H264)
+#define QP_MAX (QP_MAX_SPEC_H264+18)
+#define QP_MAX_MAX (51+2*6+18)
 #define LAMBDA_MAX (91 << (BIT_DEPTH-8))
 #define PIXEL_MAX ((1 << BIT_DEPTH)-1)
 // arbitrary, but low because SATD scores are 1/4 normal
 #define X264_LOOKAHEAD_QP (12+QP_BD_OFFSET)
+#define SPEC_QP(x) X264_MIN((x), QP_MAX_SPEC)
 
 // number of pixels (per thread) in progress at any given time.
 // 16 for the macroblock in progress + 3 for deblocking + 3 for motion compensation filter + 2 for extra safety
@@ -499,12 +502,11 @@ struct x264_t
     udctcoef        (*quant8_mf[2])[64];     /* [2][52][64] */
     udctcoef        (*quant4_bias[4])[16];   /* [4][52][16] */
     udctcoef        (*quant8_bias[2])[64];   /* [2][52][64] */
+    udctcoef        (*nr_offset_emergency)[3][64];
 
-    /* mv/ref cost arrays.  Indexed by lambda instead of
-     * qp because, due to rounding, some quantizers share
-     * lambdas.  This saves memory. */
-    uint16_t *cost_mv[LAMBDA_MAX+1];
-    uint16_t *cost_mv_fpel[LAMBDA_MAX+1][4];
+    /* mv/ref cost arrays. */
+    uint16_t *cost_mv[QP_MAX+1];
+    uint16_t *cost_mv_fpel[QP_MAX+1][4];
 
     const uint8_t   *chroma_qp_table; /* includes both the nonlinear luma->chroma mapping and chroma_qp_offset */
 
@@ -859,9 +861,14 @@ struct x264_t
 
     } stat;
 
-    ALIGNED_16( uint32_t nr_residual_sum[2][64] );
-    ALIGNED_16( udctcoef nr_offset[2][64] );
-    uint32_t        nr_count[2];
+    /* 0 = luma 4x4, 1 = luma 8x8, 2 = chroma 4x4 */
+    udctcoef (*nr_offset)[64];
+    uint32_t (*nr_residual_sum)[64];
+    uint32_t *nr_count;
+
+    ALIGNED_16( udctcoef nr_offset_denoise[3][64] );
+    ALIGNED_16( uint32_t nr_residual_sum_buf[2][3][64] );
+    uint32_t nr_count_buf[2][3];
 
     /* Buffers that are allocated per-thread even in sliced threads. */
     void *scratch_buffer; /* for any temporary storage that doesn't want repeated malloc */
