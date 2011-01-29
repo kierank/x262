@@ -1208,27 +1208,30 @@ int x264_macroblock_probe_skip_mpeg2( x264_t *h, int b_bidir )
                        mvp[0], mvp[1], 16, 16, &h->sh.weight[0][0] );
     }
 
-    for( int i8x8 = 0, i_decimate_mb = 0; i8x8 < 4; i8x8++ )
+    for( int idx = 0, i_decimate_mb = 0; idx < 6; idx++ )
     {
-        int fenc_offset = (i8x8&1) * 8 + (i8x8>>1) * FENC_STRIDE * 8;
-        int fdec_offset = (i8x8&1) * 8 + (i8x8>>1) * FDEC_STRIDE * 8;
-        /* get luma diff */
-        h->dctf.sub8x8_dct8( dct8x8[i8x8], h->mb.pic.p_fenc[0] + fenc_offset,
-                                     h->mb.pic.p_fdec[0] + fdec_offset );
-        /* encode one 8x8 block */
-        for( int i4x4 = 0; i4x4 < 4; i4x4++ )
+        pixel *p_src;
+        pixel *p_dst;
+        if( idx < 4 )
         {
-            if( !h->quantf.quant_8x8_mpeg2( dct8x8[i4x4], h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] ) )
-                continue;
-            h->zigzagf.scan_8x8( dctscan8, dct8x8[i4x4] );
-            i_decimate_mb += h->quantf.decimate_score64( dctscan8 );
-            if( i_decimate_mb >= 6 )
-                return 0;
+            int x = idx&1;
+            int y = idx>>1;
+            p_src = &h->mb.pic.p_fenc[0][8*x + 8*y*FENC_STRIDE];
+            p_dst = &h->mb.pic.p_fdec[0][8*x + 8*y*FDEC_STRIDE];
         }
+        else
+        {
+            p_src = h->mb.pic.p_fenc[idx-3];
+            p_dst = h->mb.pic.p_fdec[idx-3];
+        }
+        h->dctf.sub8x8_dct8( dct8x8[idx], p_src, p_dst );
+        if( !h->quantf.quant_8x8_mpeg2( dct8x8[idx], h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] ) )
+            continue;
+        h->zigzagf.scan_8x8( dctscan8, dct8x8[idx] );
+        i_decimate_mb += h->quantf.decimate_score64( dctscan8 );
+        if( i_decimate_mb >= 6 )
+            return 0;
     }
-
-    /* encode chroma */
-    // FIXME
 
     h->mb.b_skip_mc = 1;
     return 1;
