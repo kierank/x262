@@ -198,17 +198,6 @@ static inline double qscale2qp( x264_t *h, double qscale )
     else
         return 12.0 + 6.0 * log2( qscale/0.85 );
 }
-static inline double qptompeg2qp( x264_t *h, double qp )
-{
-    /* MPEG-2 qscale ranges only from 1.85 - 24.94 (2.125 - 14.875 linear).
-     * This maps to qp 19-41 in H.264 (qp 21-36 linear).
-     */
-    double qscale = 0.85 * pow( 2.0, ( fabs(qp) - 12.0 ) / 6.0 );
-    if( qscale < 1.7 )
-        return 0;
-    double newqp = h->param.b_nonlinear_quant ? 8.0 * log2( qscale/1.7 ) : ( qscale - 1.7 ) / 0.425;
-    return qp > 0 ? newqp : -newqp;
-}
 
 /* Texture bitrate is not quite inversely proportional to qscale,
  * probably due the the changing number of SKIP blocks.
@@ -1470,10 +1459,7 @@ int x264_ratecontrol_mb_qp( x264_t *h )
     if( h->param.rc.i_aq_mode )
     {
         /* MB-tree currently doesn't adjust quantizers in unreferenced frames. */
-        if( MPEG2 )
-            qp_offset = qptompeg2qp( h, h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy] );
-        else
-            qp_offset = h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy];
+        qp_offset = h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy];
         /* Scale AQ's effect towards zero in emergency mode. */
         if( qp > QP_MAX_SPEC )
             qp_offset *= (QP_MAX - qp) / (QP_MAX_SPEC - QP_MAX);
