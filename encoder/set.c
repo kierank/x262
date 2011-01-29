@@ -443,10 +443,12 @@ void x264_sps_write( bs_t *s, x264_sps_t *sps )
     bs_flush( s );
 }
 
-void x264_pps_init( x264_pps_t *pps, int i_id, x264_param_t *param, x264_sps_t *sps )
+void x264_pps_init( x264_t *h, x264_param_t *param )
 {
-    pps->i_id = i_id;
-    pps->i_sps_id = sps->i_id;
+    x264_pps_t *pps = h->pps;
+
+    pps->i_id = h->param.i_sps_id;
+    pps->i_sps_id = h->sps->i_id;
     pps->b_cabac = param->b_cabac;
 
     pps->b_pic_order = param->b_interlaced;
@@ -472,7 +474,7 @@ void x264_pps_init( x264_pps_t *pps, int i_id, x264_param_t *param, x264_sps_t *
     switch( pps->i_cqm_preset )
     {
     case X264_CQM_FLAT:
-        if( param->b_mpeg2 )
+        if( MPEG2 )
         {
             pps->scaling_list[CQM_8IY] = x262_cqm_intra;
             pps->scaling_list[CQM_8PY] = x264_cqm_flat16;
