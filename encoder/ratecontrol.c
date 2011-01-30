@@ -1455,7 +1455,7 @@ int x264_ratecontrol_mb_qp( x264_t *h )
 {
     x264_emms();
     float qp = h->rc->qpm;
-    float qp_offset;
+    float qp_offset = 0;
     if( h->param.rc.i_aq_mode )
     {
         /* MB-tree currently doesn't adjust quantizers in unreferenced frames. */
