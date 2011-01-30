@@ -1191,45 +1191,50 @@ int x264_macroblock_probe_skip_mpeg2( x264_t *h, int b_bidir )
 {
     ALIGNED_ARRAY_16( dctcoef, dct8x8,[6],[64] );
     ALIGNED_ARRAY_16( dctcoef, dctscan8,[64] );
-    ALIGNED_4( int16_t mvp[2] );
 
     int i_qp = h->mb.i_qp;
-    int thresh, ssd;
 
     if( !b_bidir )
     {
-        /* Get the MV */
-        mvp[0] = x264_clip3( h->mb.cache.pskip_mv[0], h->mb.mv_min[0], h->mb.mv_max[0] );
-        mvp[1] = x264_clip3( h->mb.cache.pskip_mv[1], h->mb.mv_min[1], h->mb.mv_max[1] );
-
         /* Motion compensation */
         h->mc.mc_luma( h->mb.pic.p_fdec[0],    FDEC_STRIDE,
                        h->mb.pic.p_fref[0][0], h->mb.pic.i_stride[0],
-                       mvp[0], mvp[1], 16, 16, &h->sh.weight[0][0] );
+                       0, 0, 16, 16, &h->sh.weight[0][0] );
     }
 
-    for( int idx = 0, i_decimate_mb = 0; idx < 6; idx++ )
+    for( int idx = 0, i_decimate_mb = 0; idx < 4; idx++ )
     {
-        pixel *p_src;
-        pixel *p_dst;
-        if( idx < 4 )
-        {
-            int x = idx&1;
-            int y = idx>>1;
-            p_src = &h->mb.pic.p_fenc[0][8*x + 8*y*FENC_STRIDE];
-            p_dst = &h->mb.pic.p_fdec[0][8*x + 8*y*FDEC_STRIDE];
-        }
-        else
-        {
-            p_src = h->mb.pic.p_fenc[idx-3];
-            p_dst = h->mb.pic.p_fdec[idx-3];
-        }
+        int x = idx&1;
+        int y = idx>>1;
+        pixel *p_src = &h->mb.pic.p_fenc[0][8*x + 8*y*FENC_STRIDE];
+        pixel *p_dst = &h->mb.pic.p_fdec[0][8*x + 8*y*FDEC_STRIDE];;
+
         h->dctf.sub8x8_dct8( dct8x8[idx], p_src, p_dst );
         if( !h->quantf.quant_8x8_mpeg2( dct8x8[idx], h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] ) )
             continue;
         h->zigzagf.scan_8x8( dctscan8, dct8x8[idx] );
         i_decimate_mb += h->quantf.decimate_score64( dctscan8 );
         if( i_decimate_mb >= 6 )
+            return 0;
+    }
+
+    /* encode chroma */
+    if( !b_bidir )
+    {
+        h->mc.load_deinterleave_8x8x2_fdec( h->mb.pic.p_fdec[1], h->mb.pic.p_fref[0][0][4], h->mb.pic.i_stride[1] );
+    }
+
+    for( int idx = 4, i_decimate_mb = 0; idx < 6; idx++ )
+    {
+        pixel *p_src = h->mb.pic.p_fenc[idx-3];
+        pixel *p_dst = h->mb.pic.p_fdec[idx-3];
+
+        h->dctf.sub8x8_dct8( dct8x8[idx], p_src, p_dst );
+        if( !h->quantf.quant_8x8_mpeg2( dct8x8[idx], h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] ) )
+            continue;
+        h->zigzagf.scan_8x8( dctscan8, dct8x8[idx] );
+        i_decimate_mb += h->quantf.decimate_score64( dctscan8 );
+        if( i_decimate_mb >= 7 )
             return 0;
     }
 
