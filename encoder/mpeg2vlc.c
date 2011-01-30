@@ -4,7 +4,7 @@
  * Copyright (C) 2003-2010 x264 project
  *
  * Authors: Kieran Kunhya <kieran@kunhya.com>
- *          Phillip Blucas <pblucas@gmail.com> 
+ *          Phillip Blucas <pblucas@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -106,9 +106,17 @@ void x262_macroblock_write_vlc( x264_t *h )
     int quant = h->mb.i_last_qp != h->mb.i_qp;
     int mcoded = h->mb.cache.mv[0][x264_scan8[0]][0] ||
                  h->mb.cache.mv[0][x264_scan8[0]][1];
+
     /* must code a zero mv for macroblocks that cannot be (P|B)_SKIP */
     if( !cbp && !mcoded )
         mcoded = 1;
+
+    /* can't use a quant macroblock_type when there are no blocks to code */
+    if( quant && !cbp )
+    {
+        quant = 0;
+        h->mb.i_qp = h->mb.i_last_qp;
+    }
 
     // macroblock modes
     if( i_mb_type == I_16x16 )
