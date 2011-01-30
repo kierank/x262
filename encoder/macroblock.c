@@ -733,6 +733,10 @@ void x264_macroblock_encode( x264_t *h )
             h->mb.i_type = P_L0;
         else if( h->mb.i_type == B_SKIP )
             h->mb.i_type = h->mb.i_mb_type_left;
+        /* Do motion compensation if we have a non-zero mv */
+        if( h->mb.cache.mv[0][x264_scan8[0]][0] | h->mb.cache.mv[0][x264_scan8[0]][1] |
+            h->mb.cache.mv[1][x264_scan8[0]][0] | h->mb.cache.mv[1][x264_scan8[0]][1] )
+            x264_mb_mc( h );
     }
 
     if( h->mb.i_type == P_SKIP )
