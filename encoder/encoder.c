@@ -1188,8 +1188,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
         p += sprintf( p, " none!" );
     x264_log( h, X264_LOG_INFO, "%s\n", buf );
 
-    int qp_max = h->param.rc.i_qp_max == QP_MAX_SPEC ? QP_MAX : h->param.rc.i_qp_max;
-    for( qp = X264_MIN( h->param.rc.i_qp_min, QP_MAX_SPEC ); qp <= qp_max; qp++ )
+    for( qp = X264_MIN( h->param.rc.i_qp_min, QP_MAX_SPEC ); qp <= h->param.rc.i_qp_max; qp++ )
         if( x264_analyse_init_costs( h, qp ) )
             goto fail;
     if( x264_analyse_init_costs( h, X264_LOOKAHEAD_QP ) )
@@ -2028,6 +2027,7 @@ static int x264_slice_write( x264_t *h )
     int starting_bits = bs_pos(&h->out.bs);
     int b_deblock = h->sh.i_disable_deblocking_filter_idc != 1;
     int b_hpel = h->fdec->b_kept_as_ref;
+    uint8_t *last_emu_check;
     b_deblock &= b_hpel || h->param.psz_dump_yuv;
     bs_realign( &h->out.bs );
 
@@ -2058,7 +2058,10 @@ static int x264_slice_write( x264_t *h )
         /* init cabac */
         x264_cabac_context_init( &h->cabac, h->sh.i_type, x264_clip3( h->sh.i_qp-QP_BD_OFFSET, 0, 51 ), h->sh.i_cabac_init_idc );
         x264_cabac_encode_init ( &h->cabac, h->out.bs.p, h->out.bs.p_end );
+        last_emu_check = h->cabac.p;
     }
+    else
+        last_emu_check = h->out.bs.p;
     h->mb.i_last_qp = h->sh.i_qp;
     h->mb.i_last_dqp = 0;
 
@@ -2179,15 +2182,14 @@ static int x264_slice_write( x264_t *h )
             /* Count the skip run, just in case. */
             if( !h->param.b_cabac )
                 total_bits += bs_size_ue_big( i_skip );
-            /* HACK: we assume no more than 3 bytes of NALU escaping, but
-             * this can fail in CABAC streams with an extremely large number of identical
-             * blocks in sequence (e.g. all-black intra blocks).
-             * Thus, every 64 blocks, pretend we've used a byte.
-             * For reference, a seqeuence of identical empty-CBP i16x16 blocks will use
-             * one byte after 26 macroblocks, assuming a perfectly adapted CABAC.
-             * That's 78 macroblocks to generate the 3-byte sequence to trigger an escape. */
-            else if( ((mb_xy - h->sh.i_first_mb) & 63) == 63 )
-                slice_max_size -= 8;
+            /* Check for escape bytes. */
+            uint8_t *end = h->param.b_cabac ? h->cabac.p : h->out.bs.p;
+            for( ; last_emu_check < end - 2; last_emu_check++ )
+                if( last_emu_check[0] == 0 && last_emu_check[1] == 0 && last_emu_check[2] <= 3 )
+                {
+                    slice_max_size -= 8;
+                    last_emu_check++;
+                }
             /* We'll just re-encode this last macroblock if we go over the max slice size. */
             if( total_bits - starting_bits > slice_max_size && !h->mb.b_reencode_mb )
             {
@@ -3584,6 +3586,12 @@ void    x264_encoder_close  ( x264_t *h )
     x264_frame_delete_list( h->frames.blank_unused );
 
     h = h->thread[0];
+
+    for( int i = 0; i < h->i_thread_frames; i++ )
+        if( h->thread[i]->b_thread_active )
+            for( int j = 0; j < h->thread[i]->i_ref[0]; j++ )
+                if( h->thread[i]->fref[0][j] && h->thread[i]->fref[0][j]->b_duplicate )
+                    x264_frame_delete( h->thread[i]->fref[0][j] );
 
     for( int i = h->param.i_threads - 1; i >= 0; i-- )
     {
