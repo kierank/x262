@@ -894,6 +894,8 @@ static int x264_validate_parameters( x264_t *h, int b_open )
         h->param.rc.f_qblur = 0;
     if( h->param.rc.f_complexity_blur < 0 )
         h->param.rc.f_complexity_blur = 0;
+    if( h->param.sc.i_buffer_size < 0 || h->param.sc.f_speed <= 0 )
+        h->param.sc.i_buffer_size = 0;
 
     h->param.i_sps_id &= 31;
 
@@ -1185,6 +1187,10 @@ x264_t *x264_encoder_open( x264_param_t *param )
 
     mbcmp_init( h );
     chroma_dsp_init( h );
+
+    if( h->param.sc.i_buffer_size )
+        x264_speedcontrol_new( h );
+
 
     p = buf + sprintf( buf, "using cpu capabilities:" );
     for( int i = 0; x264_cpu_names[i].flags; i++ )
@@ -3005,6 +3011,10 @@ int     x264_encoder_encode( x264_t *h,
     if( h->fenc->b_keyframe && h->param.b_intra_refresh )
         h->i_cpb_delay_pir_offset = h->fenc->i_cpb_delay;
 
+    /* Init the speed control */
+    if( h->param.sc.i_buffer_size )
+        x264_speedcontrol_frame( h );
+
     /* Init the rate control */
     /* FIXME: Include slice header bit cost. */
     x264_ratecontrol_start( h, h->fenc->i_qpplus1, overhead*8 );
@@ -3161,6 +3171,9 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
     h->out.i_nal = 0;
 
     x264_noise_reduction_update( h );
+
+    if( h->param.sc.i_buffer_size )
+        x264_speedcontrol_frame_end( h );
 
     /* ---------------------- Compute/Print statistics --------------------- */
     x264_thread_sync_stat( h, h->thread[0] );
@@ -3603,6 +3616,7 @@ void    x264_encoder_close  ( x264_t *h )
 
     /* rc */
     x264_ratecontrol_delete( h );
+    x264_speedcontrol_delete( h );
 
     /* param */
     if( h->param.rc.psz_stat_out )
