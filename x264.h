@@ -407,6 +407,15 @@ typedef struct x264_param_t
     /* frame packing arrangement flag */
     int i_frame_packing;
 
+    /* Speed control parameters */
+    struct
+    {
+        float       f_speed;        /* ratio from realtime */
+        int         i_buffer_size;  /* number of frames */
+        float       f_buffer_init;  /* fraction of size */
+        int         b_alt_timer;    /* use a different method of measuring encode time FIXME */
+    } sc;
+
     /* Muxing parameters */
     int b_aud;                  /* generate access unit delimiters */
     int b_repeat_headers;       /* put SPS/PPS before each keyframe */
@@ -834,5 +843,10 @@ void    x264_encoder_intra_refresh( x264_t * );
  *
  *      Returns 0 on success, negative on failure. */
 int x264_encoder_invalidate_reference( x264_t *, int64_t pts );
+
+/* x264_speedcontrol_sync:
+ *      override speedcontrol's internal clock */
+void    x264_speedcontrol_sync( x264_t *, float f_buffer_fill, int i_buffer_size );
+
 
 #endif

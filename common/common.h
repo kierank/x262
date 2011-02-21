@@ -424,6 +424,7 @@ typedef struct x264_lookahead_t
 } x264_lookahead_t;
 
 typedef struct x264_ratecontrol_t   x264_ratecontrol_t;
+typedef struct x264_speedcontrol_t  x264_speedcontrol_t;
 
 typedef struct x264_left_table_t
 {
@@ -827,6 +828,7 @@ struct x264_t
 
     /* rate control encoding only */
     x264_ratecontrol_t *rc;
+    x264_speedcontrol_t *sc;
 
     /* stats */
     struct
