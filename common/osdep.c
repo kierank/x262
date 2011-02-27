@@ -43,10 +43,15 @@ extern int ptw32_processInitialized;
 
 int64_t x264_mdate( void )
 {
-#if SYS_WINDOWS
+<<<<<<< HEAD
+#ifdef __MINGW32__
     struct timeb tb;
     ftime( &tb );
     return ((int64_t)tb.time * 1000 + (int64_t)tb.millitm) * 1000;
+#elif __LINUX__
+    struct timespec ts_current;
+    clock_gettime( CLOCK_MONOTONIC, &ts_current );
+    return (int64_t)ts_current.tv_sec * 1000000 + (int64_t)ts_current.tv_usec;
 #else
     struct timeval tv_date;
     gettimeofday( &tv_date, NULL );
