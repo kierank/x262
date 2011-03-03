@@ -739,6 +739,9 @@ typedef struct
     /* private user data. libx264 doesn't touch this,
        not even copy it from input to output frames. */
     void *opaque;
+    /* private user data, libx264 doesn't touch this,
+       copied from input to output frames. */
+    void *passthrough_opaque;
 } x264_picture_t;
 
 /* x264_picture_init:
