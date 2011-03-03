@@ -2143,7 +2143,8 @@ static int x264_slice_write( x264_t *h )
             if( IS_SKIP( h->mb.i_type ) )
             {
                 i_skip++;
-                x262_reset_mv_predictor( h );
+                if( h->mb.i_type != B_SKIP )
+                    x262_reset_mv_predictor( h );
             }
             else
             {

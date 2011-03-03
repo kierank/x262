@@ -106,6 +106,7 @@ void x262_macroblock_write_vlc( x264_t *h )
     int quant = h->mb.i_last_qp != h->mb.i_qp;
     int mcoded = h->mb.cache.mv[0][x264_scan8[0]][0] ||
                  h->mb.cache.mv[0][x264_scan8[0]][1];
+    int mv_type = 0;
 
     /* must code a zero mv for macroblocks that cannot be (P|B)_SKIP */
     if( !cbp && !mcoded )
@@ -127,26 +128,36 @@ void x262_macroblock_write_vlc( x264_t *h )
         if( !mcoded )
             x262_reset_mv_predictor( h );
     }
-    else //if( i_mb_type == B_8x8 )
+    else
     {
-
+        if( i_mb_type == B_L1_L1 )
+            mv_type = 1;
+        else if( i_mb_type == B_BI_BI )
+            mv_type = 2;
+        bs_write_vlc( s, x262_b_mb_type[mv_type][!!cbp][quant] );
     }
 
     if( quant )
         bs_write( s, 5, h->mb.i_qp ); // quantizer_scale_code
 
-    // forward mvs
-    if( i_mb_type == P_L0 && mcoded )
+    // write mvs
+    if( (i_mb_type == P_L0 && mcoded) || (i_mb_type != P_L0 && i_mb_type != I_16x16) )
     {
-        for( int i = 0; i < 2; i++ )
+        int mvcount = 1;
+        if( i_mb_type == B_BI_BI )
         {
-            x262_write_mv_vlcs( h, ( h->mb.cache.mv[0][x264_scan8[0]][i] - h->mb.mvp[0][i] ) >> 1,
-                                h->fenc->mv_fcode[0][i] );
-            // update predictors
-            h->mb.mvp[0][i] = h->mb.cache.mv[0][x264_scan8[0]][i];
+            mvcount = 2;
+            mv_type = 0;
         }
+        for( int j = 0; j < mvcount; j++, mv_type++ )
+            for( int i = 0; i < 2; i++ )
+            {
+                x262_write_mv_vlcs( h, ( h->mb.cache.mv[mv_type][x264_scan8[0]][i] - h->mb.mvp[mv_type][i] ) >> 1,
+                                    h->fenc->mv_fcode[mv_type][i] );
+                // update predictors
+                h->mb.mvp[mv_type][i] = h->mb.cache.mv[mv_type][x264_scan8[0]][i];
+            }
     }
-    // backward mvs
 
 #if !RDO_SKIP_BS
     i_mb_pos_tex = bs_pos( s );

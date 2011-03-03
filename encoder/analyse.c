@@ -3737,14 +3737,35 @@ static void x264_analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
     if( MPEG2 && !IS_INTRA(h->mb.i_type) )
     {
         if( h->mb.i_mb_x == 0 )                     // left column
+        {
             a->l0.me16x16.mv[0] = X264_MAX( 0, a->l0.me16x16.mv[0] );
+            a->l1.me16x16.mv[0] = X264_MAX( 0, a->l1.me16x16.mv[0] );
+        }
         if( h->mb.i_mb_width - h->mb.i_mb_x == 1)   // right column
+        {
             a->l0.me16x16.mv[0] = X264_MIN( 0, a->l0.me16x16.mv[0] );
+            a->l1.me16x16.mv[0] = X264_MIN( 0, a->l1.me16x16.mv[0] );
+        }
         if( h->mb.i_mb_y == 0 )                     // top row
+        {
             a->l0.me16x16.mv[1] = X264_MAX( 0, a->l0.me16x16.mv[1] );
+            a->l1.me16x16.mv[1] = X264_MAX( 0, a->l1.me16x16.mv[1] );
+        }
         if( h->mb.i_mb_height - h->mb.i_mb_y == 1 ) // bottom row
+        {
             a->l0.me16x16.mv[1] = X264_MIN( 0, a->l0.me16x16.mv[1] );
+            a->l1.me16x16.mv[1] = X264_MIN( 0, a->l1.me16x16.mv[1] );
+        }
+
+        // MPEG-2 only has hpel, so arbitrarily round down odd qpel MVs
+        // TODO: modify ME to account for this
+        a->l0.me16x16.mv[0] -= (a->l0.me16x16.mv[0] & 1);
+        a->l0.me16x16.mv[1] -= (a->l0.me16x16.mv[1] & 1);
+        a->l1.me16x16.mv[0] -= (a->l1.me16x16.mv[0] & 1);
+        a->l1.me16x16.mv[1] -= (a->l1.me16x16.mv[1] & 1);
+
         x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 0, a->l0.me16x16.mv );
+        x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 1, a->l1.me16x16.mv );
     }
 
 #ifndef NDEBUG

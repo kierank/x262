@@ -1047,6 +1047,24 @@ void x264_macroblock_encode( x264_t *h )
                 !(h->mb.cache.mv[0][x264_scan8[0]][0]) &&
                 !(h->mb.cache.mv[0][x264_scan8[0]][1]) )
                     h->mb.i_type = P_SKIP;
+            else if( h->mb.i_type == h->mb.i_mb_type_left &&
+                !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma) )
+            {
+                if( h->mb.i_type == B_BI_BI &&
+                    h->mb.mvp[0][0] == h->mb.cache.mv[0][x264_scan8[0]][0] &&
+                    h->mb.mvp[0][1] == h->mb.cache.mv[0][x264_scan8[0]][1] &&
+                    h->mb.mvp[1][0] == h->mb.cache.mv[1][x264_scan8[0]][0] &&
+                    h->mb.mvp[1][1] == h->mb.cache.mv[1][x264_scan8[0]][1] )
+                    h->mb.i_type = B_SKIP;
+                else if( h->mb.i_type == B_L0_L0 &&
+                    h->mb.mvp[0][0] == h->mb.cache.mv[0][x264_scan8[0]][0] &&
+                    h->mb.mvp[0][1] == h->mb.cache.mv[0][x264_scan8[0]][1] )
+                    h->mb.i_type = B_SKIP;
+                else if( h->mb.i_type == B_L1_L1 &&
+                    h->mb.mvp[1][0] == h->mb.cache.mv[1][x264_scan8[0]][0] &&
+                    h->mb.mvp[1][1] == h->mb.cache.mv[1][x264_scan8[0]][1] )
+                    h->mb.i_type = B_SKIP;
+            }
         }
         else
         {
@@ -1055,12 +1073,8 @@ void x264_macroblock_encode( x264_t *h )
                 M32( h->mb.cache.mv[0][x264_scan8[0]] ) == M32( h->mb.cache.pskip_mv )
                 && h->mb.cache.ref[0][x264_scan8[0]] == 0 )
                     h->mb.i_type = P_SKIP;
-        }
-
-        /* Check for B_SKIP */
-        if( h->mb.i_type == B_DIRECT && !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma) )
-        {
-            h->mb.i_type = B_SKIP;
+            else if( h->mb.i_type == B_DIRECT && !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma) )
+                h->mb.i_type = B_SKIP;
         }
     }
 }
