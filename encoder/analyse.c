@@ -504,7 +504,7 @@ static void x264_mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
         int i_fpel_border = 6; // umh: 1 for diamond, 2 for octagon, 2 for hpel
 
         /* Calculate max allowed MV range */
-        int padding = MPEG2 ? 0 : 24;
+        int padding = MPEG2 ? 6 : 24;
 #define CLIP_FMV(mv) x264_clip3( mv, -i_fmv_range, i_fmv_range-1 )
         h->mb.mv_min[0] = 4*( -16*h->mb.i_mb_x - padding );
         h->mb.mv_max[0] = 4*( 16*( h->sps->i_mb_width - h->mb.i_mb_x - 1 ) + padding );
