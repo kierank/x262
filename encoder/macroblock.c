@@ -1040,15 +1040,13 @@ void x264_macroblock_encode( x264_t *h )
      *      (if multiple mv give same result)*/
     if( !b_force_no_skip )
     {
-        if( MPEG2 )
+        if( MPEG2 && !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma) )
         {
-            if( h->mb.i_type == P_L0 && h->mb.i_partition == D_16x16 &&
-                !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma) &&
+            if( h->mb.i_type == P_L0 &&
                 !(h->mb.cache.mv[0][x264_scan8[0]][0]) &&
                 !(h->mb.cache.mv[0][x264_scan8[0]][1]) )
                     h->mb.i_type = P_SKIP;
-            else if( h->mb.i_type == h->mb.i_mb_type_left &&
-                !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma) )
+            else if( h->mb.i_type == h->mb.i_mb_type_left )
             {
                 if( h->mb.i_type == B_BI_BI &&
                     h->mb.mvp[0][0] == h->mb.cache.mv[0][x264_scan8[0]][0] &&
@@ -1065,6 +1063,8 @@ void x264_macroblock_encode( x264_t *h )
                     h->mb.mvp[1][1] == h->mb.cache.mv[1][x264_scan8[0]][1] )
                     h->mb.i_type = B_SKIP;
             }
+            else if( h->mb.i_mb_type_left == B_SKIP )
+                h->mb.i_type = B_SKIP;
         }
         else
         {
