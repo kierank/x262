@@ -554,7 +554,7 @@ void x264_ratecontrol_init_reconfigurable( x264_t *h, int b_init )
         }
         else if( h->param.i_nal_hrd && !b_init )
         {
-            x264_log( h, X264_LOG_WARNING, "VBV parameters cannot be changed when NAL HRD is in use\n" );
+            //x264_log( h, X264_LOG_WARNING, "VBV parameters cannot be changed when NAL HRD is in use\n" );
             return;
         }
         h->sps->vui.hrd.i_bit_rate_unscaled = vbv_max_bitrate;
