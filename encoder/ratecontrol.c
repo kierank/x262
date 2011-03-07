@@ -549,8 +549,8 @@ void x264_ratecontrol_init_reconfigurable( x264_t *h, int b_init )
 
             #undef MAX_DURATION
 
-            vbv_buffer_size = h->sps->vui.hrd.i_cpb_size_unscaled;
-            vbv_max_bitrate = h->sps->vui.hrd.i_bit_rate_unscaled;
+            vbv_buffer_size = h->param.rc.i_vbv_buffer_size_actual = h->sps->vui.hrd.i_cpb_size_unscaled;
+            vbv_max_bitrate = h->param.rc.i_vbv_max_bitrate_actual = h->sps->vui.hrd.i_bit_rate_unscaled;
         }
         else if( h->param.i_nal_hrd && !b_init )
         {
