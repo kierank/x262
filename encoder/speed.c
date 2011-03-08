@@ -163,7 +163,7 @@ void x264_speedcontrol_frame( x264_t *h )
     // update buffer state after encoding and outputting the previous frame(s)
     if( sc->first )
     {
-        t = sc->timestamp;
+        t = sc->timestamp = x264_mdate();
         sc->first = 0;
     }
     else
