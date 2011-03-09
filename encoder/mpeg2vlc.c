@@ -103,7 +103,7 @@ void x262_macroblock_write_vlc( x264_t *h )
 #endif
 
     int cbp = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma; // coded_block_pattern_420
-    int quant = h->mb.i_last_qp != h->mb.i_qp;
+    int quant = h->mb.i_last_qp != h->mb.i_qp && h->mb.i_mb_x;
     int mcoded = h->mb.cache.mv[0][x264_scan8[0]][0] ||
                  h->mb.cache.mv[0][x264_scan8[0]][1];
     int mv_type = 0;
