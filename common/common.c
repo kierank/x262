@@ -121,7 +121,7 @@ void x264_param_default( x264_param_t *param )
 
     // speedcontrol
     param->sc.f_speed = 0;
-    param->sc.i_buffer_size = 30;
+    param->sc.i_buffer_size = 12;
     param->sc.f_buffer_init = 0.75;
 
     /* Log */

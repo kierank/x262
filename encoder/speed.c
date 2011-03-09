@@ -248,7 +248,7 @@ void x264_speedcontrol_frame( x264_t *h )
             wall = wall*decay + delta_t;
             tgt = tgt*decay + target;
             den = den*decay + 1;
-            fprintf( stderr, "speed: %.2f %d[%.5f] (t/c/w: %6.0f/%6.0f/%6.0f = %.4f) fps=%.2f\r",
+            x264_log( h, X264_LOG_DEBUG, "speed: %.2f %d[%.5f] (t/c/w: %6.0f/%6.0f/%6.0f = %.4f) fps=%.2f\r",
                      set, sc->preset, (float)sc->buffer_fill / sc->buffer_size,
                      tgt/den, cpu/den, wall/den, cpu/wall, 1e6*den/wall );
         }
