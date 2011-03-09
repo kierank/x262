@@ -2712,6 +2712,10 @@ int     x264_encoder_encode( x264_t *h,
         x264_reference_hierarchy_reset( h );
         if( h->param.i_open_gop )
             h->frames.i_poc_last_open_gop = h->fenc->b_keyframe ? h->fenc->i_poc : -1;
+        if( h->fenc->i_frame == h->fenc->i_coded )
+            h->frames.i_last_temporal_ref = h->fenc->i_frame;
+        else
+            h->frames.i_last_temporal_ref = -1;
     }
     else if( h->fenc->i_type == X264_TYPE_P )
     {
@@ -2733,6 +2737,8 @@ int     x264_encoder_encode( x264_t *h,
         i_nal_type    = NAL_SLICE;
         i_nal_ref_idc = NAL_PRIORITY_DISPOSABLE;
         h->sh.i_type = SLICE_TYPE_B;
+        if( h->frames.i_poc_last_open_gop != -1 && h->frames.i_last_temporal_ref == -1 )
+            h->frames.i_last_temporal_ref = h->fenc->i_frame;
     }
 
     h->fdec->i_type = h->fenc->i_type;

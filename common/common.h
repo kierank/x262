@@ -535,6 +535,7 @@ struct x264_t
         int i_poc_last_open_gop;   /* Poc of the I frame of the last open-gop. The value
                                     * is only assigned during the period between that
                                     * I frame and the next P or I frame, else -1 */
+        int i_last_temporal_ref;   /* MPEG-2: Frame number of the first displayed frame in a GOP */
 
         int i_input;    /* Number of input frames already accepted */
 

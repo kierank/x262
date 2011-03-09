@@ -801,7 +801,7 @@ void x262_gop_header_write( x264_t *h, bs_t *s )
     bs_write( s, 6, sec ); // time_code_seconds
     bs_write( s, 6, frames ); // time_code_pictures
 
-    bs_write1( s, !h->param.i_open_gop ); // closed_gop
+    bs_write1( s, h->fenc->i_frame == h->fenc->i_coded ); // closed_gop
     bs_write1( s, 0 );   // broken_link
 
     bs_align_0( s );
@@ -812,19 +812,24 @@ void x262_pic_header_write( x264_t *h, bs_t *s )
 {
     bs_realign( s );
 
-    int temporal_ref = ( h->fenc->i_frame - h->frames.i_last_keyframe ) % 1024;
+    int temporal_ref;
+    if( IS_X264_TYPE_I( h->fenc->i_type ) )
+        temporal_ref = h->fenc->i_frame - h->fenc->i_coded;
+    else
+        temporal_ref = h->fenc->i_frame - h->frames.i_last_temporal_ref;
     bs_write( s, 10, temporal_ref ); // temporal_reference
     bs_write( s, 3, IS_X264_TYPE_I( h->fenc->i_type ) ? 1 : h->fenc->i_type == X264_TYPE_P ? 2 : 3 ); // picture_coding_type
     bs_write( s, 16, 0xffff ); // vbv_delay FIXME
-    if( h->fenc->i_type > 1 )  // X264_TYPE_P or X264_TYPE_B
+    if( !IS_X264_TYPE_I( h->fenc->i_type ) )
     {
         bs_write1( s, 0 );   // full_pel_forward_vector
         bs_write( s, 3, 7 ); // forward_f_code
-    }
-    if( h->fenc->i_type > 2 ) // X264_TYPE_B
-    {
-        bs_write1( s, 0 );   // full_pel_forward_vector
-        bs_write( s, 3, 7 ); // forward_f_code
+
+        if( h->fenc->i_type == X264_TYPE_B )
+        {
+            bs_write1( s, 0 );   // full_pel_forward_vector
+            bs_write( s, 3, 7 ); // forward_f_code
+        }
     }
     bs_write1( s, 0 ); // extra_bit_picture
 
