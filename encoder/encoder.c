@@ -122,7 +122,7 @@ static void x264_slice_header_init( x264_t *h, x264_slice_header_t *sh,
                                 && h->param.i_bframe
                                 && ( h->param.rc.b_stat_write || !h->param.rc.b_stat_read );
 
-    if( !h->mb.b_direct_auto_read && sh->i_type == SLICE_TYPE_B )
+    if( !MPEG2 && !h->mb.b_direct_auto_read && sh->i_type == SLICE_TYPE_B )
     {
         if( h->fref[1][0]->i_poc_l0ref0 == h->fref[0][0]->i_poc )
         {
@@ -429,25 +429,6 @@ static int x264_validate_parameters( x264_t *h )
 
     if( MPEG2 )
     {
-        h->param.analyse.b_transform_8x8 = 0;
-        h->param.analyse.intra = 0;
-        h->param.analyse.inter = 0;
-        h->param.analyse.i_weighted_pred = 0;
-        h->param.analyse.b_dct_decimate = 0;
-        h->param.analyse.i_direct_mv_pred = X264_DIRECT_PRED_NONE;
-        h->param.analyse.b_mixed_references = 0;
-        h->param.analyse.i_trellis = 0;
-        h->param.b_constrained_intra = 0;
-        h->param.b_aud = 0;
-        h->param.i_bframe_pyramid = X264_B_PYRAMID_NONE;
-        h->param.b_deblocking_filter = 0;
-        h->param.i_nal_hrd = X264_NAL_HRD_NONE;
-        h->param.b_cabac = 0;
-        h->param.i_slice_max_size = 0;
-        h->param.i_slice_max_mbs = 0;
-        h->param.i_slice_count = 0;
-        h->param.b_sliced_threads = 0;
-        h->param.i_frame_reference = 1;
         if( h->param.b_interlaced )
         {
             x264_log( h, X264_LOG_WARNING, "MPEG-2 + interlaced is not yet implemented\n" );
@@ -455,8 +436,8 @@ static int x264_validate_parameters( x264_t *h )
         }
         if( h->param.rc.i_qp_constant == 0 )
         {
-            x264_log( h, X264_LOG_WARNING, "MPEG-2 + lossless is not allowed\n" );
-            h->param.b_interlaced = 0;
+            x264_log( h, X264_LOG_ERROR, "MPEG-2 + lossless is not allowed\n" );
+            return -1;
         }
         if( h->param.vui.i_colorprim > 7 )
         {
@@ -570,7 +551,7 @@ static int x264_validate_parameters( x264_t *h )
         h->param.rc.i_bitrate = 0;
     }
     if( (h->param.rc.i_rc_method == X264_RC_CQP || h->param.rc.i_rc_method == X264_RC_CRF)
-        && h->param.rc.i_qp_constant == 0 )
+        && h->param.rc.i_qp_constant == 0 && !MPEG2 )
     {
         h->mb.b_lossless = 1;
         h->param.i_cqm_preset = X264_CQM_FLAT;
@@ -595,12 +576,16 @@ static int x264_validate_parameters( x264_t *h )
         float qp_p = h->param.rc.i_qp_constant;
         float stepsize = 6.0;
         int qp_max = QP_MAX;
+        int qp_min = 0;
         if( MPEG2 )
+        {
             stepsize = 8.0;
+            qp_min = 1;
+        }
         float qp_i = qp_p - stepsize*log2f( h->param.rc.f_ip_factor );
         float qp_b = qp_p + stepsize*log2f( h->param.rc.f_pb_factor );
-        h->param.rc.i_qp_min = x264_clip3( (int)(X264_MIN3( qp_p, qp_i, qp_b )), 0, qp_max );
-        h->param.rc.i_qp_max = x264_clip3( (int)(X264_MAX3( qp_p, qp_i, qp_b ) + .999), 0, qp_max );
+        h->param.rc.i_qp_min = x264_clip3( (int)(X264_MIN3( qp_p, qp_i, qp_b )), qp_min, qp_max );
+        h->param.rc.i_qp_max = x264_clip3( (int)(X264_MAX3( qp_p, qp_i, qp_b ) + .999), qp_min, qp_max );
         h->param.rc.i_aq_mode = 0;
         h->param.rc.b_mb_tree = 0;
     }

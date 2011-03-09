@@ -431,6 +431,30 @@ void x264_param_apply_fastfirstpass( x264_param_t *param )
 
 int x264_param_apply_profile( x264_param_t *param, const char *profile )
 {
+    /* Force MPEG-2 settings */
+    if( param->b_mpeg2 )
+    {
+        param->analyse.b_transform_8x8 = 0;
+        param->analyse.intra = 0;
+        param->analyse.inter = 0;
+        param->analyse.i_weighted_pred = 0;
+        param->analyse.b_dct_decimate = 0;
+        param->analyse.i_direct_mv_pred = X264_DIRECT_PRED_NONE;
+        param->analyse.b_mixed_references = 0;
+        param->analyse.i_trellis = 0;
+        param->b_constrained_intra = 0;
+        param->b_aud = 0;
+        param->i_bframe_pyramid = X264_B_PYRAMID_NONE;
+        param->b_deblocking_filter = 0;
+        param->i_nal_hrd = X264_NAL_HRD_NONE;
+        param->b_cabac = 0;
+        param->i_slice_max_size = 0;
+        param->i_slice_max_mbs = 0;
+        param->i_slice_count = 0;
+        param->b_sliced_threads = 0;
+        param->i_frame_reference = 1;
+    }
+
     if( !profile )
         return 0;
 
