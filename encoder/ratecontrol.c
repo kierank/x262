@@ -1714,7 +1714,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
     *filler = update_vbv( h, bits );
     rc->filler_bits_sum += *filler * 8;
 
-    if( h->sps->vui.b_nal_hrd_parameters_present )
+    if( h->param.i_nal_hrd )
     {
         if( h->fenc->i_frame == 0 )
         {
