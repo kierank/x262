@@ -180,7 +180,7 @@ PREDICT_16x16_P( sse2   )
 PREDICT_16x16_P( avx    )
 #endif //!HIGH_BIT_DEPTH
 
-#ifdef __GNUC__
+#if HAVE_X86_INLINE_ASM
 #if HIGH_BIT_DEPTH
 static void x264_predict_16x16_p_sse2( uint16_t *src )
 #else
@@ -191,10 +191,10 @@ static void x264_predict_16x16_p_ssse3( uint8_t *src )
     int H, V;
 #if HIGH_BIT_DEPTH
     asm (
-        "movdqu        -2+%1, %%xmm1 \n"
-        "movdqa        16+%1, %%xmm0 \n"
-        "pmaddwd          %2, %%xmm0 \n"
-        "pmaddwd          %3, %%xmm1 \n"
+        "movdqu           %1, %%xmm1 \n"
+        "movdqa           %2, %%xmm0 \n"
+        "pmaddwd          %3, %%xmm0 \n"
+        "pmaddwd          %4, %%xmm1 \n"
         "paddd        %%xmm1, %%xmm0 \n"
         "movhlps      %%xmm0, %%xmm1 \n"
         "paddd        %%xmm1, %%xmm0 \n"
@@ -202,24 +202,26 @@ static void x264_predict_16x16_p_ssse3( uint8_t *src )
         "paddd        %%xmm1, %%xmm0 \n"
         "movd         %%xmm0, %0     \n"
         :"=r"(H)
-        :"m"(src[-FDEC_STRIDE]), "m"(*pw_12345678), "m"(*pw_m87654321)
+        :"m"(src[-FDEC_STRIDE-1]), "m"(src[-FDEC_STRIDE+8]),
+         "m"(*pw_12345678), "m"(*pw_m87654321)
     );
 #else
     asm (
         "movq           %1, %%mm1 \n"
-        "movq         8+%1, %%mm0 \n"
-        "palignr $7, -8+%1, %%mm1 \n"
-        "pmaddubsw      %2, %%mm0 \n"
-        "pmaddubsw      %3, %%mm1 \n"
+        "movq           %2, %%mm0 \n"
+        "palignr $7,    %3, %%mm1 \n"
+        "pmaddubsw      %4, %%mm0 \n"
+        "pmaddubsw      %5, %%mm1 \n"
         "paddw       %%mm1, %%mm0 \n"
         "pshufw $14, %%mm0, %%mm1 \n"
         "paddw       %%mm1, %%mm0 \n"
         "pshufw  $1, %%mm0, %%mm1 \n"
         "paddw       %%mm1, %%mm0 \n"
         "movd        %%mm0, %0    \n"
-        "movsx         %w0, %0    \n"
+        "movswl        %w0, %0    \n"
         :"=r"(H)
-        :"m"(src[-FDEC_STRIDE]), "m"(*pb_12345678), "m"(*pb_m87654321)
+        :"m"(src[-FDEC_STRIDE]), "m"(src[-FDEC_STRIDE+8]),
+         "m"(src[-FDEC_STRIDE-8]), "m"(*pb_12345678), "m"(*pb_m87654321)
     );
 #endif
     V = 8 * ( src[15*FDEC_STRIDE-1] - src[-1*FDEC_STRIDE-1] )
@@ -269,7 +271,7 @@ PREDICT_8x8_P( sse2   )
 
 #endif //!HIGH_BIT_DEPTH
 
-#ifdef __GNUC__
+#if HAVE_X86_INLINE_ASM
 #if HIGH_BIT_DEPTH
 static void x264_predict_8x8c_p_sse2( uint16_t *src )
 #else
@@ -299,7 +301,7 @@ static void x264_predict_8x8c_p_ssse3( uint8_t *src )
         "pshufw  $1, %%mm0, %%mm1 \n"
         "paddw       %%mm1, %%mm0 \n"
         "movd        %%mm0, %0    \n"
-        "movsx         %w0, %0    \n"
+        "movswl        %w0, %0    \n"
         :"=r"(H)
         :"m"(src[-FDEC_STRIDE]), "m"(*pb_m32101234)
     );
@@ -430,7 +432,9 @@ void x264_predict_16x16_init_mmx( int cpu, x264_predict_t pf[7] )
     pf[I_PRED_16x16_DC_LEFT] = x264_predict_16x16_dc_left_sse2;
     pf[I_PRED_16x16_V]       = x264_predict_16x16_v_sse2;
     pf[I_PRED_16x16_H]       = x264_predict_16x16_h_sse2;
+#if HAVE_X86_INLINE_ASM
     pf[I_PRED_16x16_P]       = x264_predict_16x16_p_sse2;
+#endif
 #else
 #if !ARCH_X86_64
     pf[I_PRED_16x16_P]       = x264_predict_16x16_p_mmxext;
@@ -447,7 +451,7 @@ void x264_predict_16x16_init_mmx( int cpu, x264_predict_t pf[7] )
     if( !(cpu&X264_CPU_SSSE3) )
         return;
     pf[I_PRED_16x16_H]       = x264_predict_16x16_h_ssse3;
-#ifdef __GNUC__
+#if HAVE_X86_INLINE_ASM
     pf[I_PRED_16x16_P]       = x264_predict_16x16_p_ssse3;
 #endif
     if( !(cpu&X264_CPU_AVX) )
@@ -471,7 +475,9 @@ void x264_predict_8x8c_init_mmx( int cpu, x264_predict_t pf[7] )
     pf[I_PRED_CHROMA_DC]      = x264_predict_8x8c_dc_sse2;
     pf[I_PRED_CHROMA_DC_TOP]  = x264_predict_8x8c_dc_top_sse2;
     pf[I_PRED_CHROMA_H]       = x264_predict_8x8c_h_sse2;
+#if HAVE_X86_INLINE_ASM
     pf[I_PRED_CHROMA_P]       = x264_predict_8x8c_p_sse2;
+#endif
 #else
 #if ARCH_X86_64
     pf[I_PRED_CHROMA_DC_LEFT] = x264_predict_8x8c_dc_left;
@@ -491,7 +497,7 @@ void x264_predict_8x8c_init_mmx( int cpu, x264_predict_t pf[7] )
     if( !(cpu&X264_CPU_SSSE3) )
         return;
     pf[I_PRED_CHROMA_H]       = x264_predict_8x8c_h_ssse3;
-#ifdef __GNUC__
+#if HAVE_X86_INLINE_ASM
     pf[I_PRED_CHROMA_P]       = x264_predict_8x8c_p_ssse3;
 #endif
 #endif // HIGH_BIT_DEPTH

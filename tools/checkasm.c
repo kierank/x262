@@ -26,10 +26,6 @@
  *****************************************************************************/
 
 #include <ctype.h>
-#include <stdlib.h>
-#include <limits.h>
-#include <math.h>
-
 #include "common/common.h"
 #include "common/cpu.h"
 
@@ -61,14 +57,16 @@ int quiet = 0;
 #define MAX_FUNCS 1000  // just has to be big enough to hold all the existing functions
 #define MAX_CPUS 10     // number of different combinations of cpu flags
 
-typedef struct {
+typedef struct
+{
     void *pointer; // just for detecting duplicates
     uint32_t cpu;
     uint32_t cycles;
     uint32_t den;
 } bench_t;
 
-typedef struct {
+typedef struct
+{
     char *name;
     bench_t vers[MAX_CPUS];
 } bench_func_t;
@@ -90,7 +88,7 @@ static const char **intra_predict_8x8_names = intra_predict_4x4_names;
 static inline uint32_t read_time(void)
 {
     uint32_t a = 0;
-#if defined(__GNUC__) && (ARCH_X86 || ARCH_X86_64)
+#if HAVE_X86_INLINE_ASM
     asm volatile( "rdtsc" :"=a"(a) ::"edx" );
 #elif ARCH_PPC
     asm volatile( "mftb %0" : "=r" (a) );
@@ -1384,7 +1382,7 @@ static int check_quant( int cpu_ref, int cpu_new )
     ALIGNED_16( dctcoef dct2[64] );
     ALIGNED_16( uint8_t cqm_buf[64] );
     int ret = 0, ok, used_asm;
-    int oks[2] = {1,1}, used_asms[2] = {0,0};
+    int oks[3] = {1,1,1}, used_asms[3] = {0,0,0};
     x264_t h_buf;
     x264_t *h = &h_buf;
     memset( h, 0, sizeof(*h) );
@@ -1558,6 +1556,41 @@ static int check_quant( int cpu_ref, int cpu_new )
 
         TEST_DEQUANT_DC( quant_4x4_dc, dequant_4x4_dc, CQM_4IY, 4 );
 
+#define TEST_OPTIMIZE_CHROMA_DC( qname, optname, w ) \
+        if( qf_a.optname != qf_ref.optname ) \
+        { \
+            set_func_name( #optname ); \
+            used_asms[2] = 1; \
+            for( int qp = h->param.rc.i_qp_max; qp >= h->param.rc.i_qp_min; qp-- ) \
+            { \
+                int dmf = h->dequant4_mf[CQM_4IC][qp%6][0] << qp/6; \
+                if( dmf > 32*64 ) \
+                    continue; \
+                for( int i = 16; ; i <<= 1 )\
+                { \
+                    int res_c, res_asm; \
+                    int max = X264_MIN( i, PIXEL_MAX*16 ); \
+                    for( int j = 0; j < w*w; j++ ) \
+                        dct1[j] = rand()%(max*2+1) - max; \
+                    call_c1( qf_c.qname, dct1, h->quant4_mf[CQM_4IC][qp][0]>>1, h->quant4_bias[CQM_4IC][qp][0]>>1 ); \
+                    memcpy( dct2, dct1, w*w*sizeof(dctcoef) ); \
+                    res_c   = call_c1( qf_c.optname, dct1, dmf ); \
+                    res_asm = call_a1( qf_a.optname, dct2, dmf ); \
+                    if( res_c != res_asm || memcmp( dct1, dct2, w*w*sizeof(dctcoef) ) ) \
+                    { \
+                        oks[2] = 0; \
+                        fprintf( stderr, #optname "(qp=%d, res_c=%d, res_asm=%d): [FAILED]\n", qp, res_c, res_asm ); \
+                    } \
+                    call_c2( qf_c.optname, dct1, dmf ); \
+                    call_a2( qf_a.optname, dct2, dmf ); \
+                    if( i >= PIXEL_MAX*16 ) \
+                        break; \
+                } \
+            } \
+        }
+
+        TEST_OPTIMIZE_CHROMA_DC( quant_2x2_dc, optimize_chroma_dc, 2 );
+
         x264_cqm_delete( h );
     }
 
@@ -1566,6 +1599,9 @@ static int check_quant( int cpu_ref, int cpu_new )
 
     ok = oks[1]; used_asm = used_asms[1];
     report( "dequant :" );
+
+    ok = oks[2]; used_asm = used_asms[2];
+    report( "optimize chroma dc :" );
 
     ok = 1; used_asm = 0;
     if( qf_a.denoise_dct != qf_ref.denoise_dct )

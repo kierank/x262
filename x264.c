@@ -27,13 +27,9 @@
  * For more information, contact us at licensing@x264.com.
  *****************************************************************************/
 
-#include <stdlib.h>
-#include <math.h>
-
 #include <signal.h>
 #define _GNU_SOURCE
 #include <getopt.h>
-
 #include "common/common.h"
 #include "x264cli.h"
 #include "input/input.h"
@@ -73,6 +69,8 @@ static void sigint_handler( int a )
         exit(0);
     b_ctrl_c = 1;
 }
+
+static char UNUSED originalCTitle[200] = "";
 
 typedef struct {
     int b_progress;
@@ -124,7 +122,8 @@ static const char * const muxer_names[] =
 static const char * const pulldown_names[] = { "none", "22", "32", "64", "double", "triple", "euro", 0 };
 static const char * const log_level_names[] = { "none", "error", "warning", "info", "debug", 0 };
 
-typedef struct{
+typedef struct
+{
     int mod;
     uint8_t pattern[24];
     float fps_factor;
@@ -227,10 +226,12 @@ static void print_version_info()
     printf( "(ffmpegsource %d.%d.%d.%d)\n", FFMS_VERSION >> 24, (FFMS_VERSION & 0xff0000) >> 16, (FFMS_VERSION & 0xff00) >> 8, FFMS_VERSION & 0xff );
 #endif
     printf( "built on " __DATE__ ", " );
-#ifdef __GNUC__
+#ifdef __INTEL_COMPILER
+    printf( "intel: %.2f (%d)\n", __INTEL_COMPILER / 100.f, __INTEL_COMPILER_BUILD_DATE );
+#elif defined(__GNUC__)
     printf( "gcc: " __VERSION__ "\n" );
 #else
-    printf( "using a non-gcc compiler\n" );
+    printf( "using an unknown compiler\n" );
 #endif
     printf( "configuration: --bit-depth=%d\n", x264_bit_depth );
     printf( "x264 license: " );
@@ -262,6 +263,8 @@ int main( int argc, char **argv )
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
 
+    GetConsoleTitle( originalCTitle, sizeof(originalCTitle) );
+
     /* Parse command line */
     if( parse( argc, argv, &param, &opt ) < 0 )
         ret = -1;
@@ -283,6 +286,8 @@ int main( int argc, char **argv )
         fclose( opt.tcfile_out );
     if( opt.qpfile )
         fclose( opt.qpfile );
+
+    SetConsoleTitle( originalCTitle );
 
     return ret;
 }
@@ -1658,9 +1663,6 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
     double  duration;
     double  pulldown_pts = 0;
     int     retval = 0;
-    char    UNUSED originalCTitle[200] = "";
-
-    GetConsoleTitle( originalCTitle, sizeof(originalCTitle) );
 
     opt->b_progress &= param->i_log_level < X264_LOG_DEBUG;
 
@@ -1818,8 +1820,6 @@ fail:
         fprintf( stderr, "encoded %d frames, %.2f fps, %.2f kb/s\n", i_frame_output, fps,
                  (double) i_file * 8 / ( 1000 * duration ) );
     }
-
-    SetConsoleTitle( originalCTitle );
 
     return retval;
 }

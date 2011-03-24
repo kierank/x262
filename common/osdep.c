@@ -24,15 +24,15 @@
  * For more information, contact us at licensing@x264.com.
  *****************************************************************************/
 
-#ifndef __MINGW32__
-#include <sys/time.h>
-#else
+#include "common.h"
+
+#if SYS_WINDOWS
 #include <sys/types.h>
 #include <sys/timeb.h>
+#else
+#include <sys/time.h>
 #endif
 #include <time.h>
-
-#include "common.h"
 
 #if PTW32_STATIC_LIB
 #define WIN32_LEAN_AND_MEAN
@@ -43,14 +43,14 @@ extern int ptw32_processInitialized;
 
 int64_t x264_mdate( void )
 {
-#ifndef __MINGW32__
-    struct timeval tv_date;
-    gettimeofday( &tv_date, NULL );
-    return (int64_t)tv_date.tv_sec * 1000000 + (int64_t)tv_date.tv_usec;
-#else
+#if SYS_WINDOWS
     struct timeb tb;
     ftime( &tb );
     return ((int64_t)tb.time * 1000 + (int64_t)tb.millitm) * 1000;
+#else
+    struct timeval tv_date;
+    gettimeofday( &tv_date, NULL );
+    return (int64_t)tv_date.tv_sec * 1000000 + (int64_t)tv_date.tv_usec;
 #endif
 }
 
@@ -87,5 +87,37 @@ int x264_threading_init( void )
     atexit( x264_threading_destroy );
 
     return 0;
+}
+#endif
+
+#ifdef __INTEL_COMPILER
+/* Agner's patch to Intel's CPU dispatcher from pages 131-132 of
+ * http://agner.org/optimize/optimizing_cpp.pdf (2011-01-30)
+ * adapted to x264's cpu schema. */
+
+// Global variable indicating cpu
+int __intel_cpu_indicator = 0;
+// CPU dispatcher function
+void __intel_cpu_indicator_init( void )
+{
+    unsigned int cpu = x264_cpu_detect();
+    if( cpu&X264_CPU_AVX )
+        __intel_cpu_indicator = 0x20000;
+    else if( cpu&X264_CPU_SSE42 )
+        __intel_cpu_indicator = 0x8000;
+    else if( cpu&X264_CPU_SSE4 )
+        __intel_cpu_indicator = 0x2000;
+    else if( cpu&X264_CPU_SSSE3 )
+        __intel_cpu_indicator = 0x1000;
+    else if( cpu&X264_CPU_SSE3 )
+        __intel_cpu_indicator = 0x800;
+    else if( cpu&X264_CPU_SSE2 && !(cpu&X264_CPU_SSE2_IS_SLOW) )
+        __intel_cpu_indicator = 0x200;
+    else if( cpu&X264_CPU_SSE )
+        __intel_cpu_indicator = 0x80;
+    else if( cpu&X264_CPU_MMXEXT )
+        __intel_cpu_indicator = 8;
+    else
+        __intel_cpu_indicator = 1;
 }
 #endif
