@@ -727,6 +727,15 @@ static void x264_mb_analyse_intra_chroma( x264_t *h, x264_mb_analysis_t *a )
     if( a->i_satd_i8x8chroma < COST_MAX )
         return;
 
+    if( MPEG2 )
+    {
+        h->predict_mpeg2_8x8( h->mb.pic.p_fdec[1], 0 );
+        h->predict_mpeg2_8x8( h->mb.pic.p_fdec[2], 0 );
+        a->i_satd_i8x8chroma = h->pixf.mbcmp[PIXEL_8x8]( h->mb.pic.p_fdec[1], FDEC_STRIDE, h->mb.pic.p_fenc[1], FENC_STRIDE ) +
+                               h->pixf.mbcmp[PIXEL_8x8]( h->mb.pic.p_fdec[2], FDEC_STRIDE, h->mb.pic.p_fenc[2], FENC_STRIDE );
+        return;
+    }
+
     const int8_t *predict_mode = predict_8x8chroma_mode_available( h->mb.i_neighbour_intra );
 
     /* 8x8 prediction selection for chroma */
