@@ -1076,6 +1076,9 @@ static void x264_intra_rd( x264_t *h, x264_mb_analysis_t *a, int i_satd_thresh )
     else
         a->i_satd_i16x16 = COST_MAX;
 
+    if( MPEG2 )
+        return;
+
     if( a->i_satd_i4x4 <= i_satd_thresh && a->i_satd_i4x4 < COST_MAX )
     {
         h->mb.i_type = I_4x4;
@@ -2531,6 +2534,9 @@ static void x264_mb_analyse_p_rd( x264_t *h, x264_mb_analysis_t *a, int i_satd )
         x264_analyse_update_cache( h, a );
         a->l0.i_rd16x16 = x264_rd_cost_mb( h, a->i_lambda2 );
     }
+
+    if( MPEG2 )
+        return;
 
     if( a->l0.i_cost16x8 <= thresh )
     {
