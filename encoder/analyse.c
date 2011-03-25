@@ -1138,10 +1138,7 @@ static void x264_intra_rd_refine( x264_t *h, x264_mb_analysis_t *a )
         {
             int i_cbp_chroma_best = h->mb.i_cbp_chroma;
             const int *lambda2_tab;
-            if( MPEG2 )
-                lambda2_tab = h->param.b_nonlinear_quant ? x262_lambda2_tab_exp : x262_lambda2_tab_lin;
-            else
-                lambda2_tab = x264_lambda2_tab;
+            lambda2_tab = x264_lambda2_tab;
             int i_chroma_lambda = lambda2_tab[h->mb.i_chroma_qp];
             /* the previous thing encoded was x264_intra_rd(), so the pixels and
              * coefs for the current chroma mode are still around, so we only
@@ -2891,7 +2888,7 @@ intra_analysis:
         if( !MPEG2 && (analysis.i_satd_pcm < i_cost) )
             h->mb.i_type = I_PCM;
 
-        else if( analysis.i_mbrd >= 2 )
+        else if( !MPEG2 && analysis.i_mbrd >= 2 )
             x264_intra_rd_refine( h, &analysis );
     }
     else if( h->sh.i_type == SLICE_TYPE_P )
@@ -3145,7 +3142,7 @@ intra_analysis:
 
             if( analysis.i_mbrd >= 2 && h->mb.i_type != I_PCM )
             {
-                if( IS_INTRA( h->mb.i_type ) )
+                if( !MPEG2 && IS_INTRA( h->mb.i_type ) )
                 {
                     x264_intra_rd_refine( h, &analysis );
                 }
@@ -3512,7 +3509,7 @@ intra_analysis:
             h->mb.i_type = i_type;
             h->mb.i_partition = i_partition;
 
-            if( analysis.i_mbrd >= 2 && IS_INTRA( i_type ) && i_type != I_PCM )
+            if( !MPEG2 && analysis.i_mbrd >= 2 && IS_INTRA( i_type ) && i_type != I_PCM )
                 x264_intra_rd_refine( h, &analysis );
             if( h->mb.i_subpel_refine >= 5 )
                 x264_refine_bidir( h, &analysis );
