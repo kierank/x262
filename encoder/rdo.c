@@ -164,7 +164,7 @@ static int x264_rd_cost_mb( x264_t *h, int i_lambda2 )
     int i_intra_dc_predictor_bak[6];
 
     if( MPEG2 )
-        memcpy( i_intra_dc_predictor_bak, h->mb.i_intra_dc_predictor, 6 * sizeof(int) );
+        memcpy( i_intra_dc_predictor_bak, h->mb.i_intra_dc_predictor, sizeof(i_intra_dc_predictor_bak) );
 
     x264_macroblock_encode( h );
 
@@ -180,12 +180,11 @@ static int x264_rd_cost_mb( x264_t *h, int i_lambda2 )
             // TODO
         }
         else
-	else
         {
             x262_macroblock_size_vlc( h );
             i_bits = h->out.bs.i_bits_encoded; // FIXME
         }
-        memcpy( h->mb.i_intra_dc_predictor, i_intra_dc_predictor_bak, 6 * sizeof(int) );
+        memcpy( h->mb.i_intra_dc_predictor, i_intra_dc_predictor_bak, sizeof(i_intra_dc_predictor_bak) );
     }
     else if( IS_SKIP( h->mb.i_type ) )
     {
