@@ -277,8 +277,8 @@ int x262_cqm_init( x264_t *h )
 
     for( int i = 0; i < 2; i++ )
     {
-        CHECKED_MALLOC( h->quant8_bias[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(uint16_t) );
-        CHECKED_MALLOC( h->  quant8_mf[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(uint16_t) );
+        CHECKED_MALLOC( h->quant8_bias[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(udctcoef) );
+        CHECKED_MALLOC( h->  quant8_mf[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(udctcoef) );
         CHECKED_MALLOC( h->dequant8_mf[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(int) );
     }
     for( int q = 0; q < QP_MAX_SPEC_MPEG2+1; q++ )
@@ -287,6 +287,7 @@ int x262_cqm_init( x264_t *h )
         {
             h->  quant8_mf[CQM_8IY][q][i] =
             h->dequant8_mf[CQM_8IY][q][i] = 2 * qscale[q] * h->pps->scaling_list[CQM_8IY][i];
+            h->quant8_bias[CQM_8IY][q][i] = 0;
 
             h->  quant8_mf[CQM_8PY][q][i] =
             h->dequant8_mf[CQM_8PY][q][i] = 2 * qscale[q] * h->pps->scaling_list[CQM_8PY][i];
