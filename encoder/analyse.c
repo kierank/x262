@@ -2655,6 +2655,9 @@ static void x264_mb_analyse_b_rd( x264_t *h, x264_mb_analysis_t *a, int i_satd_i
         a->i_rd16x16bi = x264_rd_cost_mb( h, a->i_lambda2 );
     }
 
+    if( MPEG2 )
+        return;
+
     /* 8x8 */
     if( a->i_cost8x8bi <= thresh && a->i_rd8x8bi == COST_MAX )
     {
