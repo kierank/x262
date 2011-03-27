@@ -355,9 +355,18 @@ int x264_analyse_init_costs( x264_t *h, int qp )
         h->cost_mv[qp][i]  = X264_MIN( lambda * (log2f(i+1)*2 + 0.718f + !!i) + .5f, (1<<16)-1 );
     }
     x264_pthread_mutex_lock( &cost_ref_mutex );
-    for( int i = 0; i < 3; i++ )
-        for( int j = 0; j < 33; j++ )
-            x264_cost_ref[qp][i][j] = X264_MIN( i ? lambda * bs_size_te( i, j ) : 0, (1<<16)-1 );
+    if( MPEG2 )
+    {
+        for( int i = 0; i < 3; i++ )
+            for( int j = 0; j < 33; j++ )
+                x264_cost_ref[qp][i][j] = 0;
+    }
+    else
+    {
+        for( int i = 0; i < 3; i++ )
+            for( int j = 0; j < 33; j++ )
+                x264_cost_ref[qp][i][j] = X264_MIN( i ? lambda * bs_size_te( i, j ) : 0, (1<<16)-1 );
+    }
     x264_pthread_mutex_unlock( &cost_ref_mutex );
     if( h->param.analyse.i_me_method >= X264_ME_ESA && !h->cost_mv_fpel[qp][0] )
     {
