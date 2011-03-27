@@ -740,7 +740,7 @@ void x262_seq_extension_write( x264_t *h, bs_t *s )
     bs_write1( s, 0 );   // escape bit
     bs_write( s, 3, sps->i_profile_idc ); // profile identification
     bs_write( s, 4, sps->i_level_idc );   // level identification
-    bs_write1( s, 1 );   // progressive_sequence
+    bs_write1( s, !( h->param.b_interlaced || h->param.b_pulldown ) );   // progressive_sequence
     bs_write( s, 2, 1 ); // chroma_format
     bs_write( s, 2, (h->param.i_width >> 12) & 0x3 );  // horizontal_size_extension
     bs_write( s, 2, (h->param.i_height >> 12) & 0x3 ); // vertical_size_extension
