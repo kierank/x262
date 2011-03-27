@@ -126,6 +126,8 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
             sps->i_profile_idc  = PROFILE_BASELINE;
     }
 
+    sps->i_frame_rate_code = param->i_frame_rate_code;
+
     sps->b_constraint_set0  = sps->i_profile_idc == PROFILE_BASELINE;
     /* x264 doesn't support the features that are in Baseline and not in Main,
      * namely arbitrary_slice_order and slice_groups. */
@@ -712,13 +714,12 @@ void x264_filler_write( x264_t *h, bs_t *s, int filler )
 
 void x262_seq_header_write( x264_t *h, bs_t *s )
 {
-    x264_sps_t *sps = h->sps;
     bs_realign( s );
 
     bs_write( s, 12, h->param.i_width & 0xfff );  // horizontal_size_value
     bs_write( s, 12, h->param.i_height & 0xfff ); // vertical_size_value
     bs_write( s, 4, 1 ); // aspect_ratio_information FIXME
-    bs_write( s, 4, sps->frame_rate_code ); // frame_rate_code
+    bs_write( s, 4, h->sps->i_frame_rate_code ); // frame_rate_code
     bs_write( s, 18, 1 ); // bit_rate_value FIXME
     bs_write1( s, 1 ); // marker_bit
     bs_write( s, 10, 0 ); // vbv_buffer_size_value FIXME
@@ -837,13 +838,15 @@ void x262_pic_header_write( x264_t *h, bs_t *s )
 
 void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
 {
+    x264_param_t *param = &h->param;
+
     bs_realign( s );
 
     bs_write( s, 4, MPEG2_PIC_CODING_EXT_ID ); // extension_start_code_identifier
 
     // FIXME decide fcodes during lookahead
     int fcode_max[2];
-    switch( h->param.i_level_idc )
+    switch( param->i_level_idc )
     {
     case MPEG2_LEVEL_LOW:
         fcode_max[0] = 7;
@@ -875,17 +878,17 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
             for( int i = 0; i < 2; i++ )
                 bs_write( s, 4, h->fenc->mv_fcode[j][i] );
     }
-    bs_write( s, 2, h->param.i_intra_dc_precision ); // intra_dc_precision
-    bs_write( s, 2, !h->param.b_interlaced ? 3 : h->param.b_tff ? 1 : 2 ); // picture_structure
-    bs_write1( s, h->param.b_interlaced ? h->param.b_tff : 0 ); // top_field_first
-    bs_write1( s, !h->param.b_interlaced ); // frame_pred_frame_dct
+    bs_write( s, 2, param->i_intra_dc_precision ); // intra_dc_precision
+    bs_write( s, 2, !param->b_interlaced ? 3 : param->b_tff ? 1 : 2 ); // picture_structure
+    bs_write1( s, param->b_interlaced || param->b_pulldown ? param->b_tff : 0 ); // top_field_first
+    bs_write1( s, !param->b_interlaced ); // frame_pred_frame_dct
     bs_write1( s, 0 ); // concealment_motion_vectors
-    bs_write1( s, h->param.b_nonlinear_quant ); // q_scale_type
-    bs_write1( s, h->param.b_alt_intra_vlc );   // intra_vlc_format
-    bs_write1( s, h->param.b_alternate_scan );  // alternate_scan
+    bs_write1( s, param->b_nonlinear_quant ); // q_scale_type
+    bs_write1( s, param->b_alt_intra_vlc );   // intra_vlc_format
+    bs_write1( s, param->b_alternate_scan );  // alternate_scan
     bs_write1( s, h->fenc->b_rff ); // repeat_first_field
-    bs_write1( s, h->param.i_csp == X264_CSP_I420 ? !h->param.b_interlaced : 0 ); // chroma_420_type
-    bs_write1( s, !h->param.b_interlaced ); // progressive_frame
+    bs_write1( s, param->i_csp == X264_CSP_I420 ? !param->b_interlaced : 0 ); // chroma_420_type
+    bs_write1( s, !param->b_interlaced ); // progressive_frame
     bs_write1( s, 0 ); // composite_display_flag
 
     bs_align_0( s );
@@ -960,17 +963,12 @@ const x262_fps_t x262_allowed_fps[14] =
 {
     { 1, 24000, 1001 },
     { 2, 24, 1 },
-    { 2, 24000, 1000 },
     { 3, 25, 1 },
-    { 3, 25000, 1000 },
     { 4, 30000, 1001 },
     { 5, 30, 1 },
-    { 5, 30000, 1000 },
     { 6, 50, 1 },
-    { 6, 50000, 1000 },
     { 7, 60000, 1001 },
     { 8, 60, 1 },
-    { 8, 60000, 1000 },    
     { 0 }
 };
 
@@ -993,31 +991,25 @@ int x264_validate_levels( x264_t *h, int verbose )
     int cbp_factor = h->sps->i_profile_idc==PROFILE_HIGH10 ? 12 :
                      h->sps->i_profile_idc==PROFILE_HIGH ? 5 : 4;
 
-    const x264_level_t *l = x264_levels;
-    const x262_level_t *m = x262_levels;
-
     if( MPEG2 )
     {
-        while( m->level_idc != 0 && m->level_idc != h->param.i_level_idc )
-            m++;
-
-        const x262_fps_t *f = x262_allowed_fps;
-        while( f->fps_code != 0 && ( h->param.i_fps_num != f->fps_num || h->param.i_fps_den != f->fps_den ) )
-            f++;
-        CHECK( "framerate", m->fps_code, f->fps_code );
-        h->sps->frame_rate_code = f->fps_code;
+        const x262_level_t *l = x262_levels;
+        while( l->level_idc != 0 && l->level_idc != h->param.i_level_idc )
+            l++;
+        CHECK( "framerate", l->fps_code, h->sps->i_frame_rate_code );
 
         if( h->param.i_fps_den > 0 )
-            CHECK( "luminance sample rate", m->luma_main, h->param.i_width * h->param.i_height *
+            CHECK( "luminance sample rate", l->luma_main, h->param.i_width * h->param.i_height *
                                                           h->param.i_fps_num / h->param.i_fps_den );
-        CHECK( "width", m->width, h->param.i_width );
-        CHECK( "height", m->height, h->param.i_height );
-        // CHECK( "max bitrate", m->bitrate, h->param.rc.i_vbv_max_bitrate );
-        // CHECK( "vbv size", m->vbv, h->param.rc.i_vbv_buffer_size );
-        CHECK( "Vertical MV range", m->mv_max_v >> h->param.b_interlaced, h->param.analyse.i_mv_range );
+        CHECK( "width", l->width, h->param.i_width );
+        CHECK( "height", l->height, h->param.i_height );
+        // CHECK( "max bitrate", l->bitrate, h->param.rc.i_vbv_max_bitrate );
+        // CHECK( "vbv size", l->vbv, h->param.rc.i_vbv_buffer_size );
+        CHECK( "Vertical MV range", l->mv_max_v >> h->param.b_interlaced, h->param.analyse.i_mv_range );
     }
     else
     {
+        const x264_level_t *l = x264_levels;
         while( l->level_idc != 0 && l->level_idc != h->param.i_level_idc )
             l++;
 

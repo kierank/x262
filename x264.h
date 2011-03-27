@@ -245,11 +245,21 @@ static const char * const x264_open_gop_names[] = { "none", "normal", "bluray", 
 #   define MPEG2 0
 #endif
 
-/* Intra DC Precision*/
+/* Intra DC Precision */
 #define X264_INTRA_DC_8_BIT          0
 #define X264_INTRA_DC_9_BIT          1
 #define X264_INTRA_DC_10_BIT         2
 #define X264_INTRA_DC_11_BIT         3
+
+/* MPEG-2 Frame Rate Codes */
+#define X264_MPEG2_24FPS_NTSC        1
+#define X264_MPEG2_24FPS             2
+#define X264_MPEG2_25FPS             3
+#define X264_MPEG2_30FPS_NTSC        4
+#define X264_MPEG2_30FPS             5
+#define X264_MPEG2_50FPS             6
+#define X264_MPEG2_60FPS_NTSC        7
+#define X264_MPEG2_60FPS             8
 
 /* Zones: override ratecontrol or other options for specific sections of the video.
  * See x264_encoder_reconfig() for which options can be changed.
@@ -280,7 +290,7 @@ typedef struct x264_param_t
     int         i_frame_total; /* number of frames to encode if known, else 0 */
     int         b_mpeg2; /* Encode output as MPEG-2 instead of H.264 */
 
-    /* NAL HRD (H264 ONLY)
+    /* NAL HRD (H.264 ONLY)
      * Uses Buffering and Picture Timing SEIs to signal HRD
      * The HRD in H.264 was not designed with VFR in mind.
      * It is therefore not recommendeded to use NAL HRD with VFR.
@@ -452,10 +462,12 @@ typedef struct x264_param_t
     uint32_t i_fps_den;
     uint32_t i_timebase_num;    /* Timebase numerator */
     uint32_t i_timebase_den;    /* Timebase denominator */
+    int i_frame_rate_code;      /* MPEG-2: Explicity sets the framerate in the sequence header.  Derived from
+                                   i_fps_num and i_fps_den if not set. */
 
     int b_tff;
 
-    /* Pulldown (H264 ONLY):
+    /* Pulldown (H.264 ONLY):
      * The correct pic_struct must be passed with each input frame.
      * The input timebase should be the timebase corresponding to the output framerate. This should be constant.
      * e.g. for 3:2 pulldown timebase should be 1001/30000
@@ -551,7 +563,7 @@ extern const x264_level_t x264_levels[];
 typedef struct {
     int level_idc;
     int luma_main;    /* max luminance sample rate for main profile (samples/sec) */
-    int luma_high;    /* max luminance sample rate for high profile (samples/sec) */    
+    int luma_high;    /* max luminance sample rate for high profile (samples/sec) */
     int width;        /* max frame width (pixel/line) */
     int height;       /* max frame height (lines/picture) */
     int fps_code;     /* max frame_rate_code */
@@ -748,7 +760,8 @@ typedef struct
      *     use pic_struct_e for pic_struct inputs
      * Out: pic_struct element associated with frame */
     int     i_pic_struct;
-    /* In: MPEG-2 ONLY - repeat first field flag. Only valid for progressive input. */
+    /* In: MPEG-2 ONLY - repeat first field flag. Only valid for progressive input.
+     *     Used in combination with b_tff to signal pulldown pattern. */
     int     b_rff;
     /* Out: whether this frame is a keyframe.  Important when using modes that result in
      * SEI recovery points being used instead of IDR frames. */
@@ -771,7 +784,7 @@ typedef struct
     x264_image_properties_t prop;
     /* Out: HRD timing information. Output only when i_nal_hrd is set. */
     x264_hrd_t hrd_timing;
-    /* In: arbitrary user SEI (e.g subtitles, AFDs) - H264 ONLY */
+    /* In: arbitrary user SEI (e.g subtitles, AFDs) - H.264 ONLY */
     x264_sei_t extra_sei;
     /* private user data. libx264 doesn't touch this,
        not even copy it from input to output frames. */

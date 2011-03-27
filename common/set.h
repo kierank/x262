@@ -61,6 +61,7 @@ typedef struct
 
     int i_profile_idc;
     int i_level_idc;
+    int i_frame_rate_code; /* MPEG-2 */
 
     int b_constraint_set0;
     int b_constraint_set1;
@@ -157,9 +158,6 @@ typedef struct
     } vui;
 
     int b_qpprime_y_zero_transform_bypass;
-
-    /* mpeg-2 */
-    int frame_rate_code;
 
 } x264_sps_t;
 

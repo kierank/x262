@@ -857,17 +857,31 @@ static int x264_validate_parameters( x264_t *h )
             x264_log( h, X264_LOG_WARNING, "MPEG-2 + VFR is not allowed\n" );
             h->param.b_vfr_input = 0;
         }
-        else
+
+        x264_reduce_fraction( &h->param.i_fps_num, &h->param.i_fps_den );
+
+        const x262_fps_t *f = x262_allowed_fps;
+        if( !h->param.i_frame_rate_code )
         {
-            const x262_fps_t *f = x262_allowed_fps;
             while( f->fps_code != 0 && ( h->param.i_fps_num != f->fps_num || h->param.i_fps_den != f->fps_den ) )
                 f++;
-
             if( !f->fps_code )
             {
-                x264_log( h, X264_LOG_ERROR, "Chosen fps not allowed in MPEG-2\n" );
+                x264_log( h, X264_LOG_ERROR, "chosen fps not allowed in MPEG-2\n" );
                 return -1;
             }
+            h->param.i_frame_rate_code = f->fps_code;
+        }
+        else if( h->param.i_frame_rate_code < 1 || h->param.i_frame_rate_code > 8 )
+        {
+            x264_log( h, X264_LOG_ERROR, "invalid frame rate code specified\n" );
+            return -1;
+        }
+        else if( ( f[h->param.i_frame_rate_code].fps_num != h->param.i_fps_num ||
+                   f[h->param.i_frame_rate_code].fps_den != h->param.i_fps_den ) && !h->param.b_pulldown )
+        {
+            x264_log( h, X264_LOG_ERROR, "frame rate code doesn't match specified fps\n" );
+            return -1;
         }
     }
 

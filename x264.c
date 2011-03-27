@@ -1456,6 +1456,8 @@ generic_option:
     {
         info.fps_num = param->i_fps_num;
         info.fps_den = param->i_fps_den;
+        if( param->b_mpeg2 )
+            x264_reduce_fraction( &info.fps_num, &info.fps_den );
     }
     if( !info.vfr )
     {
@@ -1643,6 +1645,7 @@ if( cond )\
 static int encode( x264_param_t *param, cli_opt_t *opt )
 {
     x264_t *h = NULL;
+    x264_param_t p;
     x264_picture_t pic;
     cli_pic_t cli_pic;
     const cli_pulldown_t *pulldown = NULL; // shut up gcc
@@ -1670,12 +1673,40 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
     if( opt->i_pulldown && !param->b_vfr_input )
     {
         param->b_pulldown = 1;
-        param->b_pic_struct = 1;
         pulldown = &pulldown_values[opt->i_pulldown];
-        param->i_timebase_num = param->i_fps_den;
         FAIL_IF_ERROR2( fmod( param->i_fps_num * pulldown->fps_factor, 1 ),
                         "unsupported framerate for chosen pulldown\n" )
-        param->i_timebase_den = param->i_fps_num * pulldown->fps_factor;
+        if( param->b_mpeg2 )
+        {
+            FAIL_IF_ERROR2( opt->i_pulldown != X264_PULLDOWN_32 &&
+                            opt->i_pulldown != X264_PULLDOWN_EURO,
+                            "only 3:2 and euro pulldown patterns supported with MPEG-2\n" );
+
+            if( param->i_fps_num == 24 && param->i_fps_den == 1 )
+                param->i_frame_rate_code = opt->i_pulldown == X264_PULLDOWN_32 ?
+                                          X264_MPEG2_30FPS : X264_MPEG2_25FPS;
+            else if( param->i_fps_num == 24000 && param->i_fps_den == 1001 )
+            {
+                if( opt->i_pulldown == X264_PULLDOWN_32 )
+                    param->i_frame_rate_code = X264_MPEG2_30FPS_NTSC;
+                else
+                {
+                    x264_cli_log( "x264", X264_LOG_ERROR, "euro pulldown only supported for exact 24fps input\n" );
+                    return -1;
+                }
+            }
+            else
+            {
+            x264_cli_log( "x264", X264_LOG_ERROR, "unsupported framerate for chosen pulldown\n" );
+                return -1;
+            }
+        }
+        else
+        {
+            param->b_pic_struct = 1;
+            param->i_timebase_num = param->i_fps_den;
+            param->i_timebase_den = param->i_fps_num * pulldown->fps_factor;
+        }
     }
 
     h = x264_encoder_open( param );
@@ -1706,6 +1737,8 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
         fprintf( opt->tcfile_out, "# timecode format v2\n" );
 
     /* Encode frames */
+    if( MPEG2 )
+        x264_encoder_parameters( h, &p );
     for( ; !b_ctrl_c && (i_frame < param->i_frame_total || !param->i_frame_total); i_frame++ )
     {
         if( filter.get_frame( opt->hin, &cli_pic, i_frame + opt->i_seek ) )
@@ -1718,9 +1751,39 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
 
         if( opt->i_pulldown && !param->b_vfr_input )
         {
-            pic.i_pic_struct = pulldown->pattern[ i_frame % pulldown->mod ];
-            pic.i_pts = (int64_t)( pulldown_pts + 0.5 );
-            pulldown_pts += pulldown_frame_duration[pic.i_pic_struct];
+            if( MPEG2 )
+            {
+                pic.param = &p;
+                switch( pulldown->pattern[ i_frame % pulldown->mod ] )
+                {
+                    case PIC_STRUCT_TOP_BOTTOM:
+                        p.b_tff = 1;
+                        pic.b_rff = 0;
+                        break;
+                    case PIC_STRUCT_BOTTOM_TOP:
+                        p.b_tff = 0;
+                        pic.b_rff = 0;
+                        break;
+                    case PIC_STRUCT_TOP_BOTTOM_TOP:
+                        p.b_tff = 1;
+                        pic.b_rff = 1;
+                        break;
+                    case PIC_STRUCT_BOTTOM_TOP_BOTTOM:
+                        p.b_tff = 0;
+                        pic.b_rff = 1;
+                        break;
+                    default:
+                        p.b_tff = 0;
+                        pic.b_rff = 0;
+                        assert("invalid pulldown pattern!");
+                }
+            }
+            else
+            {
+                pic.i_pic_struct = pulldown->pattern[ i_frame % pulldown->mod ];
+                pic.i_pts = (int64_t)( pulldown_pts + 0.5 );
+                pulldown_pts += pulldown_frame_duration[pic.i_pic_struct];
+            }
         }
         else if( opt->timebase_convert_multiplier )
             pic.i_pts = (int64_t)( pic.i_pts * opt->timebase_convert_multiplier + 0.5 );
