@@ -107,6 +107,12 @@ median:
 
 void x264_mb_predict_mv_16x16( x264_t *h, int i_list, int i_ref, int16_t mvp[2] )
 {
+    if( MPEG2 )
+    {
+        CP32( mvp, h->mb.mvp[i_list] );
+        return;
+    }
+
     int     i_refa = h->mb.cache.ref[i_list][X264_SCAN8_0 - 1];
     int16_t *mv_a  = h->mb.cache.mv[i_list][X264_SCAN8_0 - 1];
     int     i_refb = h->mb.cache.ref[i_list][X264_SCAN8_0 - 8];
