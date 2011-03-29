@@ -3784,26 +3784,15 @@ static void x264_analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
     // FIXME Hack to clamp MPEG-2 motion vectors within the frame
     if( MPEG2 && !IS_INTRA(h->mb.i_type) )
     {
-        if( h->mb.i_mb_x == 0 )                     // left column
-        {
-            a->l0.me16x16.mv[0] = X264_MAX( 0, a->l0.me16x16.mv[0] );
-            a->l1.me16x16.mv[0] = X264_MAX( 0, a->l1.me16x16.mv[0] );
-        }
-        if( h->mb.i_mb_width - h->mb.i_mb_x == 1)   // right column
-        {
-            a->l0.me16x16.mv[0] = X264_MIN( 0, a->l0.me16x16.mv[0] );
-            a->l1.me16x16.mv[0] = X264_MIN( 0, a->l1.me16x16.mv[0] );
-        }
-        if( h->mb.i_mb_y == 0 )                     // top row
-        {
-            a->l0.me16x16.mv[1] = X264_MAX( 0, a->l0.me16x16.mv[1] );
-            a->l1.me16x16.mv[1] = X264_MAX( 0, a->l1.me16x16.mv[1] );
-        }
-        if( h->mb.i_mb_height - h->mb.i_mb_y == 1 ) // bottom row
-        {
-            a->l0.me16x16.mv[1] = X264_MIN( 0, a->l0.me16x16.mv[1] );
-            a->l1.me16x16.mv[1] = X264_MIN( 0, a->l1.me16x16.mv[1] );
-        }
+        int x_1 = h->mb.i_mb_x * -16*4;
+        int x_2 = ( h->mb.i_mb_width - h->mb.i_mb_x - 1 ) * 16*4;
+        int y_1 = h->mb.i_mb_y * -16*4;
+        int y_2 = ( h->mb.i_mb_height - h->mb.i_mb_y - 1 ) * 16*4;
+
+        a->l0.me16x16.mv[0] = x264_clip3( a->l0.me16x16.mv[0], x_1, x_2 );
+        a->l1.me16x16.mv[0] = x264_clip3( a->l1.me16x16.mv[0], x_1, x_2 );
+        a->l0.me16x16.mv[1] = x264_clip3( a->l0.me16x16.mv[1], y_1, y_2 );
+        a->l1.me16x16.mv[1] = x264_clip3( a->l1.me16x16.mv[1], y_1, y_2 );
 
         // MPEG-2 only has hpel, so arbitrarily round down odd qpel MVs
         // TODO: modify ME to account for this
