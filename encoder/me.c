@@ -750,7 +750,7 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
     if( h->mb.i_subpel_refine >= 2 )
     {
         int hpel = subpel_iterations[h->mb.i_subpel_refine][2];
-        int qpel = subpel_iterations[h->mb.i_subpel_refine][3];
+        int qpel = MPEG2 ? 0 : subpel_iterations[h->mb.i_subpel_refine][3];
         refine_subpel( h, m, hpel, qpel, p_halfpel_thresh, 0 );
     }
 }
@@ -758,18 +758,20 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
 
 void x264_me_refine_qpel( x264_t *h, x264_me_t *m )
 {
+
     int hpel = subpel_iterations[h->mb.i_subpel_refine][0];
-    int qpel = subpel_iterations[h->mb.i_subpel_refine][1];
+    int qpel = MPEG2 ? 0 : subpel_iterations[h->mb.i_subpel_refine][1];
 
     if( m->i_pixel <= PIXEL_8x8 )
         m->cost -= m->i_ref_cost;
 
-    refine_subpel( h, m, hpel, qpel, NULL, 1 );
+    refine_subpel( h, m, hpel, qpel, NULL, !MPEG2 );
 }
 
 void x264_me_refine_qpel_refdupe( x264_t *h, x264_me_t *m, int *p_halfpel_thresh )
 {
-    refine_subpel( h, m, 0, X264_MIN( 2, subpel_iterations[h->mb.i_subpel_refine][3] ), p_halfpel_thresh, 0 );
+    int qpel = MPEG2 ? 0 : X264_MIN( 2, subpel_iterations[h->mb.i_subpel_refine][3] );
+    refine_subpel( h, m, 0, qpel, p_halfpel_thresh, 0 );
 }
 
 #define COST_MV_SAD( mx, my ) \
@@ -1124,6 +1126,9 @@ void x264_me_refine_bidir_rd( x264_t *h, x264_me_t *m0, x264_me_t *m1, int i_wei
 
 void x264_me_refine_qpel_rd( x264_t *h, x264_me_t *m, int i_lambda2, int i4, int i_list )
 {
+    if( MPEG2 )
+        return;
+
     int16_t *cache_mv = h->mb.cache.mv[i_list][x264_scan8[i4]];
     const uint16_t *p_cost_mvx, *p_cost_mvy;
     const int bw = x264_pixel_size[m->i_pixel].w;

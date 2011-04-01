@@ -3794,13 +3794,6 @@ static void x264_analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
         a->l0.me16x16.mv[1] = x264_clip3( a->l0.me16x16.mv[1], y_1, y_2 );
         a->l1.me16x16.mv[1] = x264_clip3( a->l1.me16x16.mv[1], y_1, y_2 );
 
-        // MPEG-2 only has hpel, so arbitrarily round down odd qpel MVs
-        // TODO: modify ME to account for this
-        a->l0.me16x16.mv[0] -= (a->l0.me16x16.mv[0] & 1);
-        a->l0.me16x16.mv[1] -= (a->l0.me16x16.mv[1] & 1);
-        a->l1.me16x16.mv[0] -= (a->l1.me16x16.mv[0] & 1);
-        a->l1.me16x16.mv[1] -= (a->l1.me16x16.mv[1] & 1);
-
         x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 0, a->l0.me16x16.mv );
         x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 1, a->l1.me16x16.mv );
     }
