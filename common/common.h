@@ -143,7 +143,7 @@ typedef union { x264_uint128_t i; uint64_t a[2]; uint32_t b[4]; uint16_t c[8]; u
 #define X264_SCAN8_LUMA_SIZE (5*8)
 #define X264_SCAN8_0 (4+1*8)
 
-static const int x264_scan8[16+2*4+3] =
+static const unsigned x264_scan8[16+2*4+3] =
 {
     /* Luma */
     4+1*8, 5+1*8, 4+2*8, 5+2*8,
@@ -316,6 +316,7 @@ enum sei_payload_type_e
     SEI_USER_DATA_REGISTERED   = 4,
     SEI_USER_DATA_UNREGISTERED = 5,
     SEI_RECOVERY_POINT         = 6,
+    SEI_DEC_REF_PIC_MARKING    = 7,
     SEI_FRAME_PACKING          = 45,
 };
 
@@ -513,6 +514,10 @@ struct x264_t
 
     /* Slice header */
     x264_slice_header_t sh;
+
+    /* Slice header backup, for SEI_DEC_REF_PIC_MARKING */
+    int b_sh_backup;
+    x264_slice_header_t sh_backup;
 
     /* cabac context */
     x264_cabac_t    cabac;
@@ -903,11 +908,12 @@ struct x264_t
 
 // included at the end because it needs x264_t
 #include "macroblock.h"
-#include "rectangle.h"
 
-#if HAVE_MMX
+#if ARCH_X86 || ARCH_X86_64
 #include "x86/util.h"
 #endif
+
+#include "rectangle.h"
 
 #endif
 

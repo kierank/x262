@@ -647,6 +647,21 @@ static int x264_validate_parameters( x264_t *h )
             h->param.i_slice_count = 0;
     }
 
+    if( h->param.b_bluray_compat )
+    {
+        h->param.i_bframe_pyramid = X264_MIN( X264_B_PYRAMID_STRICT, h->param.i_bframe_pyramid );
+        h->param.i_bframe = X264_MIN( h->param.i_bframe, 3 );
+        h->param.b_aud = 1;
+        h->param.i_nal_hrd = X264_MAX( h->param.i_nal_hrd, X264_NAL_HRD_VBR );
+        h->param.i_slice_max_size = 0;
+        h->param.i_slice_max_mbs = 0;
+        h->param.b_intra_refresh = 0;
+        h->param.i_frame_reference = X264_MIN( h->param.i_frame_reference, 6 );
+        h->param.i_dpb_size = X264_MIN( h->param.i_dpb_size, 6 );
+        /* Due to the proliferation of broken players that don't handle dupes properly. */
+        h->param.analyse.i_weighted_pred = X264_MIN( h->param.analyse.i_weighted_pred, X264_WEIGHTP_SIMPLE );
+    }
+
     h->param.i_frame_reference = x264_clip3( h->param.i_frame_reference, 1, X264_REF_MAX );
     h->param.i_dpb_size = x264_clip3( h->param.i_dpb_size, 1, X264_REF_MAX );
     if( h->param.i_scenecut_threshold < 0 )
@@ -657,7 +672,6 @@ static int x264_validate_parameters( x264_t *h )
         h->param.analyse.i_direct_mv_pred = X264_DIRECT_PRED_SPATIAL;
     }
     h->param.i_bframe = x264_clip3( h->param.i_bframe, 0, X264_MIN( X264_BFRAME_MAX, h->param.i_keyint_max-1 ) );
-    h->param.i_open_gop = x264_clip3( h->param.i_open_gop, X264_OPEN_GOP_NONE, X264_OPEN_GOP_BLURAY );
     h->param.i_bframe_bias = x264_clip3( h->param.i_bframe_bias, -90, 100 );
     if( h->param.i_bframe <= 1 )
         h->param.i_bframe_pyramid = X264_B_PYRAMID_NONE;
@@ -667,7 +681,7 @@ static int x264_validate_parameters( x264_t *h )
         h->param.i_bframe_adaptive = X264_B_ADAPT_NONE;
         h->param.analyse.i_direct_mv_pred = 0;
         h->param.analyse.b_weighted_bipred = 0;
-        h->param.i_open_gop = X264_OPEN_GOP_NONE;
+        h->param.b_open_gop = 0;
     }
     if( h->param.b_intra_refresh && h->param.i_bframe_pyramid == X264_B_PYRAMID_NORMAL )
     {
@@ -680,10 +694,10 @@ static int x264_validate_parameters( x264_t *h )
         h->param.i_frame_reference = 1;
         h->param.i_dpb_size = 1;
     }
-    if( h->param.b_intra_refresh && h->param.i_open_gop )
+    if( h->param.b_intra_refresh && h->param.b_open_gop )
     {
         x264_log( h, X264_LOG_WARNING, "intra-refresh is not compatible with open-gop\n" );
-        h->param.i_open_gop = X264_OPEN_GOP_NONE;
+        h->param.b_open_gop = 0;
     }
     float fps = h->param.i_fps_num > 0 && h->param.i_fps_den > 0 ? (float) h->param.i_fps_num / h->param.i_fps_den : 25.0;
     if( h->param.i_keyint_min == X264_KEYINT_MIN_AUTO )
@@ -757,6 +771,36 @@ static int x264_validate_parameters( x264_t *h )
     }
     h->param.analyse.i_chroma_qp_offset = x264_clip3(h->param.analyse.i_chroma_qp_offset, -12, 12);
     h->param.analyse.i_trellis = x264_clip3( h->param.analyse.i_trellis, 0, 2 );
+
+    if( h->param.i_log_level < X264_LOG_INFO )
+    {
+        h->param.analyse.b_psnr = 0;
+        h->param.analyse.b_ssim = 0;
+    }
+    /* Warn users trying to measure PSNR/SSIM with psy opts on. */
+    if( h->param.analyse.b_psnr || h->param.analyse.b_ssim )
+    {
+        char *s = NULL;
+
+        if( h->param.analyse.b_psy )
+        {
+            s = h->param.analyse.b_psnr ? "psnr" : "ssim";
+            x264_log( h, X264_LOG_WARNING, "--%s used with psy on: results will be invalid!\n", s );
+        }
+        else if( !h->param.rc.i_aq_mode && h->param.analyse.b_ssim )
+        {
+            x264_log( h, X264_LOG_WARNING, "--ssim used with AQ off: results will be invalid!\n" );
+            s = "ssim";
+        }
+        else if(  h->param.rc.i_aq_mode && h->param.analyse.b_psnr )
+        {
+            x264_log( h, X264_LOG_WARNING, "--psnr used with AQ on: results will be invalid!\n" );
+            s = "psnr";
+        }
+        if( s )
+            x264_log( h, X264_LOG_WARNING, "--tune %s should be used if attempting to benchmark %s!\n", s, s );
+    }
+
     if( !h->param.analyse.b_psy )
     {
         h->param.analyse.f_psy_rd = 0;
@@ -915,12 +959,6 @@ static int x264_validate_parameters( x264_t *h )
 
     h->param.i_sps_id &= 31;
 
-    if( h->param.i_log_level < X264_LOG_INFO )
-    {
-        h->param.analyse.b_psnr = 0;
-        h->param.analyse.b_ssim = 0;
-    }
-
     if( h->param.b_interlaced )
         h->param.b_pic_struct = 1;
 
@@ -953,6 +991,7 @@ static int x264_validate_parameters( x264_t *h )
     BOOLIFY( b_vfr_input );
     BOOLIFY( b_pic_struct );
     BOOLIFY( b_fake_interlaced );
+    BOOLIFY( b_open_gop );
     BOOLIFY( b_nonlinear_quant );
     BOOLIFY( b_alt_intra_vlc );
     BOOLIFY( b_alternate_scan );
@@ -1764,6 +1803,10 @@ static inline void x264_reference_build_list( x264_t *h, int i_poc )
     h->i_ref[0] = X264_MIN( h->i_ref[0], h->frames.i_max_ref0 );
     h->i_ref[0] = X264_MIN( h->i_ref[0], h->param.i_frame_reference ); // if reconfig() has lowered the limit
 
+    /* For Blu-ray compliance, don't reference frames outside of the minigop. */
+    if( IS_X264_TYPE_B( h->fenc->i_type ) && h->param.b_bluray_compat )
+        h->i_ref[0] = X264_MIN( h->i_ref[0], IS_X264_TYPE_B( h->fref[0][0]->i_type ) + 1 );
+
     /* add duplicates */
     if( h->fenc->i_type == X264_TYPE_P )
     {
@@ -1976,6 +2019,12 @@ static inline void x264_slice_init( x264_t *h, int i_nal_type, int i_global_qp )
         {
             h->sh.b_num_ref_idx_override = 1;
         }
+    }
+
+    if( h->fenc->i_type == X264_TYPE_BREF && h->param.b_bluray_compat && h->sh.i_mmco_command_count )
+    {
+        h->b_sh_backup = 1;
+        h->sh_backup = h->sh;
     }
 
     h->fdec->i_frame_num = h->sh.i_frame_num;
@@ -2722,7 +2771,7 @@ int     x264_encoder_encode( x264_t *h,
         i_nal_ref_idc = NAL_PRIORITY_HIGH; /* Not completely true but for now it is (as all I/P are kept as ref)*/
         h->sh.i_type = SLICE_TYPE_I;
         x264_reference_hierarchy_reset( h );
-        if( h->param.i_open_gop )
+        if( h->param.b_open_gop )
             h->frames.i_poc_last_open_gop = h->fenc->b_keyframe ? h->fenc->i_poc : -1;
         if( h->fenc->i_frame == h->fenc->i_coded )
             h->frames.i_last_temporal_ref = h->fenc->i_frame;
@@ -2981,7 +3030,7 @@ int     x264_encoder_encode( x264_t *h,
 
         if( h->fenc->i_type != X264_TYPE_IDR )
         {
-            int time_to_recovery = h->param.i_open_gop ? 0 : X264_MIN( h->mb.i_mb_width - 1, h->param.i_keyint_max ) + h->param.i_bframe - 1;
+            int time_to_recovery = h->param.b_open_gop ? 0 : X264_MIN( h->mb.i_mb_width - 1, h->param.i_keyint_max ) + h->param.i_bframe - 1;
             x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
             x264_sei_recovery_point_write( h, &h->out.bs, time_to_recovery );
             if( x264_nal_end( h ) )
@@ -3004,6 +3053,17 @@ int     x264_encoder_encode( x264_t *h,
     {
         x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         x264_sei_pic_timing_write( h, &h->out.bs );
+        if( x264_nal_end( h ) )
+            return -1;
+        overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1);
+    }
+
+    /* As required by Blu-ray. */
+    if( !IS_X264_TYPE_B( h->fenc->i_type ) && h->b_sh_backup )
+    {
+        h->b_sh_backup = 0;
+        x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
+        x264_sei_dec_ref_pic_marking_write( h, &h->out.bs );
         if( x264_nal_end( h ) )
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1);

@@ -172,14 +172,18 @@ static NOINLINE unsigned int x264_weight_cost_luma( x264_t *h, x264_frame_t *fen
             for( int x = 0; x < i_width; x += 8, i_mb++, pixoff += 8)
             {
                 w->weightfn[8>>2]( buf, 8, &src[pixoff], i_stride, w, 8 );
-                cost += X264_MIN( h->pixf.mbcmp[PIXEL_8x8]( buf, 8, &fenc_plane[pixoff], i_stride ), fenc->i_intra_cost[i_mb] );
+                int cmp = h->pixf.mbcmp[PIXEL_8x8]( buf, 8, &fenc_plane[pixoff], i_stride );
+                cost += X264_MIN( cmp, fenc->i_intra_cost[i_mb] );
             }
         cost += x264_weight_slice_header_cost( h, w, 0 );
     }
     else
         for( int y = 0; y < i_lines; y += 8, pixoff = y*i_stride )
             for( int x = 0; x < i_width; x += 8, i_mb++, pixoff += 8 )
-                cost += X264_MIN( h->pixf.mbcmp[PIXEL_8x8]( &src[pixoff], i_stride, &fenc_plane[pixoff], i_stride ), fenc->i_intra_cost[i_mb] );
+            {
+                int cmp = h->pixf.mbcmp[PIXEL_8x8]( &src[pixoff], i_stride, &fenc_plane[pixoff], i_stride );
+                cost += X264_MIN( cmp, fenc->i_intra_cost[i_mb] );
+            }
     x264_emms();
     return cost;
 }
@@ -1378,7 +1382,7 @@ void x264_slicetype_analyse( x264_t *h, int keyframe )
         {
             frames[i]->i_type = X264_TYPE_I;
             reset_start = X264_MIN( reset_start, i+1 );
-            if( h->param.i_open_gop == X264_OPEN_GOP_BLURAY )
+            if( h->param.b_open_gop && h->param.b_bluray_compat )
                 while( IS_X264_TYPE_B( frames[i-1]->i_type ) )
                     i--;
         }
@@ -1466,25 +1470,25 @@ void x264_slicetype_decide( x264_t *h )
         }
 
         if( frm->i_type == X264_TYPE_KEYFRAME )
-            frm->i_type = h->param.i_open_gop ? X264_TYPE_I : X264_TYPE_IDR;
+            frm->i_type = h->param.b_open_gop ? X264_TYPE_I : X264_TYPE_IDR;
 
         /* Limit GOP size */
         if( (!h->param.b_intra_refresh || frm->i_frame == 0) && frm->i_frame - h->lookahead->i_last_keyframe >= h->param.i_keyint_max )
         {
             if( frm->i_type == X264_TYPE_AUTO || frm->i_type == X264_TYPE_I )
-                frm->i_type = h->param.i_open_gop && h->lookahead->i_last_keyframe >= 0 ? X264_TYPE_I : X264_TYPE_IDR;
+                frm->i_type = h->param.b_open_gop && h->lookahead->i_last_keyframe >= 0 ? X264_TYPE_I : X264_TYPE_IDR;
             int warn = frm->i_type != X264_TYPE_IDR;
-            if( warn && h->param.i_open_gop )
+            if( warn && h->param.b_open_gop )
                 warn &= frm->i_type != X264_TYPE_I;
             if( warn )
                 x264_log( h, X264_LOG_WARNING, "specified frame type (%d) at %d is not compatible with keyframe interval\n", frm->i_type, frm->i_frame );
         }
         if( frm->i_type == X264_TYPE_I && frm->i_frame - h->lookahead->i_last_keyframe >= h->param.i_keyint_min )
         {
-            if( h->param.i_open_gop )
+            if( h->param.b_open_gop )
             {
                 h->lookahead->i_last_keyframe = frm->i_frame; // Use display order
-                if( h->param.i_open_gop == X264_OPEN_GOP_BLURAY )
+                if( h->param.b_bluray_compat )
                     h->lookahead->i_last_keyframe -= bframes; // Use bluray order
                 frm->b_keyframe = 1;
             }
@@ -1658,7 +1662,7 @@ int x264_rc_analyse_slice( x264_t *h )
         int ip_factor = 256 * h->param.rc.f_ip_factor; /* fix8 */
         for( int y = 0; y < h->mb.i_mb_height; y++ )
         {
-            int mb_xy = y * h->mb.i_mb_stride;
+            int mb_xy = y * h->mb.i_mb_stride + h->fdec->i_pir_start_col;
             for( int x = h->fdec->i_pir_start_col; x <= h->fdec->i_pir_end_col; x++, mb_xy++ )
             {
                 int intra_cost = (h->fenc->i_intra_cost[mb_xy] * ip_factor + 128) >> 8;
