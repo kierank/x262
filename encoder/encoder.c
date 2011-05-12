@@ -902,7 +902,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
     if( PARAM_INTERLACED )
         h->param.b_pic_struct = 1;
 
-    h->param.i_nal_hrd = x264_clip3( h->param.i_nal_hrd, X264_NAL_HRD_NONE, X264_NAL_HRD_CBR );
+    h->param.i_nal_hrd = x264_clip3( h->param.i_nal_hrd, X264_NAL_HRD_NONE, X264_NAL_HRD_FAKE_CBR );
 
     if( h->param.i_nal_hrd && !h->param.rc.i_vbv_buffer_size )
     {
@@ -914,7 +914,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
          (h->param.rc.i_bitrate != h->param.rc.i_vbv_max_bitrate || !h->param.rc.i_vbv_max_bitrate) )
     {
         x264_log( h, X264_LOG_WARNING, "CBR HRD requires constant bitrate\n" );
-        h->param.i_nal_hrd = X264_NAL_HRD_VBR;
+        h->param.i_nal_hrd = h->param.i_nal_hrd == X264_NAL_HRD_CBR ? X264_NAL_HRD_VBR : X264_NAL_HRD_FAKE_CBR;
     }
 
     /* ensure the booleans are 0 or 1 so they can be used in math */
