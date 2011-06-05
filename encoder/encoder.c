@@ -2437,7 +2437,15 @@ reencode:
             x264_ratecontrol_mb( h, mb_size[i_mb_y&1] );
 
         if( mb_xy == h->sh.i_last_mb )
+        {
+            if( MPEG2 )
+            {
+                bs_align_0( &h->out.bs );
+                if( x264_nal_end( h ) )
+                    return -1;
+            }
             break;
+        }
 
         if( SLICE_MBAFF )
         {
@@ -2446,6 +2454,7 @@ reencode:
         }
         else
             i_mb_x++;
+
         if( i_mb_x == h->mb.i_mb_width )
         {
             i_mb_y++;
