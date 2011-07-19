@@ -106,19 +106,19 @@ static const sc_preset_t presets[PRESETS] =
 #define I8 X264_ANALYSE_I8x8
 #define P8 X264_ANALYSE_PSUB16x16
 #define B8 X264_ANALYSE_BSUB16x16
-/*0*/    { .time=1.060, .subme=1, .me=X264_ME_DIA, .refs=1, .mix=0, .chromame=0, .trellis=0, .partitions=0, .psy_rd=0 },
-/*1*/    { .time=1.120, .subme=1, .me=X264_ME_DIA, .refs=1, .mix=0, .chromame=0, .trellis=0, .partitions=I8|I4, .psy_rd=0 },
-/*2*/    { .time=1.440, .subme=3, .me=X264_ME_HEX, .refs=1, .mix=0, .chromame=0, .trellis=0, .partitions=I8|I4, .psy_rd=0 },
-/*3*/    { .time=1.620, .subme=5, .me=X264_ME_HEX, .refs=1, .mix=0, .chromame=0, .trellis=0, .partitions=I8|I4, .psy_rd=1.0 },
-/*4*/    { .time=2.660, .subme=6, .me=X264_ME_HEX, .refs=1, .mix=0, .chromame=0, .trellis=0, .partitions=I8|I4, .psy_rd=1.0 },
-/*5*/    { .time=3.560, .subme=6, .me=X264_ME_HEX, .refs=1, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4, .psy_rd=1.0 },
-/*6*/    { .time=4.640, .subme=6, .me=X264_ME_HEX, .refs=2, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4, .psy_rd=1.0 },
-/*7*/    { .time=5.190, .subme=7, .me=X264_ME_HEX, .refs=2, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4, .psy_rd=1.0 },
-/*8*/    { .time=6.190, .subme=7, .me=X264_ME_HEX, .refs=2, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4|P8|B8, .psy_rd=1.0 },
-/*9*/    { .time=6.920, .subme=7, .me=X264_ME_HEX, .refs=3, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4|P8|B8, .psy_rd=1.0 },
-/*10*/   { .time=7.070, .subme=8, .me=X264_ME_HEX, .refs=3, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4|P8|B8, .psy_rd=1.0 },
-/*11*/   { .time=8.800, .subme=8, .me=X264_ME_UMH, .refs=3, .mix=1, .chromame=1, .trellis=1, .partitions=I8|I4|P8|B8, .psy_rd=1.0 },
-/*12*/   { .time=18.570, .subme=8, .me=X264_ME_UMH, .refs=3, .mix=1, .chromame=1, .trellis=2, .partitions=I8|I4|P8|B8, .psy_rd=1.0 }
+/*0*/    { .time=1.000, .subme=1, .me=X264_ME_DIA, .refs=1, .mix=0, .chromame=0, .trellis=0, .partitions=0, .psy_rd=0 },
+/*1*/    { .time=1.009, .subme=1, .me=X264_ME_DIA, .refs=1, .mix=0, .chromame=0, .trellis=0, .partitions=I8|I4, .psy_rd=0 },
+/*2*/    { .time=1.843, .subme=3, .me=X264_ME_HEX, .refs=1, .mix=0, .chromame=0, .trellis=0, .partitions=I8|I4, .psy_rd=0 },
+/*3*/    { .time=1.984, .subme=5, .me=X264_ME_HEX, .refs=1, .mix=0, .chromame=0, .trellis=0, .partitions=I8|I4, .psy_rd=1.0 },
+/*4*/    { .time=2.289, .subme=6, .me=X264_ME_HEX, .refs=1, .mix=0, .chromame=0, .trellis=0, .partitions=I8|I4, .psy_rd=1.0 },
+/*5*/    { .time=3.113, .subme=6, .me=X264_ME_HEX, .refs=1, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4, .psy_rd=1.0 },
+/*6*/    { .time=3.400, .subme=6, .me=X264_ME_HEX, .refs=2, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4, .psy_rd=1.0 },
+/*7*/    { .time=3.755, .subme=7, .me=X264_ME_HEX, .refs=2, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4, .psy_rd=1.0 },
+/*8*/    { .time=4.592, .subme=7, .me=X264_ME_HEX, .refs=2, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4|P8|B8, .psy_rd=1.0 },
+/*9*/    { .time=4.730, .subme=7, .me=X264_ME_HEX, .refs=3, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4|P8|B8, .psy_rd=1.0 },
+/*10*/   { .time=5.453, .subme=8, .me=X264_ME_HEX, .refs=3, .mix=0, .chromame=0, .trellis=1, .partitions=I8|I4|P8|B8, .psy_rd=1.0 },
+/*11*/   { .time=8.277, .subme=8, .me=X264_ME_UMH, .refs=3, .mix=1, .chromame=1, .trellis=1, .partitions=I8|I4|P8|B8, .psy_rd=1.0 },
+/*12*/   { .time=8.410, .subme=8, .me=X264_ME_UMH, .refs=4, .mix=1, .chromame=1, .trellis=1, .partitions=I8|I4|P8|B8, .psy_rd=1.0 }
 };
 
 static void apply_preset( x264_t *h, int preset )
