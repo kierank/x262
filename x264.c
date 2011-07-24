@@ -719,7 +719,7 @@ static void help( x264_param_t *defaults, int longhelp )
     H2( "      --pic-struct            Force pic_struct in Picture Timing SEI\n" );
     H2( "      --crop-rect <string>    Add 'left,top,right,bottom' to the bitstream-level\n"
         "                              cropping rectangle\n" );
-#if MPEG2_ENABLED
+#if HAVE_MPEG2
     H2( "\n" );
     H2( "MPEG-2 (H.262):\n" );
     H2( "\n" );
@@ -906,7 +906,7 @@ static struct option long_options[] =
     { "deadzone-inter", required_argument, NULL, 0 },
     { "deadzone-intra", required_argument, NULL, 0 },
     { "level",       required_argument, NULL, 0 },
-#if MPEG2_ENABLED
+#if HAVE_MPEG2
     { "mpeg2",             no_argument, NULL, 0 },
     { "dc",          required_argument, NULL, 0 },
     { "altscan",           no_argument, NULL, 0 },

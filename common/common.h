@@ -108,6 +108,13 @@ do {\
 #   define PARAM_INTERLACED 0
 #endif
 
+/* MPEG-2 Support */
+#if HAVE_MPEG2
+#   define MPEG2 h->param.b_mpeg2
+#else
+#   define MPEG2 0
+#endif
+
 #define CHROMA444 (h->sps->i_chroma_format_idc == 3)
 
 /* Unions for type-punning.

@@ -818,7 +818,7 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         p->i_slice_max_mbs = atoi(value);
     OPT("slices")
         p->i_slice_count = atoi(value);
-#if MPEG2_ENABLED
+#if HAVE_MPEG2
     OPT("mpeg2")
         p->b_mpeg2 = atobool(value);
     OPT("dc")
