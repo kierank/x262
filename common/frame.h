@@ -70,16 +70,16 @@ typedef struct x264_frame
 
     /* YUV buffer */
     int     i_plane;
-    int     i_stride[2];
-    int     i_width[2];
-    int     i_lines[2];
+    int     i_stride[3];
+    int     i_width[3];
+    int     i_lines[3];
     int     i_stride_lowres;
     int     i_width_lowres;
     int     i_lines_lowres;
-    pixel *plane[2];
-    pixel *plane_fld[2];
-    pixel *filtered[4]; /* plane[0], H, V, HV */
-    pixel *filtered_fld[4];
+    pixel *plane[3];
+    pixel *plane_fld[3];
+    pixel *filtered[3][4]; /* plane[0], H, V, HV */
+    pixel *filtered_fld[3][4];
     pixel *lowres[4]; /* half-size copy of input frame: Orig, H, V, HV */
     uint16_t *integral;
 
@@ -127,6 +127,7 @@ typedef struct x264_frame
     int     *i_row_satd;
     int     *i_row_bits;
     float   *f_row_qp;
+    float   *f_row_qscale;
     float   *f_qp_offset;
     float   *f_qp_offset_aq;
     int     b_intra_calculated;
@@ -187,12 +188,15 @@ typedef struct
     x264_deblock_inter_t deblock_chroma[2];
     x264_deblock_intra_t deblock_luma_intra[2];
     x264_deblock_intra_t deblock_chroma_intra[2];
+    x264_deblock_inter_t deblock_luma_mbaff;
+    x264_deblock_inter_t deblock_chroma_mbaff;
+    x264_deblock_intra_t deblock_luma_intra_mbaff;
+    x264_deblock_intra_t deblock_chroma_intra_mbaff;
     void (*deblock_strength) ( uint8_t nnz[X264_SCAN8_SIZE], int8_t ref[2][X264_SCAN8_LUMA_SIZE],
                                int16_t mv[2][X264_SCAN8_LUMA_SIZE][2], uint8_t bs[2][8][4], int mvy_limit,
-                               int bframe, x264_t *h );
+                               int bframe );
 } x264_deblock_function_t;
 
-x264_frame_t *x264_frame_new( x264_t *h, int b_fdec );
 void          x264_frame_delete( x264_frame_t *frame );
 
 int           x264_frame_copy_picture( x264_t *h, x264_frame_t *dst, x264_picture_t *src );

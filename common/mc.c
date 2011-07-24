@@ -143,7 +143,7 @@ static weight_fn_t x264_mc_weight_wtab[6] =
     mc_weight_w16,
     mc_weight_w20,
 };
-const x264_weight_t weight_none[3] = { {{0}} };
+const x264_weight_t x264_weight_none[3] = { {{0}} };
 static void mc_copy( pixel *src, int i_src_stride, pixel *dst, int i_dst_stride, int i_width, int i_height )
 {
     for( int y = 0; y < i_height; y++ )
@@ -356,6 +356,22 @@ void x264_plane_copy_deinterleave_c( pixel *dstu, int i_dstu,
         }
 }
 
+void x264_plane_copy_deinterleave_rgb_c( pixel *dsta, int i_dsta,
+                                         pixel *dstb, int i_dstb,
+                                         pixel *dstc, int i_dstc,
+                                         pixel *src, int i_src, int pw, int w, int h )
+{
+    for( int y=0; y<h; y++, dsta+=i_dsta, dstb+=i_dstb, dstc+=i_dstc, src+=i_src )
+    {
+        for( int x=0; x<w; x++ )
+        {
+            dsta[x] = src[x*pw];
+            dstb[x] = src[x*pw+1];
+            dstc[x] = src[x*pw+2];
+        }
+    }
+}
+
 static void store_interleave_8x8x2( pixel *dst, int i_dst, pixel *srcu, pixel *srcv )
 {
     for( int y=0; y<8; y++, dst+=i_dst, srcu+=FDEC_STRIDE, srcv+=FDEC_STRIDE )
@@ -523,6 +539,7 @@ void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 )
     pf->plane_copy = x264_plane_copy_c;
     pf->plane_copy_interleave = x264_plane_copy_interleave_c;
     pf->plane_copy_deinterleave = x264_plane_copy_deinterleave_c;
+    pf->plane_copy_deinterleave_rgb = x264_plane_copy_deinterleave_rgb_c;
 
     pf->hpel_filter = hpel_filter;
 
@@ -562,40 +579,44 @@ void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 )
 void x264_frame_filter( x264_t *h, x264_frame_t *frame, int mb_y, int b_end )
 {
     const int b_interlaced = PARAM_INTERLACED;
-    int stride = frame->i_stride[0];
-    const int width = frame->i_width[0];
     int start = mb_y*16 - 8; // buffer = 4 for deblock + 3 for 6tap, rounded to 8
     int height = (b_end ? frame->i_lines[0] + 16*PARAM_INTERLACED : (mb_y+b_interlaced)*16) + 8;
-    int offs = start*stride - 8; // buffer = 3 for 6tap, aligned to 8 for simd
 
     if( mb_y & b_interlaced )
         return;
 
-    if( !b_interlaced || h->mb.b_adaptive_mbaff )
-        h->mc.hpel_filter(
-            frame->filtered[1] + offs,
-            frame->filtered[2] + offs,
-            frame->filtered[3] + offs,
-            frame->plane[0] + offs,
-            stride, width + 16, height - start,
-            h->scratch_buffer );
-
-    if( b_interlaced )
+    for( int p = 0; p < (CHROMA444 ? 3 : 1); p++ )
     {
-        /* MC must happen between pixels in the same field. */
-        stride = frame->i_stride[0] << 1;
-        start = (mb_y*16 >> 1) - 8;
-        int height_fld = ((b_end ? frame->i_lines[0] : mb_y*16) >> 1) + 8;
-        offs = start*stride - 8;
-        for( int i = 0; i < 2; i++, offs += frame->i_stride[0] )
-        {
+        int stride = frame->i_stride[p];
+        const int width = frame->i_width[p];
+        int offs = start*stride - 8; // buffer = 3 for 6tap, aligned to 8 for simd
+
+        if( !b_interlaced || h->mb.b_adaptive_mbaff )
             h->mc.hpel_filter(
-                frame->filtered_fld[1] + offs,
-                frame->filtered_fld[2] + offs,
-                frame->filtered_fld[3] + offs,
-                frame->plane_fld[0] + offs,
-                stride, width + 16, height_fld - start,
+                frame->filtered[p][1] + offs,
+                frame->filtered[p][2] + offs,
+                frame->filtered[p][3] + offs,
+                frame->plane[p] + offs,
+                stride, width + 16, height - start,
                 h->scratch_buffer );
+
+        if( b_interlaced )
+        {
+            /* MC must happen between pixels in the same field. */
+            stride = frame->i_stride[p] << 1;
+            start = (mb_y*16 >> 1) - 8;
+            int height_fld = ((b_end ? frame->i_lines[p] : mb_y*16) >> 1) + 8;
+            offs = start*stride - 8;
+            for( int i = 0; i < 2; i++, offs += frame->i_stride[p] )
+            {
+                h->mc.hpel_filter(
+                    frame->filtered_fld[p][1] + offs,
+                    frame->filtered_fld[p][2] + offs,
+                    frame->filtered_fld[p][3] + offs,
+                    frame->plane_fld[p] + offs,
+                    stride, width + 16, height_fld - start,
+                    h->scratch_buffer );
+            }
         }
     }
 
@@ -606,6 +627,7 @@ void x264_frame_filter( x264_t *h, x264_frame_t *frame, int mb_y, int b_end )
 
     if( frame->integral )
     {
+        int stride = frame->i_stride[0];
         if( start < 0 )
         {
             memset( frame->integral - PADV * stride - PADH, 0, stride * sizeof(uint16_t) );

@@ -39,7 +39,7 @@ static void x262_write_dct_vlcs( x264_t *h, dctcoef *l, int intra_tab )
     int i_total = 0;
 
     /* minus one because runlevel is zero-indexed and backwards */
-    i_total = h->quantf.coeff_level_run[5]( l, &runlevel ) - 1;
+    i_total = h->quantf.coeff_level_run[DCT_LUMA_8x8]( l, &runlevel ) - 1;
     if( runlevel.run[i_total] && h->mb.i_type == I_16x16)
         runlevel.run[i_total]--; // compensate for the DC coefficient set to zero
 

@@ -45,8 +45,8 @@ typedef struct
     int (*decimate_score15)( dctcoef *dct );
     int (*decimate_score16)( dctcoef *dct );
     int (*decimate_score64)( dctcoef *dct );
-    int (*coeff_last[6])( dctcoef *dct );
-    int (*coeff_level_run[6])( dctcoef *dct, x264_run_level_t *runlevel );
+    int (*coeff_last[14])( dctcoef *dct );
+    int (*coeff_level_run[13])( dctcoef *dct, x264_run_level_t *runlevel );
 
     int (*quant_8x8_mpeg2)( dctcoef dct[64], uint16_t mf[64], uint16_t bias[64] );
     void (*dequant_mpeg2_intra)( dctcoef dct[64], int dequant_mf[64] );

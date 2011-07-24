@@ -272,12 +272,30 @@ static const uint8_t i_chroma_qp_table[QP_MAX+1+12*2] =
 
 enum cabac_ctx_block_cat_e
 {
-    DCT_LUMA_DC   = 0,
-    DCT_LUMA_AC   = 1,
-    DCT_LUMA_4x4  = 2,
-    DCT_CHROMA_DC = 3,
-    DCT_CHROMA_AC = 4,
-    DCT_LUMA_8x8  = 5,
+    DCT_LUMA_DC     = 0,
+    DCT_LUMA_AC     = 1,
+    DCT_LUMA_4x4    = 2,
+    DCT_CHROMA_DC   = 3,
+    DCT_CHROMA_AC   = 4,
+    DCT_LUMA_8x8    = 5,
+    DCT_CHROMAU_DC  = 6,
+    DCT_CHROMAU_AC  = 7,
+    DCT_CHROMAU_4x4 = 8,
+    DCT_CHROMAU_8x8 = 9,
+    DCT_CHROMAV_DC  = 10,
+    DCT_CHROMAV_AC  = 11,
+    DCT_CHROMAV_4x4 = 12,
+    DCT_CHROMAV_8x8 = 13,
+};
+
+static const uint8_t ctx_cat_plane[6][3] =
+{
+    { DCT_LUMA_DC,  DCT_CHROMAU_DC,  DCT_CHROMAV_DC},
+    { DCT_LUMA_AC,  DCT_CHROMAU_AC,  DCT_CHROMAV_AC},
+    {DCT_LUMA_4x4, DCT_CHROMAU_4x4, DCT_CHROMAV_4x4},
+    {0},
+    {0},
+    {DCT_LUMA_8x8, DCT_CHROMAU_8x8, DCT_CHROMAV_8x8}
 };
 
 /* Per-frame allocation: is allocated per-thread only in frame-threads mode. */
@@ -294,7 +312,6 @@ void x264_macroblock_cache_load( x264_t *h, int mb_x, int mb_y, int b_interlaced
 void x264_macroblock_cache_load_progressive( x264_t *h, int mb_x, int mb_y );
 void x264_macroblock_cache_load_interlaced( x264_t *h, int mb_x, int mb_y );
 void x264_macroblock_deblock_strength( x264_t *h );
-void x264_macroblock_cache_load_neighbours_deblock( x264_t *h, int mb_x, int mb_y );
 void x264_macroblock_cache_save( x264_t *h );
 
 void x264_macroblock_bipred_init( x264_t *h );
