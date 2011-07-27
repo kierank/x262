@@ -199,7 +199,7 @@ void x264_speedcontrol_frame( x264_t *h )
         idle_t += sc->buffer_fill - sc->buffer_size;
         if( t - print_interval > 1e6 )
         {
-            x264_log( h, X264_LOG_WARNING, "speedcontrol idle (%.6f sec)\n", idle_t/1e6 );
+            x264_log( h, X264_LOG_INFO, "speedcontrol idle (%.6f sec)\n", idle_t/1e6 );
             print_interval = t;
             idle_t = 0;
         }
