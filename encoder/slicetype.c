@@ -1582,7 +1582,7 @@ void x264_slicetype_decide( x264_t *h )
          || h->param.i_scenecut_threshold
          || h->param.rc.b_mb_tree
          || (h->param.rc.i_vbv_buffer_size && h->param.rc.i_lookahead)) )
-        x264_slicetype_analyse( h, 0, 0 );
+        x264_slicetype_analyse( h, 0 );
 
     for( bframes = 0, brefs = 0;; bframes++ )
     {
