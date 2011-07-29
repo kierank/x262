@@ -99,7 +99,7 @@ typedef struct
     float psy_trellis;
 } sc_preset_t;
 
-#define PRESETS 13
+#define PRESETS 10
 static const sc_preset_t presets[PRESETS] =
 {
 #define I4 X264_ANALYSE_I4x4
