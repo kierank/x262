@@ -647,11 +647,8 @@ enum pic_struct_e
 
 typedef struct
 {
-    double cpb_initial_arrival_time;
-    double cpb_final_arrival_time;
-    double cpb_removal_time;
-
-    double dpb_output_time;
+    int64_t cpb_removal_time;
+    int64_t dpb_output_time;
 } x264_hrd_t;
 
 /* Arbitrary user SEI:
