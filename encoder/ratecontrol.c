@@ -154,7 +154,6 @@ struct x264_ratecontrol_t
     x264_zone_t *prev_zone;
 
     /* hrd stuff */
-    int initial_cpb_removal_delay;
     int64_t nrt_first_access_unit; /* nominal removal time */
     int64_t previous_cpb_final_arrival_time;
     uint64_t hrd_multiply_denom;
@@ -1718,8 +1717,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
         if( h->fenc->i_frame == 0 )
         {
             // access unit initialises the HRD
-            rc->initial_cpb_removal_delay = h->initial_cpb_removal_delay;
-            h->fenc->hrd_timing.cpb_removal_time = rc->nrt_first_access_unit = (int64_t)rc->initial_cpb_removal_delay * 300;
+            h->fenc->hrd_timing.cpb_removal_time = rc->nrt_first_access_unit = (int64_t)h->initial_cpb_removal_delay * 300;
         }
         else
         {
@@ -1727,10 +1725,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
                                                    27000000LL * h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
 
             if( h->fenc->b_keyframe )
-            {
-                 rc->nrt_first_access_unit = h->fenc->hrd_timing.cpb_removal_time;
-                 rc->initial_cpb_removal_delay = h->initial_cpb_removal_delay;
-            }
+                rc->nrt_first_access_unit = h->fenc->hrd_timing.cpb_removal_time;
         }
 
         h->fenc->hrd_timing.dpb_output_time = (int64_t)h->fenc->i_dpb_output_delay * 27000000LL * h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale +
@@ -2495,8 +2490,8 @@ void x264_thread_sync_ratecontrol( x264_t *cur, x264_t *prev, x264_t *next )
         COPY(filler_bits_sum);
         COPY(wanted_bits_window);
         COPY(bframe_bits);
-        COPY(initial_cpb_removal_delay);
         COPY(previous_cpb_final_arrival_time);
+        COPY(nrt_first_access_unit);
 #undef COPY
     }
     //FIXME row_preds[] (not strictly necessary, but would improve prediction)
