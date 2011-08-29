@@ -19,7 +19,6 @@ struct x264_speedcontrol_t
     float cplx_den;
     float cplx_decay;
     float dither;
-    x264_param_t user_param;
 
     int first;
 
@@ -54,7 +53,6 @@ void x264_speedcontrol_new( x264_t *h )
     sc->cplx_decay = 1 - 1./h->param.sc.i_buffer_size;
     sc->stat.min_buffer = sc->buffer_size;
     sc->stat.max_buffer = 0;
-    sc->user_param = h->param;
     sc->first = 1;
 }
 
@@ -128,7 +126,7 @@ static void apply_preset( x264_t *h, int preset )
     //if( preset != sc->preset )
     {
         const sc_preset_t *s = &presets[preset];
-        x264_param_t p = sc->user_param;
+        x264_param_t p = h->param;
 
         p.i_frame_reference = s->refs;
         p.analyse.inter = s->partitions;
