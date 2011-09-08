@@ -290,11 +290,11 @@ int x262_cqm_init( x264_t *h )
         {
             h->  quant8_mf[CQM_8IY][q][i] =
             h->dequant8_mf[CQM_8IY][q][i] = 2 * qscale[q] * h->pps->scaling_list[CQM_8IY][i];
-            h->quant8_bias[CQM_8IY][q][i] = 0;
+            h->quant8_bias[CQM_8IY][q][i] = qscale[q] * h->pps->scaling_list[CQM_8IY][i];
 
             h->  quant8_mf[CQM_8PY][q][i] =
             h->dequant8_mf[CQM_8PY][q][i] = 2 * qscale[q] * h->pps->scaling_list[CQM_8PY][i];
-            h->quant8_bias[CQM_8PY][q][i] = qscale[q] * h->pps->scaling_list[CQM_8PY][i];
+            h->quant8_bias[CQM_8PY][q][i] = 0;
         }
     }
     return 0;
