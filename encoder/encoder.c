@@ -2424,7 +2424,7 @@ reencode:
                 h->stat.frame.i_mb_count_8x8dct[0] ++;
                 h->stat.frame.i_mb_count_8x8dct[1] += h->mb.b_transform_8x8;
             }
-            if( b_intra && h->mb.i_type != I_PCM )
+            if( b_intra && h->mb.i_type != I_PCM && !MPEG2 )
             {
                 if( h->mb.i_type == I_16x16 )
                     h->stat.frame.i_mb_pred_mode[0][h->mb.i_intra16x16_pred_mode]++;
