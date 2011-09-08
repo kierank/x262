@@ -1018,7 +1018,7 @@ static ALWAYS_INLINE void x264_macroblock_encode_internal( x264_t *h, int plane_
         /* encode the 8x8 blocks */
         x264_mb_encode_8x8_chroma( h, !IS_INTRA( h->mb.i_type ), h->mb.i_chroma_qp );
     }
-    else
+    else if( !MPEG2 )
         h->mb.i_cbp_chroma = 0;
 
     /* store cbp */
