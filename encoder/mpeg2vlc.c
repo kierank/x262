@@ -188,8 +188,6 @@ void x262_macroblock_write_vlc( x264_t *h )
             x262_write_dct_vlcs( h, h->dct.mpeg2_8x8[i], 0 );
             bs_write_vlc( s, dct_vlcs[0][0][0] ); // end of block
         }
-        else
-            continue;
     }
 
 #if !RDO_SKIP_BS
