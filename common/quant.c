@@ -161,8 +161,9 @@ static void dequant_mpeg2_inter( dctcoef dct[64], int dequant_mf[64] )
 
 static void dequant_mpeg2_intra( dctcoef dct[64], int dequant_mf[64] )
 {
-    int sign, sum = 0;
-    for( int i = 0; i < 64; i++ )
+    int sign = 0;
+    int sum = dct[0];
+    for( int i = 1; i < 64; i++ )
     {
         sign = dct[i] >> 15;
         dct[i] = ( dct[i] + sign ) ^ sign; // absval
