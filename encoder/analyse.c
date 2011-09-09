@@ -3840,7 +3840,8 @@ static void x264_analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
             x264_mb_analyse_intra_chroma( h, a );
             break;
         case I_16x16:
-            h->mb.i_intra16x16_pred_mode = a->i_predict16x16;
+            if( !MPEG2 )
+                h->mb.i_intra16x16_pred_mode = a->i_predict16x16;
             x264_mb_analyse_intra_chroma( h, a );
             break;
 
