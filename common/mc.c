@@ -246,7 +246,7 @@ static void hpel_filter_mpeg2( pixel *dsth, pixel *dstv, pixel *dstc, pixel *src
         for( int x = 0; x < width; x++ )
             dstv[x] = (src[x] + src[x+stride] + 1) >> 1;
         for( int x = 0; x < width; x++ )
-            dstc[x] = (src[x] + src[x+1] + src[x+stride] + src[x+stride+1] + 1) >> 2;
+            dstc[x] = (src[x] + src[x+1] + src[x+stride] + src[x+stride+1] + 2) >> 2;
         dsth += stride;
         dstv += stride;
         dstc += stride;
