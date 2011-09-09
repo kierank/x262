@@ -171,6 +171,12 @@ median:
 
 void x264_mb_predict_mv_pskip( x264_t *h, int16_t mv[2] )
 {
+    if( MPEG2 )
+    {
+        M32( mv ) = 0;
+        return;
+    }
+
     int     i_refa = h->mb.cache.ref[0][X264_SCAN8_0 - 1];
     int     i_refb = h->mb.cache.ref[0][X264_SCAN8_0 - 8];
     int16_t *mv_a  = h->mb.cache.mv[0][X264_SCAN8_0 - 1];
