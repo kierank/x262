@@ -27,8 +27,11 @@
 %include "x86inc.asm"
 %include "x86util.asm"
 
+cextern pw_ppmmppmm
+cextern pw_pmpmpmpm
+
 SECTION .text
-INIT_MMX
+INIT_MMX mmx2
 
 %macro LOAD_DIFF_4x8P 1 ; dx
     LOAD_DIFF  m0, m7, none, [r0+%1],      [r2+%1]
@@ -48,14 +51,14 @@ INIT_MMX
 %macro SUM4x8_MM 0
     movq [spill],   m6
     movq [spill+8], m7
-    ABS2     m0, m1, m6, m7
-    ABS2     m2, m3, m6, m7
+    ABSW2    m0, m1, m0, m1, m6, m7
+    ABSW2    m2, m3, m2, m3, m6, m7
     paddw    m0, m2
     paddw    m1, m3
     movq     m6, [spill]
     movq     m7, [spill+8]
-    ABS2     m4, m5, m2, m3
-    ABS2     m6, m7, m2, m3
+    ABSW2    m4, m5, m4, m5, m2, m3
+    ABSW2    m6, m7, m6, m7, m2, m3
     paddw    m4, m6
     paddw    m5, m7
     paddw    m0, m4
@@ -66,7 +69,7 @@ INIT_MMX
 ;-----------------------------------------------------------------------------
 ; int pixel_sa8d_8x8( uint8_t *, int, uint8_t *, int )
 ;-----------------------------------------------------------------------------
-cglobal pixel_sa8d_8x8_internal_mmxext
+cglobal pixel_sa8d_8x8_internal
     push   r0
     push   r2
     sub    esp, 0x74
@@ -132,18 +135,18 @@ cglobal pixel_sa8d_8x8_internal_mmxext
 
 %macro SUM_MM_X3 8 ; 3x sum, 4x tmp, op
     pxor        %7, %7
-    pshufw      %4, %1, 01001110b
-    pshufw      %5, %2, 01001110b
-    pshufw      %6, %3, 01001110b
+    pshufw      %4, %1, q1032
+    pshufw      %5, %2, q1032
+    pshufw      %6, %3, q1032
     paddusw     %1, %4
     paddusw     %2, %5
     paddusw     %3, %6
     punpcklwd   %1, %7
     punpcklwd   %2, %7
     punpcklwd   %3, %7
-    pshufw      %4, %1, 01001110b
-    pshufw      %5, %2, 01001110b
-    pshufw      %6, %3, 01001110b
+    pshufw      %4, %1, q1032
+    pshufw      %5, %2, q1032
+    pshufw      %6, %3, q1032
     %8          %1, %4
     %8          %2, %5
     %8          %3, %6
@@ -151,37 +154,71 @@ cglobal pixel_sa8d_8x8_internal_mmxext
 
 %macro LOAD_4x8P 1 ; dx
     pxor        m7, m7
-    movd        m6, [eax+%1+7*FENC_STRIDE]
-    movd        m0, [eax+%1+0*FENC_STRIDE]
-    movd        m1, [eax+%1+1*FENC_STRIDE]
-    movd        m2, [eax+%1+2*FENC_STRIDE]
-    movd        m3, [eax+%1+3*FENC_STRIDE]
-    movd        m4, [eax+%1+4*FENC_STRIDE]
-    movd        m5, [eax+%1+5*FENC_STRIDE]
+    movd        m6, [r0+%1+7*FENC_STRIDE]
+    movd        m0, [r0+%1+0*FENC_STRIDE]
+    movd        m1, [r0+%1+1*FENC_STRIDE]
+    movd        m2, [r0+%1+2*FENC_STRIDE]
+    movd        m3, [r0+%1+3*FENC_STRIDE]
+    movd        m4, [r0+%1+4*FENC_STRIDE]
+    movd        m5, [r0+%1+5*FENC_STRIDE]
     punpcklbw   m6, m7
     punpcklbw   m0, m7
     punpcklbw   m1, m7
     movq   [spill], m6
     punpcklbw   m2, m7
     punpcklbw   m3, m7
-    movd        m6, [eax+%1+6*FENC_STRIDE]
+    movd        m6, [r0+%1+6*FENC_STRIDE]
     punpcklbw   m4, m7
     punpcklbw   m5, m7
     punpcklbw   m6, m7
     movq        m7, [spill]
 %endmacro
 
+%macro HSUMSUB2 4
+    pshufw m4, %1, %3
+    pshufw m5, %2, %3
+    pmullw %1, %4
+    pmullw m5, %4
+    paddw  %1, m4
+    paddw  %2, m5
+%endmacro
+
 ;-----------------------------------------------------------------------------
-; void intra_sa8d_x3_8x8_core( uint8_t *fenc, int16_t edges[2][8], int *res )
+; void intra_sa8d_x3_8x8( uint8_t *fenc, uint8_t edge[36], int *res )
 ;-----------------------------------------------------------------------------
-cglobal intra_sa8d_x3_8x8_core_mmxext
-    mov    eax, [esp+4]
-    mov    ecx, [esp+8]
-    sub    esp, 0x70
-%define args  esp+0x74
+cglobal intra_sa8d_x3_8x8, 2,3
+    SUB    esp, 0x94
+%define edge  esp+0x70 ; +32
 %define spill esp+0x60 ; +16
 %define trans esp+0    ; +96
 %define sum   esp+0    ; +32
+
+    pxor      m7, m7
+    movq      m0, [r1+7]
+    movq      m2, [r1+16]
+    movq      m1, m0
+    movq      m3, m2
+    punpcklbw m0, m7
+    punpckhbw m1, m7
+    punpcklbw m2, m7
+    punpckhbw m3, m7
+    movq      m6, [pw_ppmmppmm]
+    HSUMSUB2  m0, m2, q1032, m6
+    HSUMSUB2  m1, m3, q1032, m6
+    movq      m6, [pw_pmpmpmpm]
+    HSUMSUB2  m0, m2, q2301, m6
+    HSUMSUB2  m1, m3, q2301, m6
+    movq      m4, m0
+    movq      m5, m2
+    paddw     m0, m1
+    paddw     m2, m3
+    psubw     m4, m1
+    psubw     m3, m5
+    movq [edge+0], m0
+    movq [edge+8], m4
+    movq [edge+16], m2
+    movq [edge+24], m3
+
     LOAD_4x8P 0
     HADAMARD8_V 0, 1, 2, 3, 4, 5, 6, 7
 
@@ -218,23 +255,23 @@ cglobal intra_sa8d_x3_8x8_core_mmxext
 
     movq [spill+0], m0
     movq [spill+8], m1
-    ABS2     m2, m3, m0, m1
-    ABS2     m4, m5, m0, m1
+    ABSW2    m2, m3, m2, m3, m0, m1
+    ABSW2    m4, m5, m4, m5, m0, m1
     paddw    m2, m4
     paddw    m3, m5
-    ABS2     m6, m7, m4, m5
+    ABSW2    m6, m7, m6, m7, m4, m5
     movq     m0, [spill+0]
     movq     m1, [spill+8]
     paddw    m2, m6
     paddw    m3, m7
     paddw    m2, m3
-    ABS1     m1, m4
+    ABSW     m1, m1, m4
     paddw    m2, m1 ; 7x4 sum
     movq     m7, m0
-    movq     m1, [ecx+8] ; left bottom
+    movq     m1, [edge+8] ; left bottom
     psllw    m1, 3
     psubw    m7, m1
-    ABS2     m0, m7, m5, m3
+    ABSW2    m0, m7, m0, m7, m5, m3
     paddw    m0, m2
     paddw    m7, m2
     movq [sum+0], m0 ; dc
@@ -262,32 +299,32 @@ cglobal intra_sa8d_x3_8x8_core_mmxext
 
     movq [spill],   m0
     movq [spill+8], m1
-    ABS2     m2, m3, m0, m1
-    ABS2     m4, m5, m0, m1
+    ABSW2    m2, m3, m2, m3, m0, m1
+    ABSW2    m4, m5, m4, m5, m0, m1
     paddw    m2, m4
     paddw    m3, m5
     paddw    m2, m3
     movq     m0, [spill]
     movq     m1, [spill+8]
-    ABS2     m6, m7, m4, m5
-    ABS1     m1, m3
+    ABSW2    m6, m7, m6, m7, m4, m5
+    ABSW     m1, m1, m3
     paddw    m2, m7
     paddw    m1, m6
     paddw    m2, m1 ; 7x4 sum
     movq     m1, m0
 
-    movq     m7, [ecx+0]
+    movq     m7, [edge+0]
     psllw    m7, 3   ; left top
 
-    movzx   edx, word [ecx+0]
-    add      dx,  [ecx+16]
-    lea     edx, [4*edx+32]
-    and     edx, -64
-    movd     m6, edx ; dc
+    mov      r2, [edge+0]
+    add      r2, [edge+16]
+    lea      r2, [4*r2+32]
+    and      r2, 0xffc0
+    movd     m6, r2 ; dc
 
     psubw    m1, m7
     psubw    m0, m6
-    ABS2     m0, m1, m5, m6
+    ABSW2    m0, m1, m0, m1, m5, m6
     movq     m3, [sum+0] ; dc
     paddw    m0, m2
     paddw    m1, m2
@@ -297,34 +334,27 @@ cglobal intra_sa8d_x3_8x8_core_mmxext
     psrlq    m2, 16
     paddw    m2, m3
 
-    movq     m3, [ecx+16] ; top left
-    movq     m4, [ecx+24] ; top right
+    movq     m3, [edge+16] ; top left
+    movq     m4, [edge+24] ; top right
     psllw    m3, 3
     psllw    m4, 3
     psubw    m3, [sum+16]
     psubw    m4, [sum+24]
-    ABS2     m3, m4, m5, m6
+    ABSW2    m3, m4, m3, m4, m5, m6
     paddw    m2, m3
     paddw    m2, m4 ; v
 
-    SUM_MM_X3 m0, m1, m2, m3, m4, m5, m6, paddd
-    mov     eax, [args+8]
-    movd    ecx, m2
-    movd    edx, m1
-    add     ecx, 2
-    add     edx, 2
-    shr     ecx, 2
-    shr     edx, 2
-    mov [eax+0], ecx ; i8x8_v satd
-    mov [eax+4], edx ; i8x8_h satd
-    movd    ecx, m0
-    add     ecx, 2
-    shr     ecx, 2
-    mov [eax+8], ecx ; i8x8_dc satd
-
-    add     esp, 0x70
-    ret
-%undef args
+    SUM_MM_X3 m0, m1, m2, m3, m4, m5, m6, pavgw
+    mov      r2, r2m
+    pxor      m7, m7
+    punpckldq m2, m1
+    pavgw     m0, m7
+    pavgw     m2, m7
+    movd  [r2+8], m0 ; dc
+    movq  [r2+0], m2 ; v, h
+    ADD     esp, 0x94
+    RET
+%undef edge
 %undef spill
 %undef trans
 %undef sum
@@ -335,25 +365,23 @@ cglobal intra_sa8d_x3_8x8_core_mmxext
 ; void pixel_ssim_4x4x2_core( const uint8_t *pix1, int stride1,
 ;                             const uint8_t *pix2, int stride2, int sums[2][4] )
 ;-----------------------------------------------------------------------------
-cglobal pixel_ssim_4x4x2_core_mmxext
-    push     ebx
-    push     edi
-    mov      ebx, [esp+16]
-    mov      edx, [esp+24]
-    mov      edi, 4
+cglobal pixel_ssim_4x4x2_core, 0,5
+    mov       r1, r1m
+    mov       r3, r3m
+    mov       r4, 4
     pxor      m0, m0
 .loop:
-    mov      eax, [esp+12]
-    mov      ecx, [esp+20]
-    add      eax, edi
-    add      ecx, edi
+    mov       r0, r0m
+    mov       r2, r2m
+    add       r0, r4
+    add       r2, r4
     pxor      m1, m1
     pxor      m2, m2
     pxor      m3, m3
     pxor      m4, m4
 %rep 4
-    movd      m5, [eax]
-    movd      m6, [ecx]
+    movd      m5, [r0]
+    movd      m6, [r2]
     punpcklbw m5, m0
     punpcklbw m6, m0
     paddw     m1, m5
@@ -365,30 +393,28 @@ cglobal pixel_ssim_4x4x2_core_mmxext
     paddd     m3, m5
     paddd     m4, m7
     paddd     m3, m6
-    add      eax, ebx
-    add      ecx, edx
+    add       r0, r1
+    add       r2, r3
 %endrep
-    mov      eax, [esp+28]
-    lea      eax, [eax+edi*4]
-    pshufw    m5, m1, 0xE
-    pshufw    m6, m2, 0xE
+    mov       r0, r4m
+    lea       r0, [r0+r4*4]
+    pshufw    m5, m1, q0032
+    pshufw    m6, m2, q0032
     paddusw   m1, m5
     paddusw   m2, m6
     punpcklwd m1, m2
-    pshufw    m2, m1, 0xE
-    pshufw    m5, m3, 0xE
-    pshufw    m6, m4, 0xE
+    pshufw    m2, m1, q0032
+    pshufw    m5, m3, q0032
+    pshufw    m6, m4, q0032
     paddusw   m1, m2
     paddd     m3, m5
     paddd     m4, m6
     punpcklwd m1, m0
     punpckldq m3, m4
-    movq [eax+0], m1
-    movq [eax+8], m3
-    sub      edi, 4
+    movq  [r0+0], m1
+    movq  [r0+8], m3
+    sub       r4, 4
     jge .loop
-    pop       edi
-    pop       ebx
     emms
-    ret
+    RET
 

@@ -69,6 +69,7 @@ typedef struct x264_frame
     int     i_poc_l0ref0; /* poc of first refframe in L0, used to check if direct temporal is possible */
 
     /* YUV buffer */
+    int     i_csp; /* Internal csp */
     int     i_plane;
     int     i_stride[3];
     int     i_width[3];
@@ -204,6 +205,7 @@ int           x264_frame_copy_picture( x264_t *h, x264_frame_t *dst, x264_pictur
 void          x264_frame_expand_border( x264_t *h, x264_frame_t *frame, int mb_y, int b_end );
 void          x264_frame_expand_border_filtered( x264_t *h, x264_frame_t *frame, int mb_y, int b_end );
 void          x264_frame_expand_border_lowres( x264_frame_t *frame );
+void          x264_frame_expand_border_chroma( x264_t *h, x264_frame_t *frame, int plane );
 void          x264_frame_expand_border_mod16( x264_t *h, x264_frame_t *frame );
 void          x264_expand_border_mbpair( x264_t *h, int mb_x, int mb_y );
 
@@ -228,15 +230,11 @@ x264_frame_t *x264_frame_pop_blank_unused( x264_t *h );
 void x264_weight_scale_plane( x264_t *h, pixel *dst, int i_dst_stride, pixel *src, int i_src_stride,
                               int i_width, int i_height, x264_weight_t *w );
 x264_frame_t *x264_frame_pop_unused( x264_t *h, int b_fdec );
-void          x264_frame_sort( x264_frame_t **list, int b_dts );
 void          x264_frame_delete_list( x264_frame_t **list );
 
 int           x264_sync_frame_list_init( x264_sync_frame_list_t *slist, int nelem );
 void          x264_sync_frame_list_delete( x264_sync_frame_list_t *slist );
 void          x264_sync_frame_list_push( x264_sync_frame_list_t *slist, x264_frame_t *frame );
 x264_frame_t *x264_sync_frame_list_pop( x264_sync_frame_list_t *slist );
-
-#define x264_frame_sort_dts(list) x264_frame_sort(list, 1)
-#define x264_frame_sort_pts(list) x264_frame_sort(list, 0)
 
 #endif

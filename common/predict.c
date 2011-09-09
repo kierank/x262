@@ -457,7 +457,7 @@ static void x264_predict_4x4_hu_c( pixel *src )
 #define PT(x) \
     edge[16+x] = F2(SRC(x-1,-1), SRC(x,-1), SRC(x+1,-1));
 
-static void x264_predict_8x8_filter_c( pixel *src, pixel edge[33], int i_neighbor, int i_filters )
+static void x264_predict_8x8_filter_c( pixel *src, pixel edge[36], int i_neighbor, int i_filters )
 {
     /* edge[7..14] = l7..l0
      * edge[15] = lt
@@ -524,30 +524,30 @@ static void x264_predict_8x8_filter_c( pixel *src, pixel edge[33], int i_neighbo
         src += FDEC_STRIDE; \
     }
 
-static void x264_predict_8x8_dc_128_c( pixel *src, pixel edge[33] )
+static void x264_predict_8x8_dc_128_c( pixel *src, pixel edge[36] )
 {
     PREDICT_8x8_DC( PIXEL_SPLAT_X4( 1 << (BIT_DEPTH-1) ) );
 }
-static void x264_predict_8x8_dc_left_c( pixel *src, pixel edge[33] )
+static void x264_predict_8x8_dc_left_c( pixel *src, pixel edge[36] )
 {
     PREDICT_8x8_LOAD_LEFT
     pixel4 dc = PIXEL_SPLAT_X4( (l0+l1+l2+l3+l4+l5+l6+l7+4) >> 3 );
     PREDICT_8x8_DC( dc );
 }
-static void x264_predict_8x8_dc_top_c( pixel *src, pixel edge[33] )
+static void x264_predict_8x8_dc_top_c( pixel *src, pixel edge[36] )
 {
     PREDICT_8x8_LOAD_TOP
     pixel4 dc = PIXEL_SPLAT_X4( (t0+t1+t2+t3+t4+t5+t6+t7+4) >> 3 );
     PREDICT_8x8_DC( dc );
 }
-void x264_predict_8x8_dc_c( pixel *src, pixel edge[33] )
+void x264_predict_8x8_dc_c( pixel *src, pixel edge[36] )
 {
     PREDICT_8x8_LOAD_LEFT
     PREDICT_8x8_LOAD_TOP
     pixel4 dc = PIXEL_SPLAT_X4( (l0+l1+l2+l3+l4+l5+l6+l7+t0+t1+t2+t3+t4+t5+t6+t7+8) >> 4 );
     PREDICT_8x8_DC( dc );
 }
-void x264_predict_8x8_h_c( pixel *src, pixel edge[33] )
+void x264_predict_8x8_h_c( pixel *src, pixel edge[36] )
 {
     PREDICT_8x8_LOAD_LEFT
 #define ROW(y) MPIXEL_X4( src+y*FDEC_STRIDE+0 ) =\
@@ -555,7 +555,7 @@ void x264_predict_8x8_h_c( pixel *src, pixel edge[33] )
     ROW(0); ROW(1); ROW(2); ROW(3); ROW(4); ROW(5); ROW(6); ROW(7);
 #undef ROW
 }
-void x264_predict_8x8_v_c( pixel *src, pixel edge[33] )
+void x264_predict_8x8_v_c( pixel *src, pixel edge[36] )
 {
     pixel4 top[2] = { MPIXEL_X4( edge+16 ),
                       MPIXEL_X4( edge+20 ) };
@@ -565,7 +565,7 @@ void x264_predict_8x8_v_c( pixel *src, pixel edge[33] )
         MPIXEL_X4( src+y*FDEC_STRIDE+4 ) = top[1];
     }
 }
-static void x264_predict_8x8_ddl_c( pixel *src, pixel edge[33] )
+static void x264_predict_8x8_ddl_c( pixel *src, pixel edge[36] )
 {
     PREDICT_8x8_LOAD_TOP
     PREDICT_8x8_LOAD_TOPRIGHT
@@ -585,7 +585,7 @@ static void x264_predict_8x8_ddl_c( pixel *src, pixel edge[33] )
     SRC(6,7)=SRC(7,6)= F2(t13,t14,t15);
     SRC(7,7)= F2(t14,t15,t15);
 }
-static void x264_predict_8x8_ddr_c( pixel *src, pixel edge[33] )
+static void x264_predict_8x8_ddr_c( pixel *src, pixel edge[36] )
 {
     PREDICT_8x8_LOAD_TOP
     PREDICT_8x8_LOAD_LEFT
@@ -607,7 +607,7 @@ static void x264_predict_8x8_ddr_c( pixel *src, pixel edge[33] )
     SRC(7,0)= F2(t5,t6,t7);
 
 }
-static void x264_predict_8x8_vr_c( pixel *src, pixel edge[33] )
+static void x264_predict_8x8_vr_c( pixel *src, pixel edge[36] )
 {
     PREDICT_8x8_LOAD_TOP
     PREDICT_8x8_LOAD_LEFT
@@ -635,7 +635,7 @@ static void x264_predict_8x8_vr_c( pixel *src, pixel edge[33] )
     SRC(7,1)= F2(t5,t6,t7);
     SRC(7,0)= F1(t6,t7);
 }
-static void x264_predict_8x8_hd_c( pixel *src, pixel edge[33] )
+static void x264_predict_8x8_hd_c( pixel *src, pixel edge[36] )
 {
     PREDICT_8x8_LOAD_TOP
     PREDICT_8x8_LOAD_LEFT
@@ -662,7 +662,7 @@ static void x264_predict_8x8_hd_c( pixel *src, pixel edge[33] )
     SRC_X4(4,1)= pack_pixel_2to4(p9,p10);
     SRC_X4(4,0)= pack_pixel_2to4(p10,p11);
 }
-static void x264_predict_8x8_vl_c( pixel *src, pixel edge[33] )
+static void x264_predict_8x8_vl_c( pixel *src, pixel edge[36] )
 {
     PREDICT_8x8_LOAD_TOP
     PREDICT_8x8_LOAD_TOPRIGHT
@@ -689,7 +689,7 @@ static void x264_predict_8x8_vl_c( pixel *src, pixel edge[33] )
     SRC(7,6)= F1(t10,t11);
     SRC(7,7)= F2(t10,t11,t12);
 }
-static void x264_predict_8x8_hu_c( pixel *src, pixel edge[33] )
+static void x264_predict_8x8_hu_c( pixel *src, pixel edge[36] )
 {
     PREDICT_8x8_LOAD_LEFT
     int p1 = pack_pixel_1to2(F1(l0,l1), F2(l0,l1,l2));

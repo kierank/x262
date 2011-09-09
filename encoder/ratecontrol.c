@@ -413,7 +413,7 @@ int x264_macroblock_tree_read( x264_t *h, x264_frame_t *frame, float *quant_offs
 
                 if( i_type != i_type_actual && rc->qpbuf_pos == 1 )
                 {
-                    x264_log(h, X264_LOG_ERROR, "MB-tree frametype %d doesn't match actual frametype %d.\n", i_type, i_type_actual);
+                    x264_log( h, X264_LOG_ERROR, "MB-tree frametype %d doesn't match actual frametype %d.\n", i_type, i_type_actual );
                     return -1;
                 }
             } while( i_type != i_type_actual );
@@ -431,7 +431,7 @@ int x264_macroblock_tree_read( x264_t *h, x264_frame_t *frame, float *quant_offs
         x264_stack_align( x264_adaptive_quant_frame, h, frame, quant_offsets );
     return 0;
 fail:
-    x264_log(h, X264_LOG_ERROR, "Incomplete MB-tree stats file.\n");
+    x264_log( h, X264_LOG_ERROR, "Incomplete MB-tree stats file.\n" );
     return -1;
 }
 
@@ -628,7 +628,7 @@ int x264_ratecontrol_new( x264_t *h )
 
     if( h->param.rc.i_rc_method == X264_RC_CRF && h->param.rc.b_stat_read )
     {
-        x264_log(h, X264_LOG_ERROR, "constant rate-factor is incompatible with 2pass.\n");
+        x264_log( h, X264_LOG_ERROR, "constant rate-factor is incompatible with 2pass.\n" );
         return -1;
     }
 
@@ -653,7 +653,7 @@ int x264_ratecontrol_new( x264_t *h )
 
     if( rc->rate_tolerance < 0.01 )
     {
-        x264_log(h, X264_LOG_WARNING, "bitrate tolerance too small, using .01\n");
+        x264_log( h, X264_LOG_WARNING, "bitrate tolerance too small, using .01\n" );
         rc->rate_tolerance = 0.01;
     }
 
@@ -728,7 +728,7 @@ int x264_ratecontrol_new( x264_t *h )
         stats_buf = stats_in = x264_slurp_file( h->param.rc.psz_stat_in );
         if( !stats_buf )
         {
-            x264_log(h, X264_LOG_ERROR, "ratecontrol_init: can't open stats file\n");
+            x264_log( h, X264_LOG_ERROR, "ratecontrol_init: can't open stats file\n" );
             return -1;
         }
         if( h->param.rc.b_mb_tree )
@@ -740,13 +740,19 @@ int x264_ratecontrol_new( x264_t *h )
             x264_free( mbtree_stats_in );
             if( !rc->p_mbtree_stat_file_in )
             {
-                x264_log(h, X264_LOG_ERROR, "ratecontrol_init: can't open mbtree stats file\n");
+                x264_log( h, X264_LOG_ERROR, "ratecontrol_init: can't open mbtree stats file\n" );
                 return -1;
             }
         }
 
         /* check whether 1st pass options were compatible with current options */
-        if( !strncmp( stats_buf, "#options:", 9 ) )
+        if( strncmp( stats_buf, "#options:", 9 ) )
+        {
+            x264_log( h, X264_LOG_ERROR, "options list in stats file not valid\n" );
+            return -1;
+        }
+
+        float res_factor, res_factor_bits;
         {
             int i, j;
             uint32_t k, l;
@@ -767,6 +773,10 @@ int x264_ratecontrol_new( x264_t *h )
                           h->param.i_width, h->param.i_height, i, j );
                 return -1;
             }
+            res_factor = (float)h->param.i_width * h->param.i_height / (i*j);
+            /* Change in bits relative to resolution isn't quite linear on typical sources,
+             * so we'll at least try to roughly approximate this effect. */
+            res_factor_bits = powf( res_factor, 0.7 );
 
             if( ( p = strstr( opts, "timebase=" ) ) && sscanf( p, "timebase=%u/%u", &k, &l ) != 2 )
             {
@@ -788,6 +798,18 @@ int x264_ratecontrol_new( x264_t *h )
             CMP_OPT_FIRST_PASS( "bluray_compat", h->param.b_bluray_compat );
             CMP_OPT_FIRST_PASS( "mpeg2", h->param.b_mpeg2 );
             CMP_OPT_FIRST_PASS( "open_gop", h->param.b_open_gop );
+
+            if( (p = strstr( opts, "interlaced=" )) )
+            {
+                char *current = h->param.b_interlaced ? h->param.b_tff ? "tff" : "bff" : h->param.b_fake_interlaced ? "fake" : "0";
+                char buf[5];
+                sscanf( p, "interlaced=%4s", buf );
+                if( strcmp( current, buf ) )
+                {
+                    x264_log( h, X264_LOG_ERROR, "different interlaced setting than first pass (%s vs %s)\n", current, buf );
+                    return -1;
+                }
+            }
 
             if( (p = strstr( opts, "keyint=" )) )
             {
@@ -831,7 +853,7 @@ int x264_ratecontrol_new( x264_t *h )
             p = strchr( p + 1, ';' );
         if( !num_entries )
         {
-            x264_log(h, X264_LOG_ERROR, "empty stats file\n");
+            x264_log( h, X264_LOG_ERROR, "empty stats file\n" );
             return -1;
         }
         rc->num_entries = num_entries;
@@ -889,6 +911,12 @@ int x264_ratecontrol_new( x264_t *h )
                    &pict_type, &rce->i_duration, &rce->i_cpb_duration, &qp, &rce->tex_bits,
                    &rce->mv_bits, &rce->misc_bits, &rce->i_count, &rce->p_count,
                    &rce->s_count, &rce->direct_mode );
+            rce->tex_bits  *= res_factor_bits;
+            rce->mv_bits   *= res_factor_bits;
+            rce->misc_bits *= res_factor_bits;
+            rce->i_count   *= res_factor;
+            rce->p_count   *= res_factor;
+            rce->s_count   *= res_factor;
 
             p = strstr( p, "ref:" );
             if( !p )
@@ -977,7 +1005,7 @@ parse_error:
         rc->p_stat_file_out = fopen( rc->psz_stat_file_tmpname, "wb" );
         if( rc->p_stat_file_out == NULL )
         {
-            x264_log(h, X264_LOG_ERROR, "ratecontrol_init: can't open stats file\n");
+            x264_log( h, X264_LOG_ERROR, "ratecontrol_init: can't open stats file\n" );
             return -1;
         }
 
@@ -995,7 +1023,7 @@ parse_error:
             rc->p_mbtree_stat_file_out = fopen( rc->psz_mbtree_stat_file_tmpname, "wb" );
             if( rc->p_mbtree_stat_file_out == NULL )
             {
-                x264_log(h, X264_LOG_ERROR, "ratecontrol_init: can't open mbtree stats file\n");
+                x264_log( h, X264_LOG_ERROR, "ratecontrol_init: can't open mbtree stats file\n" );
                 return -1;
             }
         }
@@ -1535,10 +1563,10 @@ int x264_ratecontrol_slice_type( x264_t *h, int frame_num )
             rc->qp_constant[SLICE_TYPE_I] = x264_clip3( (int)( qscale2qp( h, qp2qscale( h, h->param.rc.i_qp_constant ) / fabs( h->param.rc.f_ip_factor ) ) + 0.5 ), 0, QP_MAX );
             rc->qp_constant[SLICE_TYPE_B] = x264_clip3( (int)( qscale2qp( h, qp2qscale( h, h->param.rc.i_qp_constant ) * fabs( h->param.rc.f_pb_factor ) ) + 0.5 ), 0, QP_MAX );
 
-            x264_log(h, X264_LOG_ERROR, "2nd pass has more frames than 1st pass (%d)\n", rc->num_entries);
-            x264_log(h, X264_LOG_ERROR, "continuing anyway, at constant QP=%d\n", h->param.rc.i_qp_constant);
+            x264_log( h, X264_LOG_ERROR, "2nd pass has more frames than 1st pass (%d)\n", rc->num_entries );
+            x264_log( h, X264_LOG_ERROR, "continuing anyway, at constant QP=%d\n", h->param.rc.i_qp_constant );
             if( h->param.i_bframe_adaptive )
-                x264_log(h, X264_LOG_ERROR, "disabling adaptive B-frames\n");
+                x264_log( h, X264_LOG_ERROR, "disabling adaptive B-frames\n" );
 
             for( int i = 0; i < h->param.i_threads; i++ )
             {
@@ -1739,7 +1767,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
 
     return 0;
 fail:
-    x264_log(h, X264_LOG_ERROR, "ratecontrol_end: stats file could not be written to\n");
+    x264_log( h, X264_LOG_ERROR, "ratecontrol_end: stats file could not be written to\n" );
     return -1;
 }
 
