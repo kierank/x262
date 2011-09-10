@@ -1048,20 +1048,41 @@ static ALWAYS_INLINE void x264_macroblock_encode_internal( x264_t *h, int plane_
                     h->mb.mvp[0][1] == h->mb.cache.mv[0][x264_scan8[0]][1] &&
                     h->mb.mvp[1][0] == h->mb.cache.mv[1][x264_scan8[0]][0] &&
                     h->mb.mvp[1][1] == h->mb.cache.mv[1][x264_scan8[0]][1] )
+                {
+                    h->mb.i_type = B_SKIP;
+                    h->mb.i_bskip_type = B_BI_BI;
+                }
+                else if( h->mb.i_type == B_L0_L0 &&
+                    h->mb.mvp[0][0] == h->mb.cache.mv[0][x264_scan8[0]][0] &&
+                    h->mb.mvp[0][1] == h->mb.cache.mv[0][x264_scan8[0]][1] )
+                {
+                    h->mb.i_type = B_SKIP;
+                    h->mb.i_bskip_type = B_L0_L0;
+                }
+                else if( h->mb.i_type == B_L1_L1 &&
+                    h->mb.mvp[1][0] == h->mb.cache.mv[1][x264_scan8[0]][0] &&
+                    h->mb.mvp[1][1] == h->mb.cache.mv[1][x264_scan8[0]][1] )
+                {
+                    h->mb.i_type = B_SKIP;
+                    h->mb.i_bskip_type = B_L1_L1;
+                }
+            }
+            else if( h->mb.i_mb_type_left[0] == B_SKIP )
+            {
+                if( h->mb.i_type == B_BI_BI &&
+                    h->mb.i_bskip_type == B_BI_BI &&
+                    h->mb.mvp[0][0] == h->mb.cache.mv[0][x264_scan8[0]][0] &&
+                    h->mb.mvp[0][1] == h->mb.cache.mv[0][x264_scan8[0]][1] &&
+                    h->mb.mvp[1][0] == h->mb.cache.mv[1][x264_scan8[0]][0] &&
+                    h->mb.mvp[1][1] == h->mb.cache.mv[1][x264_scan8[0]][1] )
                     h->mb.i_type = B_SKIP;
                 else if( h->mb.i_type == B_L0_L0 &&
+                    h->mb.i_bskip_type == B_L0_L0 &&
                     h->mb.mvp[0][0] == h->mb.cache.mv[0][x264_scan8[0]][0] &&
                     h->mb.mvp[0][1] == h->mb.cache.mv[0][x264_scan8[0]][1] )
                     h->mb.i_type = B_SKIP;
                 else if( h->mb.i_type == B_L1_L1 &&
-                    h->mb.mvp[1][0] == h->mb.cache.mv[1][x264_scan8[0]][0] &&
-                    h->mb.mvp[1][1] == h->mb.cache.mv[1][x264_scan8[0]][1] )
-                    h->mb.i_type = B_SKIP;
-            }
-            else if( h->mb.i_type == B_BI_BI && h->mb.i_mb_type_left[0] == B_SKIP )
-            {
-                if( h->mb.mvp[0][0] == h->mb.cache.mv[0][x264_scan8[0]][0] &&
-                    h->mb.mvp[0][1] == h->mb.cache.mv[0][x264_scan8[0]][1] &&
+                    h->mb.i_bskip_type == B_L1_L1 &&
                     h->mb.mvp[1][0] == h->mb.cache.mv[1][x264_scan8[0]][0] &&
                     h->mb.mvp[1][1] == h->mb.cache.mv[1][x264_scan8[0]][1] )
                     h->mb.i_type = B_SKIP;
