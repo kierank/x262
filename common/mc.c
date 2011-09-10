@@ -265,6 +265,75 @@ static void mc_luma_mpeg2( pixel *dst,    int i_dst_stride,
     mc_copy( src1, i_src_stride, dst, i_dst_stride, i_width, i_height );
 }
 
+static void mc_chroma_mpeg2( pixel *dstu, pixel *dstv, int i_dst_stride,
+                            pixel *src, int i_src_stride,
+                            int mvx, int mvy, int i_width, int i_height )
+{
+    mvx /= 4;
+    mvy /= 4;
+    src += (mvy >> 1) * i_src_stride + (mvx >> 1)*2;
+    pixel *srcp = &src[i_src_stride];
+
+    if( !((mvx|mvy)&1) ) //fullpell
+    {
+        for( int y = 0; y < i_height; y++ )
+        {
+            for( int x = 0; x < i_width; x++ )
+            {
+                dstu[x] = src[2*x];
+                dstv[x] = src[2*x+1];
+            }
+            dstu += i_dst_stride;
+            dstv += i_dst_stride;
+            src += i_src_stride;
+        }
+    }
+    else if( (mvx&mvy)&1 ) // centre hpel positions
+    {
+        for( int y = 0; y < i_height; y++ )
+        {
+            for( int x = 0; x < i_width; x++ )
+            {
+                dstu[x] = ( src[2*x] + src[2*x+2] + srcp[2*x] + srcp[2*x+2] + 2 ) >> 2;
+                dstv[x] = ( src[2*x+1] + src[2*x+3] + srcp[2*x+1] + srcp[2*x+3] + 2 ) >> 2;
+            }
+            dstu += i_dst_stride;
+            dstv += i_dst_stride;
+            src   = srcp;
+            srcp += i_src_stride;
+        }
+    }
+    else if( mvx&1 ) // horizontal hpel positions
+    {
+        for( int y = 0; y < i_height; y++ )
+        {
+            for( int x = 0; x < i_width; x++ )
+            {
+                dstu[x] = ( src[2*x] + src[2*x+2] + 1 ) >> 1;
+                dstv[x] = ( src[2*x+1] + src[2*x+3] + 1 ) >> 1;
+            }
+            dstu += i_dst_stride;
+            dstv += i_dst_stride;
+            src  += i_src_stride;
+        }
+    }
+    else // vertical hpel positions
+    {
+        for( int y = 0; y < i_height; y++ )
+        {
+            for( int x = 0; x < i_width; x++ )
+            {
+                dstu[x] = ( src[2*x] + srcp[2*x] + 1 ) >> 1;
+                dstv[x] = ( src[2*x+1] + srcp[2*x+1] + 1 ) >> 1;
+            }
+            dstu += i_dst_stride;
+            dstv += i_dst_stride;
+            src = srcp;
+            srcp += i_src_stride;
+        }
+    }
+}
+
 static pixel *get_ref_mpeg2( pixel *dst,   int *i_dst_stride,
                              pixel *src[4], int i_src_stride,
                              int mvx, int mvy,
@@ -571,6 +640,7 @@ void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 )
     if( b_mpeg2 )
     {
         pf->mc_luma   = mc_luma_mpeg2;
+        pf->mc_chroma = mc_chroma_mpeg2;
         pf->get_ref   = get_ref_mpeg2;
         pf->hpel_filter = hpel_filter_mpeg2;
     }
