@@ -2272,7 +2272,7 @@ reencode:
                 while( i_skip > 32 )
                 {
                     bs_write_vlc( &h->out.bs, x262_mb_addr_inc[33] ); // macroblock_escape
-                    i_skip -= 32;
+                    i_skip -= 33;
                 }
                 bs_write_vlc( &h->out.bs, x262_mb_addr_inc[i_skip] ); // macroblock_address_increment
                 i_skip = 0;

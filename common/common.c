@@ -440,6 +440,7 @@ int x264_param_apply_profile( x264_param_t *param, const char *profile )
         param->analyse.intra = 0;
         param->analyse.inter = 0;
         param->analyse.i_weighted_pred = 0;
+        param->analyse.b_weighted_bipred = 0;
         param->analyse.b_dct_decimate = 0;
         param->analyse.i_direct_mv_pred = X264_DIRECT_PRED_NONE;
         param->analyse.b_mixed_references = 0;
