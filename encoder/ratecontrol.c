@@ -1294,7 +1294,7 @@ void x264_ratecontrol_start( x264_t *h, int i_force_qp, int overhead )
             mincr = 4;
 
         /* High 10 / High 4:4:4 Predictive doesn't require minCR, so just set the maximum to a large value. */
-        if( h->sps->i_profile_idc >= PROFILE_HIGH10 )
+        if( MPEG2 || h->sps->i_profile_idc >= PROFILE_HIGH10 )
             rc->frame_size_maximum = 1e9;
         else
         {
