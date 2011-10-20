@@ -431,6 +431,25 @@ void x264_param_apply_fastfirstpass( x264_param_t *param )
     }
 }
 
+static int profile_string_to_int( const char *str, int b_mpeg2 )
+{
+    if( !strcasecmp( str, "baseline" ) )
+        return b_mpeg2 ? -1 : PROFILE_BASELINE;
+    if( !strcasecmp( str, "simple" ) )
+        return b_mpeg2 ? MPEG2_PROFILE_SIMPLE : -1;
+    if( !strcasecmp( str, "main" ) )
+        return b_mpeg2 ? MPEG2_PROFILE_MAIN : PROFILE_MAIN;
+    if( !strcasecmp( str, "high" ) )
+        return b_mpeg2 ? MPEG2_PROFILE_HIGH : PROFILE_HIGH;
+    if( !strcasecmp( str, "high10" ) )
+        return b_mpeg2 ? -1 : PROFILE_HIGH10;
+    if( !strcasecmp( str, "high422" ) )
+        return b_mpeg2 ? -1 : PROFILE_HIGH422;
+    if( !strcasecmp( str, "high444" ) )
+        return b_mpeg2 ? -1 : PROFILE_HIGH444_PREDICTIVE;
+    return -1;
+}
+
 int x264_param_apply_profile( x264_param_t *param, const char *profile )
 {
     /* Force MPEG-2 settings */
@@ -461,37 +480,62 @@ int x264_param_apply_profile( x264_param_t *param, const char *profile )
     if( !profile )
         return 0;
 
-    if( !param->b_mpeg2 )
+    int p = profile_string_to_int( profile, param->b_mpeg2 );
+    if( p < 0 )
     {
-#if BIT_DEPTH > 8
-        if( !strcasecmp( profile, "baseline" ) || !strcasecmp( profile, "main" ) ||
-            !strcasecmp( profile, "high" ) )
+        x264_log( NULL, X264_LOG_ERROR, "invalid profile: %s\n", profile );
+        return -1;
+    }
+
+    if( param->b_mpeg2 )
+    {
+        if( p == MPEG2_PROFILE_SIMPLE )
         {
-            x264_log( NULL, X264_LOG_ERROR, "%s profile doesn't support a bit depth of %d.\n", profile, BIT_DEPTH );
-            return -1;
-        }
-#endif
-        if( !strcasecmp( profile, "baseline" ) )
-        {
-            param->analyse.b_transform_8x8 = 0;
-            param->b_cabac = 0;
-            param->i_cqm_preset = X264_CQM_FLAT;
-            param->psz_cqm_file = NULL;
             param->i_bframe = 0;
-            param->analyse.i_weighted_pred = X264_WEIGHTP_NONE;
+            param->i_intra_dc_precision = X264_INTRA_DC_8_BIT;
             if( param->b_interlaced )
             {
-                x264_log( NULL, X264_LOG_ERROR, "baseline profile doesn't support interlacing\n" );
-                return -1;
-            }
-            if( param->b_fake_interlaced )
-            {
-                x264_log( NULL, X264_LOG_ERROR, "baseline profile doesn't support fake interlacing\n" );
+                x264_log( NULL, X264_LOG_ERROR, "simple profile doesn't support interlacing\n" );
                 return -1;
             }
         }
+        else if( p == MPEG2_PROFILE_MAIN )
+            param->i_intra_dc_precision = x264_clip3( param->i_intra_dc_precision,
+                                                      X264_INTRA_DC_8_BIT, X264_INTRA_DC_10_BIT );
+        return 0;
+    }
+    
+    if( p < PROFILE_HIGH444_PREDICTIVE && ((param->rc.i_rc_method == X264_RC_CQP && param->rc.i_qp_constant <= 0) ||
+        (param->rc.i_rc_method == X264_RC_CRF && (int)(param->rc.f_rf_constant + QP_BD_OFFSET) <= 0)) )
+    {
+        x264_log( NULL, X264_LOG_ERROR, "%s profile doesn't support lossless\n", profile );
+        return -1;
+    }
+    if( p < PROFILE_HIGH444_PREDICTIVE && (param->i_csp & X264_CSP_MASK) >= X264_CSP_I444 )
+    {
+        x264_log( NULL, X264_LOG_ERROR, "%s profile doesn't support 4:4:4\n", profile );
+        return -1;
+    }
+    if( p < PROFILE_HIGH422 && (param->i_csp & X264_CSP_MASK) >= X264_CSP_I422 )
+    {
+        x264_log( NULL, X264_LOG_ERROR, "%s profile doesn't support 4:2:2\n", profile );
+        return -1;
+    }
+    if( p < PROFILE_HIGH10 && BIT_DEPTH > 8 )
+    {
+        x264_log( NULL, X264_LOG_ERROR, "%s profile doesn't support a bit depth of %d\n", profile, BIT_DEPTH );
+        return -1;
+    }
 
-        else if( !strcasecmp( profile, "main" ) )
+    if( p == PROFILE_BASELINE )
+    {
+        param->analyse.b_transform_8x8 = 0;
+        param->b_cabac = 0;
+        param->i_cqm_preset = X264_CQM_FLAT;
+        param->psz_cqm_file = NULL;
+        param->i_bframe = 0;
+        param->analyse.i_weighted_pred = X264_WEIGHTP_NONE;
+        if( param->b_interlaced )
         {
             param->analyse.b_transform_8x8 = 0;
             param->i_cqm_preset = X264_CQM_FLAT;
@@ -507,37 +551,11 @@ int x264_param_apply_profile( x264_param_t *param, const char *profile )
             return -1;
         }
     }
-    else
+    else if( p == PROFILE_MAIN )
     {
-        if( !strcasecmp( profile, "simple" ) )
-        {
-            param->i_bframe = 0;
-            if( param->b_interlaced )
-            {
-                x264_log( NULL, X264_LOG_ERROR, "simple profile doesn't support interlacing\n" );
-                return -1;
-            }
-        }
-        else if( !strcasecmp( profile, "high" ) )
-        {
-
-        }
-        else if( !strcasecmp( profile, "main" ) )
-        {
-            /* Default MPEG-2 */
-            param->i_intra_dc_precision = x264_clip3(param->i_intra_dc_precision, 0, 2);
-        }
-        else
-        {
-            x264_log( NULL, X264_LOG_ERROR, "invalid profile: %s\n", profile );
-            return -1;
-        }
-    }
-    if( (param->rc.i_rc_method == X264_RC_CQP && param->rc.i_qp_constant <= 0) ||
-        (param->rc.i_rc_method == X264_RC_CRF && (int)(param->rc.f_rf_constant + QP_BD_OFFSET) <= 0) )
-    {
-        x264_log( NULL, X264_LOG_ERROR, "%s profile doesn't support lossless\n", profile );
-        return -1;
+        param->analyse.b_transform_8x8 = 0;
+        param->i_cqm_preset = X264_CQM_FLAT;
+        param->psz_cqm_file = NULL;
     }
     return 0;
 }
@@ -679,6 +697,8 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
     }
     OPT2("deterministic", "n-deterministic")
         p->b_deterministic = atobool(value);
+    OPT("cpu-independent")
+        p->b_cpu_independent = atobool(value);
     OPT2("level", "level-idc")
     {
         if( !strcmp(value, "1b") )
@@ -1167,6 +1187,9 @@ int x264_picture_alloc( x264_picture_t *pic, int i_csp, int i_width, int i_heigh
         [X264_CSP_I420] = { 3, { 256*1, 256/2, 256/2 }, { 256*1, 256/2, 256/2 } },
         [X264_CSP_YV12] = { 3, { 256*1, 256/2, 256/2 }, { 256*1, 256/2, 256/2 } },
         [X264_CSP_NV12] = { 2, { 256*1, 256*1 },        { 256*1, 256/2 },       },
+        [X264_CSP_I422] = { 3, { 256*1, 256/2, 256/2 }, { 256*1, 256*1, 256*1 } },
+        [X264_CSP_YV16] = { 3, { 256*1, 256/2, 256/2 }, { 256*1, 256*1, 256*1 } },
+        [X264_CSP_NV16] = { 2, { 256*1, 256*1 },        { 256*1, 256*1 },       },
         [X264_CSP_I444] = { 3, { 256*1, 256*1, 256*1 }, { 256*1, 256*1, 256*1 } },
         [X264_CSP_YV24] = { 3, { 256*1, 256*1, 256*1 }, { 256*1, 256*1, 256*1 } },
         [X264_CSP_BGR]  = { 1, { 256*3 },               { 256*1 },              },
