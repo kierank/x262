@@ -760,7 +760,7 @@ void x262_seq_header_write( x264_t *h, bs_t *s )
 
     bs_write( s, 12, h->param.i_width & 0xfff );  // horizontal_size_value
     bs_write( s, 12, h->param.i_height & 0xfff ); // vertical_size_value
-    bs_write( s, 4, 1 ); // aspect_ratio_information FIXME
+    bs_write( s, 4, h->param.vui.i_aspect_ratio_information ); // aspect_ratio_information
     bs_write( s, 4, h->sps->i_frame_rate_code ); // frame_rate_code
     bs_write( s, 18, 1 ); // bit_rate_value FIXME
     bs_write1( s, 1 ); // marker_bit

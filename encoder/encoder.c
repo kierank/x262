@@ -1102,6 +1102,29 @@ static void chroma_dsp_init( x264_t *h )
 static void x264_set_aspect_ratio( x264_t *h, x264_param_t *param, int initial )
 {
     /* VUI */
+    const struct { uint8_t w, h, dar; } dar[] =
+    {
+        { 1, 1, 1 }, { 4, 3, 2 }, { 16, 9, 3 }, { 221, 100, 4 },
+        { 0, 0, 1 }
+    };
+
+    if( MPEG2 )
+    {
+        int aspect = param->vui.i_aspect_ratio_information;
+        if( aspect < 0 || aspect > 4 )
+        {
+            param->vui.i_aspect_ratio_information = X264_MPEG2_DAR_AUTO;
+            x264_log( h, X264_LOG_WARNING, "invalid display aspect ratio\n" );
+        }
+        else if( aspect )
+        {
+            param->vui.i_sar_width  = dar[aspect].w;
+            param->vui.i_sar_height = dar[aspect].h;
+        }
+        else if( !param->vui.i_sar_width && !param->vui.i_sar_height )
+            param->vui.i_sar_width = param->vui.i_sar_height = 1;
+    }
+
     if( param->vui.i_sar_width > 0 && param->vui.i_sar_height > 0 )
     {
         uint32_t i_w = param->vui.i_sar_width;
@@ -1119,6 +1142,24 @@ static void x264_set_aspect_ratio( x264_t *h, x264_param_t *param, int initial )
 
         x264_reduce_fraction( &i_w, &i_h );
 
+        if( MPEG2 && !param->vui.i_aspect_ratio_information )
+        {
+            int i;
+            for( i = 0; i < 4 ; i++ )
+                if( dar[i].w == i_w && dar[i].h == i_h )
+                {
+                    param->vui.i_aspect_ratio_information = dar[i].dar;
+                    break;
+                }
+            if( i == 4 )
+            {
+                if( i_w || i_h )
+                    x264_log( h, X264_LOG_WARNING, "invalid display aspect ratio\n" );
+                i_w = i_h = old_w = old_h =
+                param->vui.i_aspect_ratio_information = X264_MPEG2_DAR_SQUARE;
+            }
+        }
+
         if( i_w != old_w || i_h != old_h || initial )
         {
             h->param.vui.i_sar_width = 0;
@@ -1127,7 +1168,9 @@ static void x264_set_aspect_ratio( x264_t *h, x264_param_t *param, int initial )
                 x264_log( h, X264_LOG_WARNING, "cannot create valid sample aspect ratio\n" );
             else
             {
-                x264_log( h, initial?X264_LOG_INFO:X264_LOG_DEBUG, "using SAR=%d/%d\n", i_w, i_h );
+                // MPEG-2 Table 6-3 references DAR for 4:3, 16:9, and 2.21
+                char s = MPEG2 && param->vui.i_aspect_ratio_information > 1 ? 'D' : 'S';
+                x264_log( h, initial?X264_LOG_INFO:X264_LOG_DEBUG, "using %cAR=%d/%d\n", s, i_w, i_h );
                 h->param.vui.i_sar_width = i_w;
                 h->param.vui.i_sar_height = i_h;
             }

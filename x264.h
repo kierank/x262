@@ -259,6 +259,13 @@ static const char * const x264_nal_hrd_names[] = { "none", "vbr", "cbr", 0 };
 #define X264_MPEG2_60FPS_NTSC        7
 #define X264_MPEG2_60FPS             8
 
+/* MPEG-2 Aspect Ratio Information */
+#define X264_MPEG2_DAR_AUTO          0
+#define X264_MPEG2_DAR_SQUARE        1
+#define X264_MPEG2_DAR_43            2
+#define X264_MPEG2_DAR_169           3
+#define X264_MPEG2_DAR_221           4
+
 /* Zones: override ratecontrol or other options for specific sections of the video.
  * See x264_encoder_reconfig() for which options can be changed.
  * If zones overlap, whichever comes later in the list takes precedence. */
@@ -302,6 +309,7 @@ typedef struct x264_param_t
         /* they will be reduced to be 0 < x <= 65535 and prime */
         int         i_sar_height;
         int         i_sar_width;
+        int         i_aspect_ratio_information; /* MPEG-2 - overrides SAR */
 
         int         i_overscan;    /* 0=undef, 1=no overscan, 2=overscan */
 
