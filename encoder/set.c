@@ -756,15 +756,33 @@ void x264_sei_dec_ref_pic_marking_write( x264_t *h, bs_t *s )
 
 void x262_seq_header_write( x264_t *h, bs_t *s )
 {
+    int i;
     bs_realign( s );
 
     bs_write( s, 12, h->param.i_width & 0xfff );  // horizontal_size_value
     bs_write( s, 12, h->param.i_height & 0xfff ); // vertical_size_value
     bs_write( s, 4, h->param.vui.i_aspect_ratio_information ); // aspect_ratio_information
     bs_write( s, 4, h->sps->i_frame_rate_code ); // frame_rate_code
-    bs_write( s, 18, 1 ); // bit_rate_value FIXME
+
+    /* If vbv parameters are not set, choose a common value. */
+    if( h->param.rc.i_vbv_max_bitrate > 0 )
+        i = ((h->param.rc.i_vbv_max_bitrate * 1000 + 399) / 400) & 0x3ffff;
+    else if( h->param.i_width > 720 )
+        i = 48500; // ATSC A/53, (19400 * 1000 + 399) / 400
+    else
+        i = 24500; // DVD, (9800 * 1000 + 399) / 400
+    bs_write( s, 18, i ); // bit_rate_value
+
     bs_write1( s, 1 ); // marker_bit
-    bs_write( s, 10, 0 ); // vbv_buffer_size_value FIXME
+
+    if( h->param.rc.i_vbv_buffer_size > 0 )
+        i = ((h->param.rc.i_vbv_buffer_size * 1000 + 16383) / 16384) & 0x3ff;
+    else if( h->param.i_width > 720 )
+        i = 488; // ATSC A/53, (7995 * 1000 + 16383) / 16384
+    else
+        i = 112; // DVD, (1835 * 1000 + 16383) / 16384
+    bs_write( s, 10, i ); // vbv_buffer_size_value
+
     bs_write1( s, 0 ); // constrained_parameters_flag
     bs_write1( s, 0 ); // load_intra_quantiser_matrix
     bs_write1( s, 0 ); // load_non_intra_quantiser_matrix
@@ -778,18 +796,18 @@ void x262_seq_extension_write( x264_t *h, bs_t *s )
     x264_sps_t *sps = h->sps;
     bs_realign( s );
 
-    bs_write( s, 4, MPEG2_SEQ_EXT_ID ); // extension_start_code_identifier
+    bs_write( s, 4, MPEG2_SEQ_EXT_ID );   // extension_start_code_identifier
     bs_write1( s, 0 );   // escape bit
     bs_write( s, 3, sps->i_profile_idc ); // profile identification
     bs_write( s, 4, sps->i_level_idc );   // level identification
-    bs_write1( s, !( h->param.b_interlaced || h->param.b_pulldown ) );   // progressive_sequence
+    bs_write1( s, !( h->param.b_interlaced || h->param.b_pulldown ) ); // progressive_sequence
     bs_write( s, 2, 1 ); // chroma_format
     bs_write( s, 2, (h->param.i_width >> 12) & 0x3 );  // horizontal_size_extension
     bs_write( s, 2, (h->param.i_height >> 12) & 0x3 ); // vertical_size_extension
-    bs_write( s, 12, 0 ); // bit_rate_extension FIXME
-    bs_write1( s, 1 ); // marker_bit
-    bs_write( s, 8, 0 ); // vbv_buffer_size_extension FIXME
-    bs_write1( s, 0 ); // low_delay
+    bs_write( s, 12, (h->param.rc.i_vbv_max_bitrate * 1000 + 399) / 400 >> 18 & 0xfff );   // bit_rate_extension
+    bs_write1( s, 1 );   // marker_bit
+    bs_write( s, 8, (h->param.rc.i_vbv_buffer_size * 1000 + 16383) / 16384 >> 10 & 0xff ); // vbv_buffer_size_extension
+    bs_write1( s, 0 );   // low_delay
     bs_write( s, 2, 0 ); // frame_rate_extension_n
     bs_write( s, 5, 0 ); // frame_rate_extension_d
 
