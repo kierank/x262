@@ -43,7 +43,6 @@ extern int ptw32_processInitialized;
 
 int64_t x264_mdate( void )
 {
-<<<<<<< HEAD
 #ifdef __MINGW32__
     struct timeb tb;
     ftime( &tb );
