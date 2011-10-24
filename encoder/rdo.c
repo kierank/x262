@@ -183,6 +183,7 @@ static int x264_rd_cost_mb( x264_t *h, int i_lambda2 )
         if( IS_SKIP( h->mb.i_type ) )
         {
             // TODO
+            i_bits = 0;
         }
         else
         {
