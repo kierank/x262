@@ -102,7 +102,8 @@ void x262_macroblock_write_vlc( x264_t *h )
     int       i_mb_pos_tex = 0;
 #endif
 
-    int cbp = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma; // coded_block_pattern_420
+    int cbp420 = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma;
+    int cbp = cbp420 << 2 | h->mb.i_cbp_chroma422;
     int quant = h->mb.i_last_qp != h->mb.i_qp && h->mb.i_mb_x;
     int mcoded = h->mb.cache.mv[0][x264_scan8[0]][0] ||
                  h->mb.cache.mv[0][x264_scan8[0]][1];
@@ -164,13 +165,11 @@ void x262_macroblock_write_vlc( x264_t *h )
     h->stat.frame.i_mv_bits += i_mb_pos_tex - i_mb_pos_start;
 #endif
 
-    if( i_mb_type != I_16x16 && cbp )
-        bs_write_vlc( s, x262_cbp[cbp] ); // coded_block_pattern_420
-
-    for( int i = 0; i < 6; i++ )
+    // block()
+    int blockcount = CHROMA_FORMAT == CHROMA_420 ? 6 : 8;
+    if( i_mb_type == I_16x16 )
     {
-        // block()
-        if( i_mb_type == I_16x16 )
+        for( int i = 0; i < blockcount; i++ )
         {
             h->dct.mpeg2_8x8[i][0] = 0;
             if( i < 4 )
@@ -183,10 +182,20 @@ void x262_macroblock_write_vlc( x264_t *h )
             x262_write_dct_vlcs( h, h->dct.mpeg2_8x8[i], h->param.b_alt_intra_vlc ); // AC
             bs_write_vlc( s, dct_vlcs[h->param.b_alt_intra_vlc][0][0] ); // end of block
         }
-        else if( cbp & (1<<(5-i)) )
+    }
+    else if( cbp )
+    {
+        bs_write_vlc( s, x262_cbp[cbp420] ); // coded_block_pattern_420
+        if( CHROMA_FORMAT == CHROMA_422 )
+            bs_write( s, 2, cbp & 0x3 );     // coded_block_pattern_1
+
+        for( int i = 0; i < 8; i++ )
         {
-            x262_write_dct_vlcs( h, h->dct.mpeg2_8x8[i], 0 );
-            bs_write_vlc( s, dct_vlcs[0][0][0] ); // end of block
+            if( cbp & (1<<(7-i)) )
+            {
+                x262_write_dct_vlcs( h, h->dct.mpeg2_8x8[i], 0 ); // DC and AC
+                bs_write_vlc( s, dct_vlcs[0][0][0] ); // end of block
+            }
         }
     }
 

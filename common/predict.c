@@ -1008,12 +1008,9 @@ void x262_predict_8x8_init ( int cpu, x262_predict_t *pf )
 
 void x262_reset_intra_dc_predictor( x264_t *h )
 {
-    h->mb.i_intra_dc_predictor[0] = 1<<(h->param.i_intra_dc_precision+7);
-    h->mb.i_intra_dc_predictor[1] = 1<<(h->param.i_intra_dc_precision+7);
-    h->mb.i_intra_dc_predictor[2] = 1<<(h->param.i_intra_dc_precision+7);
-    h->mb.i_intra_dc_predictor[3] = 1<<(h->param.i_intra_dc_precision+7);
-    h->mb.i_intra_dc_predictor[4] = 1<<(h->param.i_intra_dc_precision+7);
-    h->mb.i_intra_dc_predictor[5] = 1<<(h->param.i_intra_dc_precision+7);
+    int dc_predictor = 1<<(h->param.i_intra_dc_precision+7);
+    for( int i = 0; i < 8; i++ )
+        h->mb.i_intra_dc_predictor[i] = dc_predictor;
 }
 
 void x262_reset_mv_predictor( x264_t *h )

@@ -787,6 +787,13 @@ static void x264_mb_analyse_intra_chroma( x264_t *h, x264_mb_analysis_t *a )
         h->predict_mpeg2_8x8( h->mb.pic.p_fdec[2], 0 );
         a->i_satd_chroma = h->pixf.mbcmp[PIXEL_8x8]( h->mb.pic.p_fdec[1], FDEC_STRIDE, h->mb.pic.p_fenc[1], FENC_STRIDE ) +
                            h->pixf.mbcmp[PIXEL_8x8]( h->mb.pic.p_fdec[2], FDEC_STRIDE, h->mb.pic.p_fenc[2], FENC_STRIDE );
+        if( CHROMA_FORMAT == CHROMA_422 )
+        {
+            h->predict_mpeg2_8x8( &h->mb.pic.p_fdec[1][8*FDEC_STRIDE], 0 );
+            h->predict_mpeg2_8x8( &h->mb.pic.p_fdec[2][8*FDEC_STRIDE], 0 );
+            a->i_satd_chroma += h->pixf.mbcmp[PIXEL_8x8]( &h->mb.pic.p_fdec[1][8*FDEC_STRIDE], FDEC_STRIDE, &h->mb.pic.p_fenc[1][8*FDEC_STRIDE], FENC_STRIDE ) +
+                                h->pixf.mbcmp[PIXEL_8x8]( &h->mb.pic.p_fdec[2][8*FDEC_STRIDE], FDEC_STRIDE, &h->mb.pic.p_fenc[2][8*FDEC_STRIDE], FENC_STRIDE );
+        }
         return;
     }
 

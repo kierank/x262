@@ -629,7 +629,7 @@ struct x264_t
         // FIXME share memory?
         ALIGNED_16( dctcoef luma8x8[12][64] );
         ALIGNED_16( dctcoef luma4x4[16*3][16] );
-        ALIGNED_16( dctcoef mpeg2_8x8[6][64] );
+        ALIGNED_16( dctcoef mpeg2_8x8[8][64] );
     } dct;
 
     /* MB table and cache for current frame/mb */
@@ -745,11 +745,12 @@ struct x264_t
 
         /* MPEG-2 */
         int     i_quant_scale_code;
-        int     i_intra_dc_predictor[6]; /* last block encoded */
-        int     i_dct_dc_size[6];
-        int     i_dct_dc_diff[6];
+        int     i_intra_dc_predictor[8];
+        int     i_dct_dc_size[8];
+        int     i_dct_dc_diff[8];
         int     i_bskip_type;
         int16_t mvp[2][2];
+        int     i_cbp_chroma422;
 
         int     i_cbp_luma;
         int     i_cbp_chroma;
