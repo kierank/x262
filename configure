@@ -932,10 +932,15 @@ fi
 if [ "$bit_depth" -gt "8" ]; then
     define HIGH_BIT_DEPTH
     ASFLAGS="$ASFLAGS -DHIGH_BIT_DEPTH"
+    mpeg2="no"
 fi
 
 if [ "$chroma_format" != "all" ]; then
     define CHROMA_FORMAT CHROMA_$chroma_format
+fi
+
+if [ "$chroma_format" = "444" ]; then
+    mpeg2="no"
 fi
 
 ASFLAGS="$ASFLAGS -DBIT_DEPTH=$bit_depth"
