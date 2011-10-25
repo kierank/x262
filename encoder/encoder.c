@@ -2932,7 +2932,7 @@ int     x264_encoder_encode( x264_t *h,
         }
 
         /* when frame threading is used, buffering period sei is written in x264_encoder_frame_end */
-        if( h->i_thread_frames == 1 && h->sps->vui.b_nal_hrd_parameters_present )
+        if( h->i_thread_frames == 1 && h->param.i_nal_hrd )
         {
             x264_hrd_fullness( h );
             x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
@@ -3090,7 +3090,7 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
     x264_emms();
 
     /* generate buffering period sei and insert it into place */
-    if( h->i_thread_frames > 1 && h->fenc->b_keyframe && h->sps->vui.b_nal_hrd_parameters_present )
+    if( h->i_thread_frames > 1 && h->fenc->b_keyframe && h->param.i_nal_hrd )
     {
         x264_hrd_fullness( h );
         x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
