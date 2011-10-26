@@ -71,23 +71,24 @@ static const uint16_t quant8_scale[6][6] =
     {  7282,  6428, 11570,  6830,  9118,  8640 }
 };
 
-static const uint8_t x262_qscale_linear[32] =
+/* MPEG-2 */
+static const uint8_t qscale_linear_mpeg2[32] =
 {
       0,   2,   4,   6,   8,  10,  12,  14,
      16,  18,  20,  22,  24,  26,  28,  30,
      32,  34,  36,  38,  40,  42,  44,  46,
      48,  50,  52,  54,  56,  58,  60,  62
 };
-static const uint8_t x262_qscale_nonlinear[32] =
+static const uint8_t qscale_nonlinear_mpeg2[32] =
 {
       0,   1,   2,   3,   4,   5,   6,   7,
       8,  10,  12,  14,  16,  18,  20,  22,
      24,  28,  32,  36,  40,  44,  48,  52,
      56,  64,  72,  80,  88,  96, 104, 112
 };
-static const uint8_t * x262_qscale[2] =
+static const uint8_t * x264_qscale_mpeg2[2] =
 {
-    x262_qscale_linear, x262_qscale_nonlinear
+    qscale_linear_mpeg2, qscale_nonlinear_mpeg2
 };
 
 int x264_cqm_init( x264_t *h )
@@ -274,9 +275,9 @@ fail:
     return -1;
 }
 
-int x262_cqm_init( x264_t *h )
+int x264_cqm_init_mpeg2( x264_t *h )
 {
-    const uint8_t *qscale = x262_qscale[h->param.b_nonlinear_quant];
+    const uint8_t *qscale = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
 
     for( int i = 0; i < 2; i++ )
     {

@@ -254,7 +254,7 @@ static const uint8_t * const x264_cqm_jvt[8] =
 };
 
 /* matrix is transposed */
-static const uint8_t x262_cqm_intra[64] =
+static const uint8_t x264_cqm_intra_mpeg2[64] =
 {
      8,16,19,22,22,26,26,27,
     16,16,22,22,26,27,27,29,
@@ -267,7 +267,7 @@ static const uint8_t x262_cqm_intra[64] =
 };
 
 int  x264_cqm_init( x264_t *h );
-int  x262_cqm_init( x264_t *h );
+int  x264_cqm_init_mpeg2( x264_t *h );
 void x264_cqm_delete( x264_t *h );
 int  x264_cqm_parse_file( x264_t *h, const char *filename );
 
@@ -276,6 +276,6 @@ typedef struct
     int fps_code;
     int fps_num;
     int fps_den;
-} x262_fps_t;
+} x264_fps_mpeg2_t;
 
 #endif

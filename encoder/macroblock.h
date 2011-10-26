@@ -32,11 +32,11 @@
 extern const int x264_lambda2_tab[QP_MAX_MAX+1];
 extern const uint16_t x264_lambda_tab[QP_MAX_MAX+1];
 
-extern const int x262_lambda2_tab_exp[QP_MAX_MAX+1];
-extern const uint16_t x262_lambda_tab_exp[QP_MAX_MAX+1];
-extern const int x262_lambda2_tab_lin[QP_MAX_MAX+1];
-extern const uint16_t x262_lambda_tab_lin[QP_MAX_MAX+1];
-
+/* MPEG-2 */
+extern const int x264_lambda2_tab_exp_mpeg2[QP_MAX_MAX+1];
+extern const uint16_t x264_lambda_tab_exp_mpeg2[QP_MAX_MAX+1];
+extern const int x264_lambda2_tab_lin_mpeg2[QP_MAX_MAX+1];
+extern const uint16_t x264_lambda_tab_lin_mpeg2[QP_MAX_MAX+1];
 
 void x264_rdo_init( void );
 
@@ -57,7 +57,7 @@ void x264_macroblock_encode      ( x264_t *h );
 void x264_macroblock_write_cabac ( x264_t *h, x264_cabac_t *cb );
 void x264_macroblock_write_cavlc ( x264_t *h );
 
-void x262_macroblock_write_vlc ( x264_t *h );
+void x264_macroblock_write_vlc_mpeg2( x264_t *h );
 
 void x264_macroblock_encode_p8x8( x264_t *h, int i8 );
 void x264_macroblock_encode_p4x4( x264_t *h, int i4 );

@@ -26,7 +26,7 @@
 
 #include "common.h"
 
-const vlc_t x262_mb_addr_inc[34] =
+const vlc_t x264_mb_addr_inc[34] =
 {
     { 0x1, 1 },   /* str=1 */
     { 0x3, 3 },   /* str=011 */
@@ -64,7 +64,7 @@ const vlc_t x262_mb_addr_inc[34] =
     { 0x8, 11 },  /* escape */
 };
 
-const vlc_t x262_cbp[64] =
+const vlc_t x264_cbp[64] =
 {
     { 0x1, 9 },  /* str=000000001 */
     { 0xb, 5 },  /* str=01011 */
@@ -133,7 +133,7 @@ const vlc_t x262_cbp[64] =
 };
 
 /* [frame_type][quant] */
-const vlc_t x262_i_mb_type[3][2] =
+const vlc_t x264_i_mb_type[3][2] =
 {
     {
         { 0x3, 5 }, /* str=00011 */
@@ -150,7 +150,7 @@ const vlc_t x262_i_mb_type[3][2] =
 };
 
 /* [mc][coded][quant] */
-const vlc_t x262_p_mb_type[2][2][2] =
+const vlc_t x264_p_mb_type[2][2][2] =
 {
     {
         {},
@@ -171,7 +171,7 @@ const vlc_t x262_p_mb_type[2][2][2] =
 };
 
 /* [fwd/bwd/interp][coded][quant] */
-const vlc_t x262_b_mb_type[3][2][2] =
+const vlc_t x264_b_mb_type[3][2][2] =
 {
     {
         {
@@ -203,7 +203,7 @@ const vlc_t x262_b_mb_type[3][2][2] =
 };
 
 /* [code] */
-const vlc_large_t x262_dc_luma_code[12] =
+const vlc_large_t x264_dc_luma_code[12] =
 {
     { 0x4, 3 }, /* str=100 */
     { 0x0, 2 }, /* str=00 */
@@ -220,7 +220,7 @@ const vlc_large_t x262_dc_luma_code[12] =
 };
 
 /* [code] */
-const vlc_large_t x262_dc_chroma_code[12] =
+const vlc_large_t x264_dc_chroma_code[12] =
 {
     { 0x0, 2 }, /* str=00 */
     { 0x1, 2 }, /* str=01 */
@@ -237,7 +237,7 @@ const vlc_large_t x262_dc_chroma_code[12] =
 };
 
 /* [motion_code+16] */
-const vlc_large_t x262_motion_code[33] =
+const vlc_large_t x264_motion_code[33] =
 {
     { 0x19, 11 }, /* str=00000011001 */
     { 0x1b, 11 }, /* str=00000011011 */
@@ -275,7 +275,7 @@ const vlc_large_t x262_motion_code[33] =
 };
 
 /* [dmvector+1] */
-const vlc_t x262_dmvector[3] =
+const vlc_t x264_dmvector[3] =
 {
     { 0x3, 2 }, /* str=11 */
     { 0x0, 1 }, /* str=0 */

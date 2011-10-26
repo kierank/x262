@@ -470,7 +470,7 @@ void x264_pps_init( x264_t *h, x264_pps_t *pps, int i_id, x264_param_t *param, x
     case X264_CQM_FLAT:
         if( MPEG2 )
         {
-            pps->scaling_list[CQM_8IY] = x262_cqm_intra;
+            pps->scaling_list[CQM_8IY] = x264_cqm_intra_mpeg2;
             pps->scaling_list[CQM_8PY] = x264_cqm_flat16;
         }
         else
@@ -607,8 +607,8 @@ int x264_sei_version_write( x264_t *h, bs_t *s )
              "Copy%s 2003-2011 - http://www.videolan.org/x264.html - options: %s",
              X264_BUILD, X264_VERSION, HAVE_GPL?"left":"right", opts );
     length = strlen(payload)+1;
-    MPEG2 ? x262_user_data_write( s, (uint8_t *)payload, length ) :
-                  x264_sei_write( s, (uint8_t *)payload, length, SEI_USER_DATA_UNREGISTERED );
+    MPEG2 ? x264_user_data_write_mpeg2( s, (uint8_t *)payload, length ) :
+            x264_sei_write( s, (uint8_t *)payload, length, SEI_USER_DATA_UNREGISTERED );
 
     x264_free( opts );
     x264_free( payload );
@@ -754,7 +754,8 @@ void x264_sei_dec_ref_pic_marking_write( x264_t *h, bs_t *s )
     x264_sei_write( s, tmp_buf, bs_pos( &q ) / 8, SEI_DEC_REF_PIC_MARKING );
 }
 
-void x262_seq_header_write( x264_t *h, bs_t *s )
+/* MPEG-2 */
+void x264_seq_header_write_mpeg2( x264_t *h, bs_t *s )
 {
     int i;
     bs_realign( s );
@@ -791,7 +792,7 @@ void x262_seq_header_write( x264_t *h, bs_t *s )
     bs_flush( s );
 }
 
-void x262_seq_extension_write( x264_t *h, bs_t *s )
+void x264_seq_extension_write_mpeg2( x264_t *h, bs_t *s )
 {
     x264_sps_t *sps = h->sps;
     bs_realign( s );
@@ -815,7 +816,7 @@ void x262_seq_extension_write( x264_t *h, bs_t *s )
     bs_flush( s );
 }
 
-void x262_seq_disp_extension_write( x264_t *h, bs_t *s )
+void x264_seq_disp_extension_write_mpeg2( x264_t *h, bs_t *s )
 {
     x264_sps_t *sps = h->sps;
     bs_realign( s );
@@ -837,7 +838,7 @@ void x262_seq_disp_extension_write( x264_t *h, bs_t *s )
     bs_flush( s );
 }
 
-void x262_gop_header_write( x264_t *h, bs_t *s )
+void x264_gop_header_write_mpeg2( x264_t *h, bs_t *s )
 {
     bs_realign( s );
 
@@ -867,7 +868,7 @@ void x262_gop_header_write( x264_t *h, bs_t *s )
     bs_flush( s );
 }
 
-void x262_pic_header_write( x264_t *h, bs_t *s )
+void x264_pic_header_write_mpeg2( x264_t *h, bs_t *s )
 {
     bs_realign( s );
 
@@ -896,7 +897,7 @@ void x262_pic_header_write( x264_t *h, bs_t *s )
     bs_flush( s );
 }
 
-void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
+void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s )
 {
     x264_param_t *param = &h->param;
 
@@ -955,7 +956,7 @@ void x262_pic_coding_extension_write( x264_t *h, bs_t *s )
     bs_flush( s );
 }
 
-void x262_pic_display_extension_write( x264_t *h, bs_t *s )
+void x264_pic_display_extension_write_mpeg2( x264_t *h, bs_t *s )
 {
     int offsets = !h->param.b_interlaced ? h->fenc->b_rff ? h->param.b_tff ? 3 : 2 : 1 :
                    h->param.b_interlaced ? 1 : h->fenc->b_rff ? 3 : 2;
@@ -977,7 +978,7 @@ void x262_pic_display_extension_write( x264_t *h, bs_t *s )
     bs_flush( s );
 }
 
-void x262_user_data_write( bs_t *s, uint8_t *payload, int payload_size )
+void x264_user_data_write_mpeg2( bs_t *s, uint8_t *payload, int payload_size )
 {
     bs_realign( s );
 
@@ -1009,7 +1010,7 @@ const x264_level_t x264_levels[] =
     { 0 }
 };
 
-const x262_level_t x262_levels[] =
+const x264_level_mpeg2_t x264_levels_mpeg2[] =
 {
     { 10,   3041280,        0,  352,  288, 5,  4000,      0,  475136,        0,  512,  64 },
     {  8,  10368000, 14745600,  720,  576, 5, 15000,  20000, 1835008,  2441216, 1024, 128 },
@@ -1019,7 +1020,7 @@ const x262_level_t x262_levels[] =
     { 0 }
 };
 
-const x262_fps_t x262_allowed_fps[14] =
+const x264_fps_mpeg2_t x264_allowed_fps_mpeg2[14] =
 {
     { 1, 24000, 1001 },
     { 2, 24, 1 },
@@ -1054,7 +1055,7 @@ int x264_validate_levels( x264_t *h, int verbose )
 
     if( MPEG2 )
     {
-        const x262_level_t *l = x262_levels;
+        const x264_level_mpeg2_t *l = x264_levels_mpeg2;
         while( l->level_idc != 0 && l->level_idc != h->param.i_level_idc )
             l++;
         CHECK( "framerate", l->fps_code, h->sps->i_frame_rate_code );

@@ -40,7 +40,8 @@ static void x264_lowres_context_init( x264_t *h, x264_mb_analysis_t *a )
 {
     const uint16_t *lambda_tab;
     if( MPEG2 )
-        lambda_tab = h->param.b_nonlinear_quant ? x262_lambda_tab_exp : x262_lambda_tab_lin;
+        lambda_tab = h->param.b_nonlinear_quant ? x264_lambda_tab_exp_mpeg2 :
+                                                  x264_lambda_tab_lin_mpeg2;
     else
         lambda_tab = x264_lambda_tab;
     a->i_qp = X264_LOOKAHEAD_QP;

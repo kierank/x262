@@ -32,7 +32,7 @@
 
 #define bs_write_vlc(s,v) bs_write( s, (v).i_size, (v).i_bits )
 
-static void x262_write_dct_vlcs( x264_t *h, dctcoef *l, int intra_tab )
+static void x264_write_dct_vlc_mpeg2( x264_t *h, dctcoef *l, int intra_tab )
 {
     bs_t *s = &h->out.bs;
     x264_run_level_t runlevel;
@@ -64,7 +64,7 @@ static void x262_write_dct_vlcs( x264_t *h, dctcoef *l, int intra_tab )
     }
 }
 
-static void x262_write_mv_vlcs( x264_t *h, int mvd, int f_code )
+static void x264_write_mv_vlc_mpeg2( x264_t *h, int mvd, int f_code )
 {
     bs_t *s = &h->out.bs;
     int r_size = f_code - 1;
@@ -82,15 +82,12 @@ static void x262_write_mv_vlcs( x264_t *h, int mvd, int f_code )
     int m_code = m_residual >> r_size;
     if( mvd < 0 )
         m_code = -m_code;
-    bs_write_vlc( s, x262_motion_code[m_code + 16] ); // motion_code
+    bs_write_vlc( s, x264_motion_code[m_code + 16] ); // motion_code
     if( r_size && m_code )
         bs_write( s, r_size, m_residual & (f - 1) ); // motion_residual
 }
 
-/*****************************************************************************
- * x262_macroblock_write:
- *****************************************************************************/
-void x262_macroblock_write_vlc( x264_t *h )
+void x264_macroblock_write_vlc_mpeg2( x264_t *h )
 {
     bs_t *s = &h->out.bs;
     const int i_mb_type = h->mb.i_type;
@@ -122,12 +119,12 @@ void x262_macroblock_write_vlc( x264_t *h )
 
     // macroblock modes
     if( i_mb_type == I_16x16 )
-        bs_write_vlc( s, x262_i_mb_type[h->sh.i_type][quant] );
+        bs_write_vlc( s, x264_i_mb_type[h->sh.i_type][quant] );
     else if( i_mb_type == P_L0 )
     {
-        bs_write_vlc( s, x262_p_mb_type[mcoded][!!cbp][quant] );
+        bs_write_vlc( s, x264_p_mb_type[mcoded][!!cbp][quant] );
         if( !mcoded )
-            x262_reset_mv_predictor( h );
+            x264_reset_mv_predictor_mpeg2( h );
     }
     else
     {
@@ -135,7 +132,7 @@ void x262_macroblock_write_vlc( x264_t *h )
             mv_type = 1;
         else if( i_mb_type == B_BI_BI )
             mv_type = 2;
-        bs_write_vlc( s, x262_b_mb_type[mv_type][!!cbp][quant] );
+        bs_write_vlc( s, x264_b_mb_type[mv_type][!!cbp][quant] );
     }
 
     if( quant )
@@ -153,8 +150,8 @@ void x262_macroblock_write_vlc( x264_t *h )
         for( int j = 0; j < mvcount; j++, mv_type++ )
             for( int i = 0; i < 2; i++ )
             {
-                x262_write_mv_vlcs( h, ( h->mb.cache.mv[mv_type][x264_scan8[0]][i] - h->mb.mvp[mv_type][i] ) >> 1,
-                                    h->fenc->mv_fcode[mv_type][i] );
+                x264_write_mv_vlc_mpeg2( h, ( h->mb.cache.mv[mv_type][x264_scan8[0]][i] - h->mb.mvp[mv_type][i] ) >> 1,
+                                         h->fenc->mv_fcode[mv_type][i] );
                 // update predictors
                 h->mb.mvp[mv_type][i] = h->mb.cache.mv[mv_type][x264_scan8[0]][i];
             }
@@ -173,19 +170,19 @@ void x262_macroblock_write_vlc( x264_t *h )
         {
             h->dct.mpeg2_8x8[i][0] = 0;
             if( i < 4 )
-                bs_write_vlc( s, x262_dc_luma_code[h->mb.i_dct_dc_size[i]] );
+                bs_write_vlc( s, x264_dc_luma_code[h->mb.i_dct_dc_size[i]] );
             else
-                bs_write_vlc( s, x262_dc_chroma_code[h->mb.i_dct_dc_size[i]] );
+                bs_write_vlc( s, x264_dc_chroma_code[h->mb.i_dct_dc_size[i]] );
 
             if( h->mb.i_dct_dc_size[i] )
                 bs_write( s, h->mb.i_dct_dc_size[i], h->mb.i_dct_dc_diff[i] ); // DC
-            x262_write_dct_vlcs( h, h->dct.mpeg2_8x8[i], h->param.b_alt_intra_vlc ); // AC
+            x264_write_dct_vlc_mpeg2( h, h->dct.mpeg2_8x8[i], h->param.b_alt_intra_vlc ); // AC
             bs_write_vlc( s, dct_vlcs[h->param.b_alt_intra_vlc][0][0] ); // end of block
         }
     }
     else if( cbp )
     {
-        bs_write_vlc( s, x262_cbp[cbp420] ); // coded_block_pattern_420
+        bs_write_vlc( s, x264_cbp[cbp420] ); // coded_block_pattern_420
         if( CHROMA_FORMAT == CHROMA_422 )
             bs_write( s, 2, cbp & 0x3 );     // coded_block_pattern_1
 
@@ -193,7 +190,7 @@ void x262_macroblock_write_vlc( x264_t *h )
         {
             if( cbp & (1<<(7-i)) )
             {
-                x262_write_dct_vlcs( h, h->dct.mpeg2_8x8[i], 0 ); // DC and AC
+                x264_write_dct_vlc_mpeg2( h, h->dct.mpeg2_8x8[i], 0 ); // DC and AC
                 bs_write_vlc( s, dct_vlcs[0][0][0] ); // end of block
             }
         }

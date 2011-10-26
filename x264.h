@@ -585,10 +585,10 @@ typedef struct {
     int vbv_buf_high; /* max vbv buffer for high profile (bit/sec) */
     int mv_max_h;     /* max horizontal motion vector range (pixels) */
     int mv_max_v;     /* max vertical motion vector range (pixels) */
-} x262_level_t;
+} x264_level_mpeg2_t;
 
 /* all of the levels defined in the standard, terminated by .level_idc=0 */
-extern const x262_level_t x262_levels[];
+extern const x264_level_mpeg2_t x264_levels_mpeg2[];
 
 /****************************************************************************
  * Basic parameter handling functions

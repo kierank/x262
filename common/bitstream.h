@@ -67,17 +67,17 @@ extern const vlc_t x264_total_zeros_2x2_dc[3][4];
 extern const vlc_t x264_total_zeros_2x4_dc[7][8];
 extern const vlc_t x264_run_before[7][16];
 
-extern const vlc_t x262_mb_addr_inc[34];
-extern const vlc_t x262_cbp[64];
-extern const vlc_t x262_i_frame_mb_type[2];
-
-extern const vlc_t x262_i_mb_type[3][2];
-extern const vlc_t x262_p_mb_type[2][2][2];
-extern const vlc_t x262_b_mb_type[3][2][2];
-extern const vlc_large_t x262_dc_luma_code[12];
-extern const vlc_large_t x262_dc_chroma_code[12];
-extern const vlc_t x262_dmvector[3];
-extern const vlc_large_t x262_motion_code[33];
+/* MPEG-2 */
+extern const vlc_t x264_mb_addr_inc[34];
+extern const vlc_t x264_cbp[64];
+extern const vlc_t x264_i_frame_mb_type[2];
+extern const vlc_t x264_i_mb_type[3][2];
+extern const vlc_t x264_p_mb_type[2][2][2];
+extern const vlc_t x264_b_mb_type[3][2][2];
+extern const vlc_large_t x264_dc_luma_code[12];
+extern const vlc_large_t x264_dc_chroma_code[12];
+extern const vlc_t x264_dmvector[3];
+extern const vlc_large_t x264_motion_code[33];
 extern const vlc_large_t dct_vlcs[2][41][32];
 extern const uint8_t dct_vlc_largest_run[41];
 

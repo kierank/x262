@@ -68,8 +68,8 @@ static uint16_t cabac_size_5ones[128];
 #define COPY_CABAC_PART( pos, size )\
         memcpy( &cb->state[pos], &h->cabac.state[pos], size )
 
-/* MPEG2-VLC: */
-#define x262_macroblock_write_vlc  static x262_macroblock_size_vlc
+/* MPEG-2 */
+#define x264_macroblock_write_vlc_mpeg2  static x264_macroblock_size_vlc_mpeg2
 #include "mpeg2vlc.c"
 
 static ALWAYS_INLINE uint64_t cached_hadamard( x264_t *h, int size, int x, int y )
@@ -187,7 +187,7 @@ static int x264_rd_cost_mb( x264_t *h, int i_lambda2 )
         }
         else
         {
-            x262_macroblock_size_vlc( h );
+            x264_macroblock_size_vlc_mpeg2( h );
             i_bits = ( h->out.bs.i_bits_encoded * i_lambda2 + 128 ) >> 8; // FIXME
         }
         memcpy( h->mb.i_intra_dc_predictor, i_intra_dc_predictor_bak, sizeof(i_intra_dc_predictor_bak) );

@@ -56,16 +56,16 @@ void x264_nal_encode( x264_t *h, uint8_t *dst, x264_nal_t *nal )
 
     if( MPEG2 )
     {
-         *dst++ = 0x00;
-         *dst++ = 0x00;
-         *dst++ = 0x01;
-         /* Write correct startcode if the structure is a slice*/
-         if( nal->i_type > 0 && nal->i_type < 0xb0 )
-             *dst++ = nal->i_type;
-         else
-             *dst++ = structure_to_start_code[nal->i_type];
-         memcpy( dst, src, nal->i_payload );
-         nal->i_payload += 4;
+        *dst++ = 0x00;
+        *dst++ = 0x00;
+        *dst++ = 0x01;
+        /* Write correct startcode if the structure is a slice*/
+        if( nal->i_type > 0 && nal->i_type < 0xb0 )
+            *dst++ = nal->i_type;
+        else
+            *dst++ = structure_to_start_code[nal->i_type];
+        memcpy( dst, src, nal->i_payload );
+        nal->i_payload += 4;
     }
     else
     {
@@ -73,9 +73,9 @@ void x264_nal_encode( x264_t *h, uint8_t *dst, x264_nal_t *nal )
         {
             if( nal->b_long_startcode )
                 *dst++ = 0x00;
-             *dst++ = 0x00;
-             *dst++ = 0x00;
-             *dst++ = 0x01;
+            *dst++ = 0x00;
+            *dst++ = 0x00;
+            *dst++ = 0x01;
         }
         else /* save room for size later */
             dst += 4;

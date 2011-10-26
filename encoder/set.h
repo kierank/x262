@@ -41,15 +41,16 @@ void x264_sei_frame_packing_write( x264_t *h, bs_t *s );
 void x264_sei_write( bs_t *s, uint8_t *payload, int payload_size, int payload_type );
 void x264_filler_write( x264_t *h, bs_t *s, int filler );
 
-void x262_seq_header_write( x264_t *h, bs_t *s );
-void x262_seq_extension_write( x264_t *h, bs_t *s );
-void x262_seq_disp_extension_write( x264_t *h, bs_t *s );
-void x262_gop_header_write( x264_t *h, bs_t *s );
-void x262_pic_header_write( x264_t *h, bs_t *s );
-void x262_pic_coding_extension_write( x264_t *h, bs_t *s );
-void x262_pic_display_extension_write( x264_t *h, bs_t *s );
-void x262_user_data_write( bs_t *s, uint8_t *payload, int payload_size );
+/* MPEG-2 */
+void x264_seq_header_write_mpeg2( x264_t *h, bs_t *s );
+void x264_seq_extension_write_mpeg2( x264_t *h, bs_t *s );
+void x264_seq_disp_extension_write_mpeg2( x264_t *h, bs_t *s );
+void x264_gop_header_write_mpeg2( x264_t *h, bs_t *s );
+void x264_pic_header_write_mpeg2( x264_t *h, bs_t *s );
+void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s );
+void x264_pic_display_extension_write_mpeg2( x264_t *h, bs_t *s );
+void x264_user_data_write_mpeg2( bs_t *s, uint8_t *payload, int payload_size );
 
-const x262_fps_t x262_allowed_fps[14];
+const x264_fps_mpeg2_t x264_allowed_fps_mpeg2[14];
 
 #endif

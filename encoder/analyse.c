@@ -170,7 +170,7 @@ const int x264_lambda2_tab[QP_MAX_MAX+1] =
 };
 
 /* lambda = pow(2,qp/8+1) */
-const uint16_t x262_lambda_tab_exp[QP_MAX_MAX+1] = {
+const uint16_t x264_lambda_tab_exp_mpeg2[QP_MAX_MAX+1] = {
     0,    2,    2,    3,    3,    3,    3,    4, /*  0- 7 */
     4,    4,    5,    5,    6,    6,    7,    7, /*  8-15 */
     8,    9,   10,   10,   11,   12,   13,   15, /* 16-23 */
@@ -185,7 +185,7 @@ const uint16_t x262_lambda_tab_exp[QP_MAX_MAX+1] = {
 };
 
 /* lambda2 = pow(lambda,2) * .9 * 256 */
-const int x262_lambda2_tab_exp[QP_MAX_MAX+1] = {
+const int x264_lambda2_tab_exp_mpeg2[QP_MAX_MAX+1] = {
         0,     1095,     1303,     1549,     1843,     2191,    2606,    3099, /*  0- 7 */
      3686,     4383,     5213,     6199,     7372,     8767,   10426,   12399, /*  8-15 */
     14745,    17535,    20853,    24799,    29491,    35071,   41706,   49598, /* 16-23 */
@@ -200,7 +200,7 @@ const int x262_lambda2_tab_exp[QP_MAX_MAX+1] = {
 };
 
 /* lambda = qp/2+2 */
-const uint16_t x262_lambda_tab_lin[QP_MAX_MAX+1] = {
+const uint16_t x264_lambda_tab_lin_mpeg2[QP_MAX_MAX+1] = {
   0,   3,   3,   4,   4,   5,   5,   6, /*  0- 7 */
   6,   7,   7,   8,   8,   9,   9,  10, /*  8-15 */
  10,  11,  11,  12,  12,  13,  13,  14, /* 16-23 */
@@ -215,7 +215,7 @@ const uint16_t x262_lambda_tab_lin[QP_MAX_MAX+1] = {
 };
 
 /* lambda2 = pow(lambda,2) * .9 * 256 */
-const int x262_lambda2_tab_lin[QP_MAX_MAX+1] = {
+const int x264_lambda2_tab_lin_mpeg2[QP_MAX_MAX+1] = {
       0,   1440,   2073,   2822,   3686,   4665,   5760,   6969, /*  0- 7 */
    8294,   9734,  11289,  12960,  14745,  16646,  18662,  20793, /*  8-15 */
   23040,  25401,  27878,  30470,  33177,  36000,  38937,  41990, /* 16-23 */
@@ -353,7 +353,8 @@ int x264_analyse_init_costs( x264_t *h, float *logs, int qp )
 {
     const uint16_t *lambda_tab;
     if( MPEG2 )
-        lambda_tab = h->param.b_nonlinear_quant ? x262_lambda_tab_exp : x262_lambda_tab_lin;
+        lambda_tab = h->param.b_nonlinear_quant ? x264_lambda_tab_exp_mpeg2 :
+                                                  x264_lambda_tab_lin_mpeg2;
     else
         lambda_tab = x264_lambda_tab;
     int lambda = lambda_tab[qp];
@@ -453,12 +454,14 @@ static void x264_mb_analyse_init_qp( x264_t *h, x264_mb_analysis_t *a, int qp )
     const int *lambda2_tab;
     if( MPEG2 )
     {
-        lambda_tab = h->param.b_nonlinear_quant ? x262_lambda_tab_exp : x262_lambda_tab_lin;
-        lambda2_tab = h->param.b_nonlinear_quant ? x262_lambda2_tab_exp : x262_lambda2_tab_lin;
+        lambda_tab  = h->param.b_nonlinear_quant ? x264_lambda_tab_exp_mpeg2 :
+                                                   x264_lambda_tab_lin_mpeg2;
+        lambda2_tab = h->param.b_nonlinear_quant ? x264_lambda2_tab_exp_mpeg2 :
+                                                   x264_lambda2_tab_lin_mpeg2;
     }
     else
     {
-        lambda_tab = x264_lambda_tab;
+        lambda_tab  = x264_lambda_tab;
         lambda2_tab = x264_lambda2_tab;
     }
 
@@ -783,14 +786,14 @@ static void x264_mb_analyse_intra_chroma( x264_t *h, x264_mb_analysis_t *a )
 
     if( MPEG2 )
     {
-        h->predict_mpeg2_8x8( h->mb.pic.p_fdec[1], 0 );
-        h->predict_mpeg2_8x8( h->mb.pic.p_fdec[2], 0 );
+        h->predict_8x8_mpeg2( h->mb.pic.p_fdec[1], 0 );
+        h->predict_8x8_mpeg2( h->mb.pic.p_fdec[2], 0 );
         a->i_satd_chroma = h->pixf.mbcmp[PIXEL_8x8]( h->mb.pic.p_fdec[1], FDEC_STRIDE, h->mb.pic.p_fenc[1], FENC_STRIDE ) +
                            h->pixf.mbcmp[PIXEL_8x8]( h->mb.pic.p_fdec[2], FDEC_STRIDE, h->mb.pic.p_fenc[2], FENC_STRIDE );
         if( CHROMA_FORMAT == CHROMA_422 )
         {
-            h->predict_mpeg2_8x8( &h->mb.pic.p_fdec[1][8*FDEC_STRIDE], 0 );
-            h->predict_mpeg2_8x8( &h->mb.pic.p_fdec[2][8*FDEC_STRIDE], 0 );
+            h->predict_8x8_mpeg2( &h->mb.pic.p_fdec[1][8*FDEC_STRIDE], 0 );
+            h->predict_8x8_mpeg2( &h->mb.pic.p_fdec[2][8*FDEC_STRIDE], 0 );
             a->i_satd_chroma += h->pixf.mbcmp[PIXEL_8x8]( &h->mb.pic.p_fdec[1][8*FDEC_STRIDE], FDEC_STRIDE, &h->mb.pic.p_fenc[1][8*FDEC_STRIDE], FENC_STRIDE ) +
                                 h->pixf.mbcmp[PIXEL_8x8]( &h->mb.pic.p_fdec[2][8*FDEC_STRIDE], FDEC_STRIDE, &h->mb.pic.p_fenc[2][8*FDEC_STRIDE], FENC_STRIDE );
         }
@@ -901,7 +904,7 @@ static void x264_mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_
         {
             p_src = &h->mb.pic.p_fenc[0][8 * (i&1) + 8 * (i>>1) * FENC_STRIDE];
             p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
-            h->predict_mpeg2_8x8( p_dst, 0 );
+            h->predict_8x8_mpeg2( p_dst, 0 );
             i_satd += h->pixf.mbcmp[PIXEL_8x8]( p_dst, FDEC_STRIDE, p_src, FENC_STRIDE );
         }
 

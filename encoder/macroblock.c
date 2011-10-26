@@ -219,7 +219,7 @@ static void x264_mb_encode_i16x16( x264_t *h, int p, int i_qp )
 
 }
 
-static void x262_mb_encode_intra_block( x264_t *h, int idx, int i_qp )
+static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
 {
     pixel *p_src;
     pixel *p_dst;
@@ -286,7 +286,7 @@ static void x262_mb_encode_intra_block( x264_t *h, int idx, int i_qp )
     h->mb.i_intra_dc_predictor[idx] = dcb;
 }
 
-static void x262_mb_encode_inter_block( x264_t *h, int idx, int i_qp )
+static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
 {
     pixel *p_src;
     pixel *p_dst;
@@ -588,7 +588,7 @@ static void x264_macroblock_encode_skip( x264_t *h )
     h->mb.i_cbp_chroma = 0;
     h->mb.i_cbp_chroma422 = 0;
     h->mb.cbp[h->mb.i_mb_xy] = 0;
-    x262_reset_mv_predictor( h );
+    x264_reset_mv_predictor_mpeg2( h );
 }
 
 /*****************************************************************************
@@ -780,19 +780,19 @@ static ALWAYS_INLINE void x264_macroblock_encode_internal( x264_t *h, int plane_
             for( int i = 0; i < 4; i++ )
             {
                 pixel *p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
-                h->predict_mpeg2_8x8( p_dst, 0 );
-                x262_mb_encode_intra_block( h, i, i_qp );
+                h->predict_8x8_mpeg2( p_dst, 0 );
+                x264_mb_encode_intra_block_mpeg2( h, i, i_qp );
             }
             /* chroma */
             int blockcount = CHROMA_FORMAT == CHROMA_422 ? 4 : 2;
             for( int i = 0; i < blockcount; i++ )
             {
-                h->predict_mpeg2_8x8( &h->mb.pic.p_fdec[1 + (i&1)][8 * (i>>1) * FDEC_STRIDE], 0 );
-                x262_mb_encode_intra_block( h, i+4, i_qp );
+                h->predict_8x8_mpeg2( &h->mb.pic.p_fdec[1 + (i&1)][8 * (i>>1) * FDEC_STRIDE], 0 );
+                x264_mb_encode_intra_block_mpeg2( h, i+4, i_qp );
             }
             /* reset mvp */
             if( h->sh.i_type == SLICE_TYPE_P || h->sh.i_type == SLICE_TYPE_B )
-                x262_reset_mv_predictor( h );
+                x264_reset_mv_predictor_mpeg2( h );
         }
         else
         {
@@ -875,7 +875,7 @@ static ALWAYS_INLINE void x264_macroblock_encode_internal( x264_t *h, int plane_
             h->mb.i_cbp_chroma = 0;
             h->mb.i_cbp_chroma422 = 0;
             for( int i = 0; i < blockcount; i++ )
-                x262_mb_encode_inter_block( h, i, i_qp );
+                x264_mb_encode_inter_block_mpeg2( h, i, i_qp );
         }
         else if( h->mb.b_lossless )
         {

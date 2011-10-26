@@ -329,7 +329,7 @@ static void x264_slice_header_write( bs_t *s, x264_slice_header_t *sh, int i_nal
     }
 }
 
-static void x262_slice_header_write( x264_t *h, bs_t *s, int i_mb_y )
+static void x264_slice_header_write_mpeg2( x264_t *h, bs_t *s, int i_mb_y )
 {
     if( h->param.i_height > 2800 )
        bs_write( s, 3, 0 ); // FIXME
@@ -872,7 +872,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
 
     {
         const x264_level_t *l = x264_levels;
-        const x262_level_t *m = x262_levels;
+        const x264_level_mpeg2_t *m = x264_levels_mpeg2;
 
         if( h->param.i_level_idc < 0 )
         {
@@ -950,7 +950,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
 
         x264_reduce_fraction( &h->param.i_fps_num, &h->param.i_fps_den );
 
-        const x262_fps_t *f = x262_allowed_fps;
+        const x264_fps_mpeg2_t *f = x264_allowed_fps_mpeg2;
         if( !h->param.i_frame_rate_code )
         {
             while( f->fps_code != 0 && ( h->param.i_fps_num != f->fps_num || h->param.i_fps_den != f->fps_den ) )
@@ -1261,7 +1261,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
 
     if( MPEG2 )
     {
-        if( x262_cqm_init( h ) < 0 )
+        if( x264_cqm_init_mpeg2( h ) < 0 )
             goto fail;
     }
     else
@@ -1333,7 +1333,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
     x264_predict_8x16c_init( h->param.cpu, h->predict_8x16c );
     x264_predict_8x8_init( h->param.cpu, h->predict_8x8, &h->predict_8x8_filter );
     x264_predict_4x4_init( h->param.cpu, h->predict_4x4 );
-    x262_predict_8x8_init( h->param.cpu, &h->predict_mpeg2_8x8 );
+    x264_predict_8x8_mpeg2_init( h->param.cpu, &h->predict_8x8_mpeg2 );
     if( h->param.b_cabac )
         x264_cabac_init( h );
     else
@@ -2326,12 +2326,12 @@ static int x264_slice_write( x264_t *h )
             x264_fdec_filter_row( h, i_mb_y, 1 );
 
         if( MPEG2 && ( i_skip || i_mb_x == 0 || !IS_INTRA( h->mb.i_type ) ) )
-            x262_reset_intra_dc_predictor( h );
+            x264_reset_intra_dc_mpeg2( h );
 
         if( MPEG2 && i_mb_x == 0 )
         {
             i_skip = 0;
-            x262_reset_mv_predictor( h );
+            x264_reset_mv_predictor_mpeg2( h );
         }
 
         if( PARAM_INTERLACED )
@@ -2361,7 +2361,7 @@ static int x264_slice_write( x264_t *h )
         if( MPEG2 && i_mb_x == 0 )
         {
             x264_nal_start( h, (i_mb_y % 175) + 1, h->i_nal_ref_idc );
-            x262_slice_header_write( h, &h->out.bs, i_mb_y );
+            x264_slice_header_write_mpeg2( h, &h->out.bs, i_mb_y );
         }
 
         /* encode this macroblock -> be careful it can change the mb type to P_SKIP if needed */
@@ -2389,19 +2389,19 @@ reencode:
             {
                 i_skip++;
                 if( h->mb.i_type != B_SKIP )
-                    x262_reset_mv_predictor( h );
+                    x264_reset_mv_predictor_mpeg2( h );
             }
             else
             {
                 while( i_skip > 32 )
                 {
-                    bs_write_vlc( &h->out.bs, x262_mb_addr_inc[33] ); // macroblock_escape
+                    bs_write_vlc( &h->out.bs, x264_mb_addr_inc[33] ); // macroblock_escape
                     i_skip -= 33;
                 }
-                bs_write_vlc( &h->out.bs, x262_mb_addr_inc[i_skip] ); // macroblock_address_increment
+                bs_write_vlc( &h->out.bs, x264_mb_addr_inc[i_skip] ); // macroblock_address_increment
                 i_skip = 0;
 
-                x262_macroblock_write_vlc( h );
+                x264_macroblock_write_vlc_mpeg2( h );
            }
 #undef bs_write_vlc
         }
@@ -3152,14 +3152,14 @@ int     x264_encoder_encode( x264_t *h,
         {
             /* generate sequence header */
             x264_nal_start( h, MPEG2_SEQ_HEADER, NAL_PRIORITY_HIGHEST );
-            x262_seq_header_write( h, &h->out.bs );
+            x264_seq_header_write_mpeg2( h, &h->out.bs );
             if( x264_nal_end( h ) )
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
             /* generate sequence extension */
             x264_nal_start( h, MPEG2_SEQ_EXT, NAL_PRIORITY_HIGHEST );
-            x262_seq_extension_write( h, &h->out.bs );
+            x264_seq_extension_write_mpeg2( h, &h->out.bs );
             if( x264_nal_end( h ) )
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
@@ -3170,7 +3170,7 @@ int     x264_encoder_encode( x264_t *h,
                 h->param.crop_rect.i_top || h->param.crop_rect.i_bottom )
             {
                 x264_nal_start( h, MPEG2_SEQ_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
-                x262_seq_disp_extension_write( h, &h->out.bs );
+                x264_seq_disp_extension_write_mpeg2( h, &h->out.bs );
                 if( x264_nal_end( h ) )
                     return -1;
                 overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
@@ -3189,7 +3189,7 @@ int     x264_encoder_encode( x264_t *h,
 
             /* generate gop header */
             x264_nal_start( h, MPEG2_GOP_HEADER, NAL_PRIORITY_HIGHEST );
-            x262_gop_header_write( h, &h->out.bs );
+            x264_gop_header_write_mpeg2( h, &h->out.bs );
             if( x264_nal_end( h ) )
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
@@ -3197,14 +3197,14 @@ int     x264_encoder_encode( x264_t *h,
 
         /* generate picture header */
         x264_nal_start( h, MPEG2_PICTURE_HEADER, NAL_PRIORITY_HIGHEST );
-        x262_pic_header_write( h, &h->out.bs );
+        x264_pic_header_write_mpeg2( h, &h->out.bs );
         if( x264_nal_end( h ) )
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
         /* generate picture coding extension */
         x264_nal_start( h, MPEG2_PICTURE_CODING_EXT, NAL_PRIORITY_HIGHEST );
-        x262_pic_coding_extension_write( h, &h->out.bs );
+        x264_pic_coding_extension_write_mpeg2( h, &h->out.bs );
         if( x264_nal_end( h ) )
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
@@ -3214,7 +3214,7 @@ int     x264_encoder_encode( x264_t *h,
             h->param.crop_rect.i_top || h->param.crop_rect.i_bottom )
         {
             x264_nal_start( h, MPEG2_PICTURE_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
-            x262_pic_display_extension_write( h, &h->out.bs );
+            x264_pic_display_extension_write_mpeg2( h, &h->out.bs );
             if( x264_nal_end( h ) )
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
@@ -3257,7 +3257,7 @@ int     x264_encoder_encode( x264_t *h,
     {
         x264_nal_start( h, MPEG2 ? MPEG2_USER_DATA : NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         if( MPEG2 )
-            x262_user_data_write( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size );
+            x264_user_data_write_mpeg2( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size );
         else
             x264_sei_write( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size,
                             h->fenc->extra_sei.payloads[i].payload_type );
