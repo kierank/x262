@@ -111,9 +111,9 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
 
     if( param->b_mpeg2 )
     {
-        if( param->i_intra_dc_precision > X264_INTRA_DC_10_BIT || sps->i_chroma_format_idc == CHROMA_422)
+        if( param->i_intra_dc_precision > X264_INTRA_DC_10_BIT || sps->i_chroma_format_idc == CHROMA_422 )
             sps->i_profile_idc = MPEG2_PROFILE_HIGH;
-        else if( param->i_bframe > 0 || param->b_interlaced )
+        else if( param->i_bframe > 0 || param->b_interlaced || param->b_fake_interlaced )
             sps->i_profile_idc = MPEG2_PROFILE_MAIN;
         else
             sps->i_profile_idc = MPEG2_PROFILE_SIMPLE;
@@ -801,7 +801,8 @@ void x264_seq_extension_write_mpeg2( x264_t *h, bs_t *s )
     bs_write1( s, 0 );   // escape bit
     bs_write( s, 3, sps->i_profile_idc ); // profile identification
     bs_write( s, 4, sps->i_level_idc );   // level identification
-    bs_write1( s, !( h->param.b_interlaced || h->param.b_pulldown ) ); // progressive_sequence
+    bs_write1( s, !( PARAM_INTERLACED || h->param.b_fake_interlaced ||
+                     h->param.b_pulldown ) ); // progressive_sequence
     bs_write( s, 2, sps->i_chroma_format_idc ); // chroma_format
     bs_write( s, 2, (h->param.i_width >> 12) & 0x3 );  // horizontal_size_extension
     bs_write( s, 2, (h->param.i_height >> 12) & 0x3 ); // vertical_size_extension
@@ -940,16 +941,16 @@ void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s )
                 bs_write( s, 4, h->fenc->mv_fcode[j][i] );
     }
     bs_write( s, 2, param->i_intra_dc_precision ); // intra_dc_precision
-    bs_write( s, 2, !param->b_interlaced ? 3 : param->b_tff ? 1 : 2 ); // picture_structure
-    bs_write1( s, param->b_interlaced || param->b_pulldown ? param->b_tff : 0 ); // top_field_first
-    bs_write1( s, !param->b_interlaced ); // frame_pred_frame_dct
+    bs_write( s, 2, 3 ); // picture_structure (support for frame pictures only)
+    bs_write1( s, ( PARAM_INTERLACED || param->b_fake_interlaced  || param->b_pulldown) ? param->b_tff : 0 ); // top_field_first
+    bs_write1( s, !( PARAM_INTERLACED || param->b_fake_interlaced ) ); // frame_pred_frame_dct
     bs_write1( s, 0 ); // concealment_motion_vectors
     bs_write1( s, param->b_nonlinear_quant ); // q_scale_type
     bs_write1( s, param->b_alt_intra_vlc );   // intra_vlc_format
     bs_write1( s, param->b_alternate_scan );  // alternate_scan
     bs_write1( s, h->fenc->b_rff ); // repeat_first_field
-    bs_write1( s, CHROMA_FORMAT == CHROMA_420 ? !param->b_interlaced : 0 ); // chroma_420_type
-    bs_write1( s, !param->b_interlaced ); // progressive_frame
+    bs_write1( s, CHROMA_FORMAT == CHROMA_420 ? !( PARAM_INTERLACED || param->b_fake_interlaced ) : 0 ); // chroma_420_type
+    bs_write1( s, !( PARAM_INTERLACED || param->b_fake_interlaced ) ); // progressive_frame
     bs_write1( s, 0 ); // composite_display_flag
 
     bs_align_0( s );

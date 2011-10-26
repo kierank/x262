@@ -135,6 +135,15 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
         bs_write_vlc( s, x264_b_mb_type[mv_type][!!cbp][quant] );
     }
 
+    if( PARAM_INTERLACED || h->param.b_fake_interlaced )
+    {
+        /* only frame-based prediction is supported */
+        if( (i_mb_type == P_L0 && mcoded) || i_mb_type > P_L0 )
+            bs_write( s, 2, 2 );           // frame_motion_type
+        if( !!cbp )
+            bs_write1( s, MB_INTERLACED ); // dct_type
+    }
+
     if( quant )
         bs_write( s, 5, h->mb.i_qp ); // quantizer_scale_code
 

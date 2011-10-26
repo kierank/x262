@@ -474,8 +474,13 @@ static int x264_validate_parameters( x264_t *h, int b_open )
     {
         if( h->param.b_interlaced )
         {
-            x264_log( h, X264_LOG_WARNING, "MPEG-2 + interlaced is not yet implemented\n" );
+            x264_log( h, X264_LOG_WARNING, "interlacing disabled, interlaced MPEG-2 not implemented\n" );
             h->param.b_interlaced = 0;
+        }
+        if( h->param.b_pulldown && h->param.b_fake_interlaced )
+        {
+            x264_log( h, X264_LOG_WARNING, "fake interlaced disabled, incompatible with pulldown\n" );
+            h->param.b_fake_interlaced = 0;
         }
         if( h->param.rc.i_qp_constant == 0 )
         {
