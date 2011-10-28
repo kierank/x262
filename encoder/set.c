@@ -111,12 +111,16 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
 
     if( param->b_mpeg2 )
     {
-        if( param->i_intra_dc_precision > X264_INTRA_DC_10_BIT || sps->i_chroma_format_idc == CHROMA_422 )
+        if( sps->i_chroma_format_idc == CHROMA_422 )
+            sps->i_profile_idc = MPEG2_PROFILE_422;
+        else if( param->i_intra_dc_precision > X264_INTRA_DC_10_BIT )
             sps->i_profile_idc = MPEG2_PROFILE_HIGH;
         else if( param->i_bframe > 0 || param->b_interlaced || param->b_fake_interlaced )
             sps->i_profile_idc = MPEG2_PROFILE_MAIN;
         else
             sps->i_profile_idc = MPEG2_PROFILE_SIMPLE;
+        if( sps->i_profile_idc == MPEG2_PROFILE_422 && param->b_high_profile )
+            sps->i_profile_idc = MPEG2_PROFILE_HIGH;
     }
     else if( sps->b_qpprime_y_zero_transform_bypass || sps->i_chroma_format_idc == CHROMA_444 )
         sps->i_profile_idc  = PROFILE_HIGH444_PREDICTIVE;
@@ -153,6 +157,16 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
     sps->b_constraint_set3  = 0;
 
     sps->i_level_idc = param->i_level_idc;
+
+    if( sps->i_profile_idc == MPEG2_PROFILE_422 )
+    {
+        // 4:2:2 Profile only has Main and High levels
+        if( sps->i_level_idc == MPEG2_LEVEL_LOW )
+            sps->i_level_idc = MPEG2_LEVEL_MAIN;
+        else if( sps->i_level_idc < MPEG2_LEVEL_MAIN )
+            sps->i_level_idc = MPEG2_LEVEL_HIGH;
+    }
+
     if( param->i_level_idc == 9 && ( sps->i_profile_idc >= PROFILE_BASELINE && sps->i_profile_idc <= PROFILE_EXTENDED ) )
     {
         sps->b_constraint_set3 = 1; /* level 1b with Baseline, Main or Extended profile is signalled via constraint_set3 */
@@ -798,9 +812,16 @@ void x264_seq_extension_write_mpeg2( x264_t *h, bs_t *s )
     bs_realign( s );
 
     bs_write( s, 4, MPEG2_SEQ_EXT_ID );   // extension_start_code_identifier
-    bs_write1( s, 0 );   // escape bit
+    bs_write1( s, sps->i_profile_idc == MPEG2_PROFILE_422 ); // escape bit
     bs_write( s, 3, sps->i_profile_idc ); // profile identification
-    bs_write( s, 4, sps->i_level_idc );   // level identification
+
+    int level;
+    if( sps->i_profile_idc == MPEG2_PROFILE_422 )
+        level = sps->i_level_idc == MPEG2_LEVEL_HIGH ? 2 : 5;
+    else
+        level = sps->i_level_idc;
+    bs_write( s, 4, level ); // level identification
+
     bs_write1( s, !( PARAM_INTERLACED || h->param.b_fake_interlaced ||
                      h->param.b_pulldown ) ); // progressive_sequence
     bs_write( s, 2, sps->i_chroma_format_idc ); // chroma_format
@@ -1014,7 +1035,7 @@ const x264_level_t x264_levels[] =
 const x264_level_mpeg2_t x264_levels_mpeg2[] =
 {
     { 10,   3041280,        0,  352,  288, 5,  4000,      0,  475136,        0,  512,  64 },
-    {  8,  10368000, 14745600,  720,  576, 5, 15000,  20000, 1835008,  2441216, 1024, 128 },
+    {  8,  10368000, 14745600,  720,  608, 5, 15000,  20000, 1835008,  2441216, 1024, 128 },
     {  6,  47001600, 62668800, 1440, 1088, 8, 60000,  80000, 7340032,  9781248, 2048, 128 },
     {  4,  62668800, 83558400, 1920, 1088, 8, 80000, 100000, 9781248, 12222464, 2048, 128 },
     {  2, 125337600,        0, 1920, 1088, 8, 80000,      0, 9781248,        0, 2048, 128 },

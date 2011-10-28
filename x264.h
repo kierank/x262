@@ -296,7 +296,9 @@ typedef struct x264_param_t
     int         i_csp;         /* CSP of encoded bitstream */
     int         i_level_idc;
     int         i_frame_total; /* number of frames to encode if known, else 0 */
-    int         b_mpeg2; /* Encode output as MPEG-2 instead of H.264 */
+
+    int         b_mpeg2;       /* encode MPEG-2 instead of H.264
+                                * requires the use of x264_param_apply_profile */
 
     /* NAL HRD (H.264 ONLY)
      * Uses Buffering and Picture Timing SEIs to signal HRD
@@ -366,6 +368,7 @@ typedef struct x264_param_t
     int         b_nonlinear_quant;
     int         b_alt_intra_vlc;
     int         b_alternate_scan;
+    int         b_high_profile;     /* Force high profile instead of 4:2:2 profile */
 
     /* Log */
     void        (*pf_log)( void *, int i_level, const char *psz, va_list );
@@ -661,8 +664,9 @@ void    x264_param_apply_fastfirstpass( x264_param_t * );
 
 /* x264_param_apply_profile:
  *      Applies the restrictions of the given profile.
+ *      MPEG-2 supports simple, main, 422, and high profiles.
  *      Currently available profiles are, from most to least restrictive: */
-static const char * const x264_profile_names[] = { "baseline", "main", "high", "high10", "high422", "high444", 0 };
+static const char * const x264_profile_names[] = { "simple", "baseline", "main", "422", "high", "high10", "high422", "high444", 0 };
 
 /*      (can be NULL, in which case the function will do nothing)
  *

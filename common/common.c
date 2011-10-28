@@ -441,6 +441,8 @@ static int profile_string_to_int( const char *str, int b_mpeg2 )
         return b_mpeg2 ? MPEG2_PROFILE_SIMPLE : -1;
     if( !strcasecmp( str, "main" ) )
         return b_mpeg2 ? MPEG2_PROFILE_MAIN : PROFILE_MAIN;
+    if( !strcasecmp( str, "422" ) )
+        return b_mpeg2 ? MPEG2_PROFILE_422 : -1;
     if( !strcasecmp( str, "high" ) )
         return b_mpeg2 ? MPEG2_PROFILE_HIGH : PROFILE_HIGH;
     if( !strcasecmp( str, "high10" ) )
@@ -504,6 +506,9 @@ int x264_param_apply_profile( x264_param_t *param, const char *profile )
         else if( p == MPEG2_PROFILE_MAIN )
             param->i_intra_dc_precision = x264_clip3( param->i_intra_dc_precision,
                                                       X264_INTRA_DC_8_BIT, X264_INTRA_DC_10_BIT );
+        else if( p == MPEG2_PROFILE_HIGH )
+            param->b_high_profile = 1;
+
         return 0;
     }
     

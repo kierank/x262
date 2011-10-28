@@ -905,7 +905,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
                     m++;
                 if( m->level_idc == 0 )
                 {
-                    x264_log( h, X264_LOG_ERROR, "invalid level_idc: %d\n", h->param.i_level_idc );
+                    x264_log( h, X264_LOG_ERROR, "invalid level\n" );
                     return -1;
                 }
             }
@@ -1485,7 +1485,8 @@ x264_t *x264_encoder_open( x264_param_t *param )
 
     const char *profile = h->sps->i_profile_idc == MPEG2_PROFILE_SIMPLE ? "Simple" :
                           h->sps->i_profile_idc == MPEG2_PROFILE_MAIN ? "Main" :
-                          h->sps->i_profile_idc == MPEG2_PROFILE_HIGH ? "High" : 
+                          h->sps->i_profile_idc == MPEG2_PROFILE_HIGH ? "High" :
+                          h->sps->i_profile_idc == MPEG2_PROFILE_422 ? "4:2:2" :
                           h->sps->i_profile_idc == PROFILE_BASELINE ? "Constrained Baseline" :
                           h->sps->i_profile_idc == PROFILE_MAIN ? "Main" :
                           h->sps->i_profile_idc == PROFILE_HIGH ? "High" :
@@ -1507,7 +1508,12 @@ x264_t *x264_encoder_open( x264_param_t *param )
             strcpy( level, "1b" );
     }
 
-    if( h->sps->i_profile_idc < PROFILE_HIGH10 )
+    if( MPEG2 )
+    {
+        x264_log( h, X264_LOG_INFO, "%s profile @ %s level\n",
+            profile, level );
+    }
+    else if( h->sps->i_profile_idc < PROFILE_HIGH10 )
     {
         x264_log( h, X264_LOG_INFO, "profile %s, level %s\n",
             profile, level );

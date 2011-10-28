@@ -29,6 +29,7 @@
 
 enum profile_e
 {
+    MPEG2_PROFILE_422    = 0,
     MPEG2_PROFILE_HIGH   = 1,
     MPEG2_PROFILE_MAIN   = 4,
     MPEG2_PROFILE_SIMPLE = 5,
