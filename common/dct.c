@@ -1033,6 +1033,24 @@ void x264_dct_init_weights( void )
     ZIG(56,6,6) ZIG(57,7,6) ZIG(58,2,7) ZIG(59,3,7)\
     ZIG(60,4,7) ZIG(61,5,7) ZIG(62,6,7) ZIG(63,7,7)
 
+#define ZIGZAG8_FIELD_MPEG2\
+    ZIG( 0,0,0) ZIG( 1,1,0) ZIG( 2,2,0) ZIG( 3,3,0)\
+    ZIG( 4,0,1) ZIG( 5,1,1) ZIG( 6,0,2) ZIG( 7,1,2)\
+    ZIG( 8,2,1) ZIG( 9,3,1) ZIG(10,4,0) ZIG(11,5,0)\
+    ZIG(12,6,0) ZIG(13,7,0) ZIG(14,7,1) ZIG(15,6,1)\
+    ZIG(16,5,1) ZIG(17,4,1) ZIG(18,3,2) ZIG(19,2,2)\
+    ZIG(20,0,3) ZIG(21,1,3) ZIG(22,0,4) ZIG(23,1,4)\
+    ZIG(24,2,3) ZIG(25,3,3) ZIG(26,4,2) ZIG(27,5,2)\
+    ZIG(28,6,2) ZIG(29,7,2) ZIG(30,4,3) ZIG(31,5,3)\
+    ZIG(32,6,3) ZIG(33,7,3) ZIG(34,2,4) ZIG(35,3,4)\
+    ZIG(36,0,5) ZIG(37,1,5) ZIG(38,0,6) ZIG(39,1,6)\
+    ZIG(40,2,5) ZIG(41,3,5) ZIG(42,4,4) ZIG(43,5,4)\
+    ZIG(44,6,4) ZIG(45,7,4) ZIG(46,4,5) ZIG(47,5,5)\
+    ZIG(48,6,5) ZIG(49,7,5) ZIG(50,2,6) ZIG(51,3,6)\
+    ZIG(52,0,7) ZIG(53,1,7) ZIG(54,2,7) ZIG(55,3,7)\
+    ZIG(56,4,6) ZIG(57,5,6) ZIG(58,6,6) ZIG(59,7,6)\
+    ZIG(60,4,7) ZIG(61,5,7) ZIG(62,6,7) ZIG(63,7,7)
+
 #define ZIGZAG4_FRAME\
     ZIGDC( 0,0,0) ZIG( 1,0,1) ZIG( 2,1,0) ZIG( 3,2,0)\
     ZIG( 4,1,1) ZIG( 5,0,2) ZIG( 6,0,3) ZIG( 7,1,2)\
@@ -1053,6 +1071,11 @@ static void zigzag_scan_8x8_frame( dctcoef level[64], dctcoef dct[64] )
 static void zigzag_scan_8x8_field( dctcoef level[64], dctcoef dct[64] )
 {
     ZIGZAG8_FIELD
+}
+
+static void zigzag_scan_8x8_field_mpeg2( dctcoef level[64], dctcoef dct[64] )
+{
+    ZIGZAG8_FIELD_MPEG2
 }
 
 #undef ZIG
@@ -1166,7 +1189,7 @@ static void zigzag_interleave_8x8_cavlc( dctcoef *dst, dctcoef *src, uint8_t *nn
     }
 }
 
-void x264_zigzag_init( int cpu, x264_zigzag_function_t *pf_progressive, x264_zigzag_function_t *pf_interlaced )
+void x264_zigzag_init( int cpu, x264_zigzag_function_t *pf_progressive, x264_zigzag_function_t *pf_interlaced, int b_mpeg2 )
 {
     pf_interlaced->scan_8x8   = zigzag_scan_8x8_field;
     pf_progressive->scan_8x8  = zigzag_scan_8x8_frame;
@@ -1281,4 +1304,8 @@ void x264_zigzag_init( int cpu, x264_zigzag_function_t *pf_progressive, x264_zig
     }
 #endif // HIGH_BIT_DEPTH
 #endif
+
+    /* MPEG-2 TODO: Write SIMD */
+    if( b_mpeg2 )
+        pf_interlaced->scan_8x8 = zigzag_scan_8x8_field_mpeg2;
 }
