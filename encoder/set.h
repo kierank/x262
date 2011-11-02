@@ -51,6 +51,6 @@ void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s );
 void x264_pic_display_extension_write_mpeg2( x264_t *h, bs_t *s );
 void x264_user_data_write_mpeg2( bs_t *s, uint8_t *payload, int payload_size );
 
-const x264_fps_mpeg2_t x264_allowed_fps_mpeg2[14];
+extern const x264_fps_mpeg2_t x264_allowed_fps_mpeg2[14];
 
 #endif
