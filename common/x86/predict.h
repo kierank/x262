@@ -131,4 +131,6 @@ void x264_predict_4x4_ddr_ssse3( pixel *src );
 void x264_predict_4x4_ddr_avx( uint16_t *src );
 void x264_predict_4x4_hu_mmx2( pixel *src );
 
+void x264_predict_8x8_mpeg2_mmx2( uint8_t *src, int predicted_dc );
+
 #endif

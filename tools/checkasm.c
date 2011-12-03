@@ -80,6 +80,7 @@ static bench_func_t benchs[MAX_FUNCS];
 static const char *pixel_names[12] = { "16x16", "16x8", "8x16", "8x8", "8x4", "4x8", "4x4", "4x16", "4x2", "2x8", "2x4", "2x2" };
 static const char *intra_predict_16x16_names[7] = { "v", "h", "dc", "p", "dcl", "dct", "dc8" };
 static const char *intra_predict_8x8c_names[7] = { "dc", "h", "v", "p", "dcl", "dct", "dc8" };
+static const char *intra_predict_8x8_mpeg2_names[1] = { "dc" };
 static const char *intra_predict_4x4_names[12] = { "v", "h", "dc", "ddl", "ddr", "vr", "hd", "vl", "hu", "dcl", "dct", "dc8" };
 static const char **intra_predict_8x8_names = intra_predict_4x4_names;
 static const char **intra_predict_8x16c_names = intra_predict_8x8c_names;
@@ -692,9 +693,9 @@ static int check_dct( int cpu_ref, int cpu_new )
     x264_t h_buf;
     x264_t *h = &h_buf;
 
-    x264_dct_init( 0, &dct_c );
-    x264_dct_init( cpu_ref, &dct_ref);
-    x264_dct_init( cpu_new, &dct_asm );
+    x264_dct_init( 0, &dct_c, 0 );
+    x264_dct_init( cpu_ref, &dct_ref, 0 );
+    x264_dct_init( cpu_new, &dct_asm, 0 );
 
     memset( h, 0, sizeof(*h) );
     x264_param_default( &h->param );
@@ -969,9 +970,9 @@ static int check_dct( int cpu_ref, int cpu_new )
         } \
     }
 
-    x264_zigzag_init( 0, &zigzag_c[0], &zigzag_c[1] );
-    x264_zigzag_init( cpu_ref, &zigzag_ref[0], &zigzag_ref[1] );
-    x264_zigzag_init( cpu_new, &zigzag_asm[0], &zigzag_asm[1] );
+    x264_zigzag_init( 0, &zigzag_c[0], &zigzag_c[1], 0 );
+    x264_zigzag_init( cpu_ref, &zigzag_ref[0], &zigzag_ref[1], 0 );
+    x264_zigzag_init( cpu_new, &zigzag_asm[0], &zigzag_asm[1], 0 );
 
     ok = 1; used_asm = 0;
     TEST_INTERLEAVE( interleave_8x8_cavlc, level1, level2, dct1[0], 64 );
@@ -1007,9 +1008,9 @@ static int check_mc( int cpu_ref, int cpu_new )
 
     int ret = 0, ok, used_asm;
 
-    x264_mc_init( 0, &mc_c );
-    x264_mc_init( cpu_ref, &mc_ref );
-    x264_mc_init( cpu_new, &mc_a );
+    x264_mc_init( 0, &mc_c, 0 );
+    x264_mc_init( cpu_ref, &mc_ref, 0 );
+    x264_mc_init( cpu_new, &mc_a, 0 );
     x264_pixel_init( 0, &pixf );
 
 #define MC_TEST_LUMA( w, h ) \
@@ -2032,24 +2033,28 @@ static int check_intra( int cpu_ref, int cpu_new )
         x264_predict8x8_t   predict_8x8[9+3];
         x264_predict_t      predict_4x4[9+3];
         x264_predict_8x8_filter_t predict_8x8_filter;
+        x264_predict_mpeg2_t      predict_8x8_mpeg2[1];
     } ip_c, ip_ref, ip_a;
 
     x264_predict_16x16_init( 0, ip_c.predict_16x16 );
     x264_predict_8x8c_init( 0, ip_c.predict_8x8c );
     x264_predict_8x16c_init( 0, ip_c.predict_8x16c );
     x264_predict_8x8_init( 0, ip_c.predict_8x8, &ip_c.predict_8x8_filter );
+    x264_predict_8x8_mpeg2_init( 0, ip_c.predict_8x8_mpeg2 );
     x264_predict_4x4_init( 0, ip_c.predict_4x4 );
 
     x264_predict_16x16_init( cpu_ref, ip_ref.predict_16x16 );
     x264_predict_8x8c_init( cpu_ref, ip_ref.predict_8x8c );
     x264_predict_8x16c_init( cpu_ref, ip_ref.predict_8x16c );
     x264_predict_8x8_init( cpu_ref, ip_ref.predict_8x8, &ip_ref.predict_8x8_filter );
+    x264_predict_8x8_mpeg2_init( cpu_ref, ip_ref.predict_8x8_mpeg2 );
     x264_predict_4x4_init( cpu_ref, ip_ref.predict_4x4 );
 
     x264_predict_16x16_init( cpu_new, ip_a.predict_16x16 );
     x264_predict_8x8c_init( cpu_new, ip_a.predict_8x8c );
     x264_predict_8x16c_init( cpu_new, ip_a.predict_8x16c );
     x264_predict_8x8_init( cpu_new, ip_a.predict_8x8, &ip_a.predict_8x8_filter );
+    x264_predict_8x8_mpeg2_init( cpu_new, ip_a.predict_8x8_mpeg2 );
     x264_predict_4x4_init( cpu_new, ip_a.predict_4x4 );
 
     memcpy( fdec, pbuf1, 32*20 * sizeof(pixel) );\
@@ -2104,6 +2109,7 @@ static int check_intra( int cpu_ref, int cpu_new )
         INTRA_TEST( predict_16x16, i, 16, 16, 16, );
     for( int i = 0; i < 12; i++ )
         INTRA_TEST(   predict_8x8, i,  8,  8,  8, , edge );
+    INTRA_TEST( predict_8x8_mpeg2, 0,  8,  8,  8, , pbuf1[0] );
 
     set_func_name("intra_predict_8x8_filter");
     if( ip_a.predict_8x8_filter != ip_ref.predict_8x8_filter )

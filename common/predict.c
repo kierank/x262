@@ -1017,4 +1017,10 @@ void x264_predict_4x4_init( int cpu, x264_predict_t pf[12] )
 void x264_predict_8x8_mpeg2_init( int cpu, x264_predict_mpeg2_t *pf )
 {
     pf[0] = x264_predict_8x8_mpeg2_c;
+
+#if HAVE_MMX
+    if( !(cpu&X264_CPU_MMX) )
+        return;
+    pf[0] = x264_predict_8x8_mpeg2_mmx2;
+#endif
 }

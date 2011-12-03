@@ -2116,3 +2116,18 @@ cglobal predict_16x16_dc_left_core, 1,1
     STORE16x16_SSE2 m0
     RET
 %endif
+
+;-----------------------------------------------------------------------------
+; void predict_8x8_mpeg2( uint8_t *src, int predicted_dc )
+;-----------------------------------------------------------------------------
+%macro PREDICT_8x8_MPEG2 0
+cglobal predict_8x8_mpeg2, 2,2
+    movd       m0, r1d
+    punpcklbw  m0, m0
+    SPLATW     m0, m0
+    STORE8x8   m0, m0
+    RET
+%endmacro
+
+INIT_MMX mmx2
+PREDICT_8x8_MPEG2
