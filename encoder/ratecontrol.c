@@ -516,7 +516,7 @@ void x264_ratecontrol_init_reconfigurable( x264_t *h, int b_init )
         if( h->param.i_nal_hrd && b_init )
         {
             h->sps->vui.hrd.i_cpb_cnt = 1;
-            h->sps->vui.hrd.b_cbr_hrd = h->param.i_nal_hrd == X264_NAL_HRD_CBR;
+            h->sps->vui.hrd.b_cbr_hrd = h->param.i_nal_hrd == X264_NAL_HRD_CBR || h->param.i_nal_hrd == X264_NAL_HRD_FAKE_CBR;
             h->sps->vui.hrd.i_time_offset_length = 0;
 
             #define BR_SHIFT  6
