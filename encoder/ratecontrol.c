@@ -522,43 +522,41 @@ void x264_ratecontrol_init_reconfigurable( x264_t *h, int b_init )
             #define BR_SHIFT  6
             #define CPB_SHIFT 4
 
-            int bitrate = 1000*h->param.rc.i_vbv_max_bitrate;
-            int bufsize = 1000*h->param.rc.i_vbv_buffer_size;
+            if( h->param.i_nal_hrd == X264_NAL_HRD_VBR || h->param.i_nal_hrd == X264_NAL_HRD_VBR )
+            {
+                // normalize HRD size and rate to the value / scale notation
+                h->sps->vui.hrd.i_bit_rate_scale = x264_clip3( x264_ctz( vbv_max_bitrate ) - BR_SHIFT, 0, 15 );
+                h->sps->vui.hrd.i_bit_rate_value = vbv_max_bitrate >> ( h->sps->vui.hrd.i_bit_rate_scale + BR_SHIFT );
+                h->sps->vui.hrd.i_bit_rate_unscaled = h->sps->vui.hrd.i_bit_rate_value << ( h->sps->vui.hrd.i_bit_rate_scale + BR_SHIFT );
+                h->sps->vui.hrd.i_cpb_size_scale = x264_clip3( x264_ctz( vbv_buffer_size ) - CPB_SHIFT, 0, 15 );
+                h->sps->vui.hrd.i_cpb_size_value = vbv_buffer_size >> ( h->sps->vui.hrd.i_cpb_size_scale + CPB_SHIFT );
+                h->sps->vui.hrd.i_cpb_size_unscaled = h->sps->vui.hrd.i_cpb_size_value << ( h->sps->vui.hrd.i_cpb_size_scale + CPB_SHIFT );
 
-            // normalize HRD size and rate to the value / scale notation
-            h->sps->vui.hrd.i_bit_rate_scale = x264_clip3( x264_ctz( bitrate ) - BR_SHIFT, 0, 15 );
-            h->sps->vui.hrd.i_bit_rate_value = bitrate >> ( h->sps->vui.hrd.i_bit_rate_scale + BR_SHIFT );
-            h->sps->vui.hrd.i_bit_rate_unscaled = h->sps->vui.hrd.i_bit_rate_value << ( h->sps->vui.hrd.i_bit_rate_scale + BR_SHIFT );
-            h->sps->vui.hrd.i_cpb_size_scale = x264_clip3( x264_ctz( bufsize ) - CPB_SHIFT, 0, 15 );
-            h->sps->vui.hrd.i_cpb_size_value = bufsize >> ( h->sps->vui.hrd.i_cpb_size_scale + CPB_SHIFT );
-            h->sps->vui.hrd.i_cpb_size_unscaled = h->sps->vui.hrd.i_cpb_size_value << ( h->sps->vui.hrd.i_cpb_size_scale + CPB_SHIFT );
+                #undef CPB_SHIFT
+                #undef BR_SHIFT
 
-            #undef CPB_SHIFT
-            #undef BR_SHIFT
+                // arbitrary
+                #define MAX_DURATION 0.5
 
-            // arbitrary
-            #define MAX_DURATION 0.5
+                int max_cpb_output_delay = X264_MIN( h->param.i_keyint_max * MAX_DURATION * h->sps->vui.i_time_scale / h->sps->vui.i_num_units_in_tick, INT_MAX );
+                int max_dpb_output_delay = h->sps->vui.i_max_dec_frame_buffering * MAX_DURATION * h->sps->vui.i_time_scale / h->sps->vui.i_num_units_in_tick;
+                int max_delay = (int)(90000.0 * (double)h->sps->vui.hrd.i_cpb_size_unscaled / h->sps->vui.hrd.i_bit_rate_unscaled + 0.5);
 
-            int max_cpb_output_delay = X264_MIN( h->param.i_keyint_max * MAX_DURATION * h->sps->vui.i_time_scale / h->sps->vui.i_num_units_in_tick, INT_MAX );
-            int max_dpb_output_delay = h->sps->vui.i_max_dec_frame_buffering * MAX_DURATION * h->sps->vui.i_time_scale / h->sps->vui.i_num_units_in_tick;
-            int max_delay = (int)(90000.0 * (double)h->sps->vui.hrd.i_cpb_size_unscaled / h->sps->vui.hrd.i_bit_rate_unscaled + 0.5);
+                h->sps->vui.hrd.i_initial_cpb_removal_delay_length = 2 + x264_clip3( 32 - x264_clz( max_delay ), 4, 22 );
+                h->sps->vui.hrd.i_cpb_removal_delay_length = x264_clip3( 32 - x264_clz( max_cpb_output_delay ), 4, 31 );
+                h->sps->vui.hrd.i_dpb_output_delay_length  = x264_clip3( 32 - x264_clz( max_dpb_output_delay ), 4, 31 );
 
-            h->sps->vui.hrd.i_initial_cpb_removal_delay_length = 2 + x264_clip3( 32 - x264_clz( max_delay ), 4, 22 );
-            h->sps->vui.hrd.i_cpb_removal_delay_length = x264_clip3( 32 - x264_clz( max_cpb_output_delay ), 4, 31 );
-            h->sps->vui.hrd.i_dpb_output_delay_length  = x264_clip3( 32 - x264_clz( max_dpb_output_delay ), 4, 31 );
+                #undef MAX_DURATION
 
-            #undef MAX_DURATION
-
-            vbv_buffer_size = h->param.rc.i_vbv_buffer_size_actual = h->sps->vui.hrd.i_cpb_size_unscaled;
-            vbv_max_bitrate = h->param.rc.i_vbv_max_bitrate_actual = h->sps->vui.hrd.i_bit_rate_unscaled;
+                vbv_buffer_size = h->sps->vui.hrd.i_cpb_size_unscaled;
+                vbv_max_bitrate = h->sps->vui.hrd.i_bit_rate_unscaled;
+            }
         }
         else if( h->param.i_nal_hrd && !b_init )
         {
             //x264_log( h, X264_LOG_WARNING, "VBV parameters cannot be changed when NAL HRD is in use\n" );
             return;
         }
-        h->sps->vui.hrd.i_bit_rate_unscaled = vbv_max_bitrate;
-        h->sps->vui.hrd.i_cpb_size_unscaled = vbv_buffer_size;
 
         if( rc->b_vbv_min_rate )
             rc->bitrate = h->param.rc.i_bitrate * 1000.;
@@ -566,6 +564,12 @@ void x264_ratecontrol_init_reconfigurable( x264_t *h, int b_init )
         rc->vbv_max_rate = vbv_max_bitrate;
         rc->buffer_size = vbv_buffer_size;
         rc->single_frame_vbv = rc->buffer_rate * 1.1 > rc->buffer_size;
+        if( rc->single_frame_vbv && h->param.i_nal_hrd > X264_NAL_HRD_CBR )
+            rc->buffer_size = rc->buffer_rate;
+
+        h->sps->vui.hrd.i_bit_rate_unscaled = rc->vbv_max_rate;
+        h->sps->vui.hrd.i_cpb_size_unscaled = rc->buffer_size;
+
         rc->cbr_decay = 1.0 - rc->buffer_rate / rc->buffer_size
                       * 0.5 * X264_MAX(0, 1.5 - rc->buffer_rate * rc->fps / rc->bitrate);
         if( h->param.rc.i_rc_method == X264_RC_CRF && h->param.rc.f_rf_constant_max )

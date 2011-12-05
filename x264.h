@@ -378,9 +378,6 @@ typedef struct x264_param_t
         float       f_ip_factor;
         float       f_pb_factor;
 
-        int         i_vbv_max_bitrate_actual; /* Output only when HRD enabled */
-        int         i_vbv_buffer_size_actual; /* Output only when HRD enabled */
-
         int         i_aq_mode;      /* psy adaptive QP. (X264_AQ_*) */
         float       f_aq_strength;
         int         b_mb_tree;      /* Macroblock-tree ratecontrol. */
