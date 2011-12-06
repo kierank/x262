@@ -588,7 +588,7 @@ case $host_cpu in
     s390|s390x)
         ARCH="S390"
         ;;
-    parisc|parisc64)
+    hppa*|parisc*)
         ARCH="PARISC"
         ;;
     ia64)
@@ -626,12 +626,12 @@ if [ $compiler != ICL ]; then
     fi
 fi
 
-if [ $shared = yes -a \( $ARCH = "X86_64" -o $ARCH = "PPC" -o $ARCH = "ALPHA" -o $ARCH = "ARM" -o $ARCH = "IA64" \) ] ; then
+if [ $shared = yes -a \( $ARCH = "X86_64" -o $ARCH = "PPC" -o $ARCH = "ALPHA" -o $ARCH = "ARM" -o $ARCH = "IA64" -o $ARCH = "PARISC" -o $ARCH = "MIPS" \) ] ; then
     pic="yes"
 fi
 
 if [ $asm = auto -a \( $ARCH = X86 -o $ARCH = X86_64 \) ] ; then
-    if ! as_check "vfmaddps xmm0, xmm0, xmm0, xmm0" ; then
+    if ! as_check "vpperm xmm0, xmm0, xmm0, xmm0" ; then
         VER=`($AS --version || echo no assembler) 2>/dev/null | head -n 1`
         echo "Found $VER"
         echo "Minimum version is yasm-1.0.0"
@@ -795,7 +795,7 @@ if [ "$lavf" = "auto" ] ; then
 fi
 
 if [ "$ffms" = "auto" ] ; then
-    ffms_major="2"; ffms_minor="14"; ffms_micro="0"; ffms_bump="0"
+    ffms_major="2"; ffms_minor="16"; ffms_micro="2"; ffms_bump="0"
     ffms="no"
 
     if ${cross_prefix}pkg-config --exists ffms2 2>/dev/null; then

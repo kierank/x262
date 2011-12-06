@@ -3111,7 +3111,6 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
 
     /* Set output picture properties */
     pic_out->i_type = h->fenc->i_type;
-    pic_out->passthrough_opaque = h->fenc->passthrough_opaque;
     pic_out->b_keyframe = h->fenc->b_keyframe;
     pic_out->i_pic_struct = h->fenc->i_pic_struct;
 
@@ -3120,6 +3119,8 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
 
     if( pic_out->i_pts < pic_out->i_dts )
         x264_log( h, X264_LOG_WARNING, "invalid DTS: PTS is less than DTS\n" );
+
+    pic_out->opaque = h->fenc->opaque;
 
     pic_out->img.i_csp = h->fdec->i_csp;
 #if HIGH_BIT_DEPTH
