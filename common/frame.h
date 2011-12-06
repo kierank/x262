@@ -168,6 +168,9 @@ typedef struct x264_frame
 
     /* user sei */
     x264_sei_t extra_sei;
+
+    /* user data */
+    void *opaque;
 } x264_frame_t;
 
 /* synchronized frame list */
