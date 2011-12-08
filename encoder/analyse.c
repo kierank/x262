@@ -1282,8 +1282,6 @@ static void x264_intra_rd_refine( x264_t *h, x264_mb_analysis_t *a )
             if( i_max > 0 )
             {
                 int i_cbp_chroma_best = h->mb.i_cbp_chroma;
-                const int *lambda2_tab;
-                lambda2_tab = x264_lambda2_tab;
                 int i_chroma_lambda = x264_lambda2_tab[h->mb.i_chroma_qp];
                 /* the previous thing encoded was x264_intra_rd(), so the pixels and
                  * coefs for the current chroma mode are still around, so we only
@@ -4043,12 +4041,16 @@ static void x264_analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
         int y_2 = ( h->mb.i_mb_height - h->mb.i_mb_y - 1 ) * 16*4;
 
         a->l0.me16x16.mv[0] = x264_clip3( a->l0.me16x16.mv[0], x_1, x_2 );
-        a->l1.me16x16.mv[0] = x264_clip3( a->l1.me16x16.mv[0], x_1, x_2 );
         a->l0.me16x16.mv[1] = x264_clip3( a->l0.me16x16.mv[1], y_1, y_2 );
-        a->l1.me16x16.mv[1] = x264_clip3( a->l1.me16x16.mv[1], y_1, y_2 );
-
         x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 0, a->l0.me16x16.mv );
-        x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 1, a->l1.me16x16.mv );
+
+        if( h->mb.i_type != P_L0 )
+        {
+            a->l1.me16x16.mv[0] = x264_clip3( a->l1.me16x16.mv[0], x_1, x_2 );
+            a->l1.me16x16.mv[1] = x264_clip3( a->l1.me16x16.mv[1], y_1, y_2 );
+            x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 1, a->l1.me16x16.mv );
+        }
+
     }
 
 #ifndef NDEBUG
