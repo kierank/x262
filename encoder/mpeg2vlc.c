@@ -101,9 +101,9 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
 
     int cbp420 = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma;
     int cbp = cbp420 << 2 | h->mb.i_cbp_chroma422;
+    int coded = !!cbp;
     int quant = h->mb.i_last_qp != h->mb.i_qp && h->mb.i_mb_x;
-    int mcoded = h->mb.cache.mv[0][x264_scan8[0]][0] ||
-                 h->mb.cache.mv[0][x264_scan8[0]][1];
+    int mcoded = !!M32( h->mb.cache.mv[0][X264_SCAN8_0] );
     int mv_type = 0;
 
     /* must code a zero mv for macroblocks that cannot be (P|B)_SKIP */
@@ -111,7 +111,7 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
         mcoded = 1;
 
     /* can't use a quant macroblock_type when there are no blocks to code */
-    if( quant && !cbp )
+    if( quant && !coded )
     {
         quant = 0;
         h->mb.i_qp = h->mb.i_last_qp;
@@ -122,7 +122,7 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
         bs_write_vlc( s, x264_i_mb_type[h->sh.i_type][quant] );
     else if( i_mb_type == P_L0 )
     {
-        bs_write_vlc( s, x264_p_mb_type[mcoded][!!cbp][quant] );
+        bs_write_vlc( s, x264_p_mb_type[mcoded][coded][quant] );
         if( !mcoded )
             x264_reset_mv_predictor_mpeg2( h );
     }
@@ -132,7 +132,7 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
             mv_type = 1;
         else if( i_mb_type == B_BI_BI )
             mv_type = 2;
-        bs_write_vlc( s, x264_b_mb_type[mv_type][!!cbp][quant] );
+        bs_write_vlc( s, x264_b_mb_type[mv_type][coded][quant] );
     }
 
     if( PARAM_INTERLACED || h->param.b_fake_interlaced )
@@ -140,7 +140,7 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
         /* only frame-based prediction is supported */
         if( (i_mb_type == P_L0 && mcoded) || i_mb_type > P_L0 )
             bs_write( s, 2, 2 );           // frame_motion_type
-        if( !!cbp )
+        if( coded )
             bs_write1( s, MB_INTERLACED ); // dct_type
     }
 
@@ -162,7 +162,7 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
                 x264_write_mv_vlc_mpeg2( h, ( h->mb.cache.mv[mv_type][x264_scan8[0]][i] - h->mb.mvp[mv_type][i] ) >> 1,
                                          h->fenc->mv_fcode[mv_type][i] );
                 // update predictors
-                h->mb.mvp[mv_type][i] = h->mb.cache.mv[mv_type][x264_scan8[0]][i];
+                h->mb.mvp[mv_type][i] = h->mb.cache.mv[mv_type][X264_SCAN8_0][i];
             }
     }
 
