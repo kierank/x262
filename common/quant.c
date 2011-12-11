@@ -47,28 +47,11 @@
     nz |= (coef); \
 }
 
-#define QUANT_ONE_MPEG2( coef, mf, f ) \
-{ \
-    if( (coef) > 0 ) \
-        (coef) = ( f + (coef<<5) ) / (mf) ; \
-    else \
-        (coef) = - (( f - (coef<<5) ) / (mf) ); \
-    nz |= (coef); \
-}
-
 static int quant_8x8( dctcoef dct[64], udctcoef mf[64], udctcoef bias[64] )
 {
     int nz = 0;
     for( int i = 0; i < 64; i++ )
         QUANT_ONE( dct[i], mf[i], bias[i] );
-    return !!nz;
-}
-
-static int quant_8x8_mpeg2( dctcoef dct[64], uint16_t mf[64], uint16_t bias[64] )
-{
-    int nz = 0;
-    for( int i = 0; i < 64; i++ )
-        QUANT_ONE_MPEG2( dct[i], mf[i], bias[i] );
     return !!nz;
 }
 
@@ -478,7 +461,6 @@ void x264_quant_init( x264_t *h, int cpu, x264_quant_function_t *pf )
     pf->coeff_level_run[ DCT_LUMA_4x4] = x264_coeff_level_run16;
 
     pf->coeff_level_run[ DCT_LUMA_8x8] = x264_coeff_level_run64;
-    pf->quant_8x8_mpeg2 = quant_8x8_mpeg2;
     pf->dequant_mpeg2_intra = dequant_mpeg2_intra;
     pf->dequant_mpeg2_inter = dequant_mpeg2_inter;
 
