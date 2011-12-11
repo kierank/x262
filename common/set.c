@@ -293,15 +293,15 @@ int x264_cqm_init_mpeg2( x264_t *h )
         CHECKED_MALLOC( h->  quant8_mf[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(udctcoef) );
         CHECKED_MALLOC( h->dequant8_mf[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(int) );
     }
-    for( int q = 0; q < QP_MAX_SPEC_MPEG2+1; q++ )
+    for( int q = 1; q < QP_MAX_SPEC_MPEG2+1; q++ )
     {
         for( int i = 0; i < 64; i++ )
         {
-            h->  quant8_mf[CQM_8IY][q][i] =
+            h->  quant8_mf[CQM_8IY][q][i] = ( 1 << 17 ) / ( qscale[q] * h->pps->scaling_list[CQM_8IY][i] );
             h->dequant8_mf[CQM_8IY][q][i] = 2 * qscale[q] * h->pps->scaling_list[CQM_8IY][i];
-            h->quant8_bias[CQM_8IY][q][i] = qscale[q] * h->pps->scaling_list[CQM_8IY][i];
+            h->quant8_bias[CQM_8IY][q][i] = 0;
 
-            h->  quant8_mf[CQM_8PY][q][i] =
+            h->  quant8_mf[CQM_8PY][q][i] = ( 1 << 17 ) / ( qscale[q] * h->pps->scaling_list[CQM_8PY][i] );
             h->dequant8_mf[CQM_8PY][q][i] = 2 * qscale[q] * h->pps->scaling_list[CQM_8PY][i];
             h->quant8_bias[CQM_8PY][q][i] = 0;
         }

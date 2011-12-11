@@ -623,9 +623,6 @@ static inline void jpeg_fdct_islow( dctcoef *data )
 
         dataptr++; /* advance pointer to next column */
     }
-    /* descale */
-    for( int i = 0; i < 64; i++ )
-        data[i] = (dctcoef) DESCALE(data[i], 3);
 
     /* transpose to match zigzag and cqm */
     for( int i = 0; i < 8; i++ )

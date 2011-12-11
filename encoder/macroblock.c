@@ -254,7 +254,7 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
 
     // quantize dc
     dcb = dct8x8[0];
-    dc_mult = 8 >> h->param.i_intra_dc_precision;
+    dc_mult = (8 * 8) >> h->param.i_intra_dc_precision; // fdct is scaled by 8
     dcb = (dcb + (dc_mult >> 1)) / dc_mult;
     dc_diff = dcb - cur_dc_predictor;
     if( dc_diff < 0 )
