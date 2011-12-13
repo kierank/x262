@@ -143,15 +143,15 @@ static void dequant_mpeg2_inter( dctcoef dct[64], int dequant_mf[64] )
         dct[63] ^= 1;
 }
 
-static void dequant_mpeg2_intra( dctcoef dct[64], int dequant_mf[64] )
+static void dequant_mpeg2_intra( dctcoef dct[64], int dequant_mf[64], int precision )
 {
     int sign = 0;
-    int sum = dct[0];
+    int sum = dct[0] = dct[0] << ( 3 - precision ); // DC dequant
     for( int i = 1; i < 64; i++ )
     {
         sign = dct[i] >> 15;
         dct[i] = ( dct[i] + sign ) ^ sign; // absval
-        dct[i] = ( dct[i] * dequant_mf[i] ) >> 5; // intra dequant
+        dct[i] = ( dct[i] * dequant_mf[i] ) >> 5; // AC dequant
         dct[i] = (dct[i] ^ sign) - sign; // sign restore
         x264_clip3( dct[i], -2048, 2047 );
         sum ^= dct[i];

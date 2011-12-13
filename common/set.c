@@ -286,6 +286,9 @@ fail:
 int x264_cqm_init_mpeg2( x264_t *h )
 {
     const uint8_t *qscale = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
+    int j;
+    int deadzone[2] = { 32 - h->param.analyse.i_luma_deadzone[1],
+                        32 - h->param.analyse.i_luma_deadzone[0] };
 
     for( int i = 0; i < 2; i++ )
     {
@@ -297,14 +300,17 @@ int x264_cqm_init_mpeg2( x264_t *h )
     {
         for( int i = 0; i < 64; i++ )
         {
-            h->  quant8_mf[CQM_8IY][q][i] = ( 1 << 17 ) / ( qscale[q] * h->pps->scaling_list[CQM_8IY][i] );
+            h->  quant8_mf[CQM_8IY][q][i] = j = ( 1 << 17 ) / ( qscale[q] * h->pps->scaling_list[CQM_8IY][i] );
             h->dequant8_mf[CQM_8IY][q][i] = 2 * qscale[q] * h->pps->scaling_list[CQM_8IY][i];
-            h->quant8_bias[CQM_8IY][q][i] = 0;
+            h->quant8_bias[CQM_8IY][q][i] = X264_MIN( DIV(deadzone[0]<<10, j), (1<<15)/j );
 
-            h->  quant8_mf[CQM_8PY][q][i] = ( 1 << 17 ) / ( qscale[q] * h->pps->scaling_list[CQM_8PY][i] );
+            h->  quant8_mf[CQM_8PY][q][i] = j = ( 1 << 17 ) / ( qscale[q] * h->pps->scaling_list[CQM_8PY][i] );
             h->dequant8_mf[CQM_8PY][q][i] = 2 * qscale[q] * h->pps->scaling_list[CQM_8PY][i];
-            h->quant8_bias[CQM_8PY][q][i] = 0;
+            h->quant8_bias[CQM_8PY][q][i] = X264_MIN( DIV(deadzone[1]<<10, j), (1<<15)/j );
         }
+        // intra dc
+        h->  quant8_mf[CQM_8IY][q][0] = j = 1 << ( 10 + h->param.i_intra_dc_precision );
+        h->quant8_bias[CQM_8IY][q][0] = X264_MIN( DIV(deadzone[0]<<10, j), (1<<15)/j );
     }
     return 0;
 fail:

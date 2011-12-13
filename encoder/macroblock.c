@@ -224,9 +224,9 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
     pixel *p_src;
     pixel *p_dst;
     ALIGNED_ARRAY_16( dctcoef, dct8x8,[64] );
-    int nz, cur_dc_predictor, dc_mult, dc_diff, size;
+    int nz, cur_dc_predictor, dc_diff, size;
     int chroma422 = (CHROMA_FORMAT == CHROMA_422 && idx > 3) ? 1 : 0;
-    dctcoef dcb;
+
     // TODO decimation
 
     int x = idx&1;
@@ -251,12 +251,10 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
     }
 
     h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
+    nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8IY][i_qp], h->quant8_bias[CQM_8IY][i_qp] );
 
-    // quantize dc
-    dcb = dct8x8[0];
-    dc_mult = (8 * 8) >> h->param.i_intra_dc_precision; // fdct is scaled by 8
-    dcb = (dcb + (dc_mult >> 1)) / dc_mult;
-    dc_diff = dcb - cur_dc_predictor;
+    // DC prediction
+    dc_diff = dct8x8[0] - cur_dc_predictor;
     if( dc_diff < 0 )
     {
         size = LOG2_16( -2*dc_diff );
@@ -264,9 +262,9 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
     }
     else
         size = LOG2_16( 2*dc_diff );
-
-    nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8IY][i_qp], h->quant8_bias[CQM_8IY][i_qp] );
-    dct8x8[0] = h->dct.mpeg2_8x8[idx][0] = dcb << (3-h->param.i_intra_dc_precision); // dequant the DC
+    h->mb.i_dct_dc_size[idx] = size;
+    h->mb.i_dct_dc_diff[idx] = dc_diff & ((1<<size)-1);
+    h->mb.i_intra_dc_predictor[idx] = dct8x8[0];
 
     if( nz )
     {
@@ -277,13 +275,9 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
         else
             h->mb.i_cbp_chroma422 |= 1<<(7-idx);
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
-        h->quantf.dequant_mpeg2_intra( dct8x8, h->dequant8_mf[CQM_8IY][i_qp] );
+        h->quantf.dequant_mpeg2_intra( dct8x8, h->dequant8_mf[CQM_8IY][i_qp], h->param.i_intra_dc_precision );
         h->dctf.add8x8_idct8( p_dst, dct8x8 );
     }
-    /* store dc_diff and update intra_dc_predictor */
-    h->mb.i_dct_dc_size[idx] = size;
-    h->mb.i_dct_dc_diff[idx] = dc_diff & ((1<<size)-1);
-    h->mb.i_intra_dc_predictor[idx] = dcb;
 }
 
 static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
