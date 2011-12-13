@@ -1724,6 +1724,8 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
         {
             // access unit initialises the HRD
             h->fenc->hrd_timing.cpb_initial_arrival_time = 0;
+            rc->initial_cpb_removal_delay = h->initial_cpb_removal_delay;
+            rc->initial_cpb_removal_delay_offset = h->initial_cpb_removal_delay_offset;
             h->fenc->hrd_timing.cpb_removal_time = rc->nrt_first_access_unit = (int64_t)h->initial_cpb_removal_delay * 300;
         }
         else
@@ -1734,7 +1736,11 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
             h->fenc->hrd_timing.cpb_initial_arrival_time = h->fenc->hrd_timing.cpb_removal_time - rc->initial_cpb_removal_delay * 300;
 
             if( h->fenc->b_keyframe )
+            {
                 rc->nrt_first_access_unit = h->fenc->hrd_timing.cpb_removal_time;
+                rc->initial_cpb_removal_delay = h->initial_cpb_removal_delay;
+                rc->initial_cpb_removal_delay_offset = h->initial_cpb_removal_delay_offset;
+            }
             else
                 h->fenc->hrd_timing.cpb_initial_arrival_time -= rc->initial_cpb_removal_delay_offset * 300;
         }
