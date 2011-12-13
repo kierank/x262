@@ -201,6 +201,7 @@ OPT4 = --crf 22 -b3 -m7 -r4 --me esa -t2 -A all --psy-rd 1.0:1.0 --slices 4
 OPT5 = --frames 50 --crf 24 -b3 -m10 -r3 --me tesa -t2
 OPT6 = --frames 50 -q0 -m9 -r2 --me hex -Aall
 OPT7 = --frames 50 -q0 -m2 -r1 --me hex --no-cabac
+OPT8 = --mpeg2 --crf 6 -b2 -m9 --me esa -t2 -I15
 
 ifeq (,$(VIDS))
 fprofiled:
@@ -211,7 +212,7 @@ else
 fprofiled:
 	$(MAKE) clean
 	$(MAKE) x264$(EXE) CFLAGS="$(CFLAGS) $(PROF_GEN_CC)" LDFLAGS="$(LDFLAGS) $(PROF_GEN_LD)"
-	$(foreach V, $(VIDS), $(foreach I, 0 1 2 3 4 5 6 7, ./x264$(EXE) $(OPT$I) --threads 1 $(V) -o $(DEVNULL) ;))
+	$(foreach V, $(VIDS), $(foreach I, 0 1 2 3 4 5 6 7 8, ./x264$(EXE) $(OPT$I) --threads 1 $(V) -o $(DEVNULL) ;))
 	rm -f $(SRC2:%.c=%.o)
 	$(MAKE) CFLAGS="$(CFLAGS) $(PROF_USE_CC)" LDFLAGS="$(LDFLAGS) $(PROF_USE_LD)"
 	rm -f $(SRC2:%.c=%.gcda) $(SRC2:%.c=%.gcno) *.dyn pgopti.dpi pgopti.dpi.lock
