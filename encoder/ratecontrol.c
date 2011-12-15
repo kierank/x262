@@ -1741,8 +1741,6 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
                 rc->initial_cpb_removal_delay = h->initial_cpb_removal_delay;
                 rc->initial_cpb_removal_delay_offset = h->initial_cpb_removal_delay_offset;
             }
-            else
-                h->fenc->hrd_timing.cpb_initial_arrival_time -= rc->initial_cpb_removal_delay_offset * 300;
         }
 
         h->fenc->hrd_timing.dpb_output_time = (int64_t)h->fenc->i_dpb_output_delay * 27000000LL * h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale +
