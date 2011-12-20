@@ -287,10 +287,13 @@ int x264_cqm_init_mpeg2( x264_t *h )
 {
     const uint8_t *qscale = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
     int j;
+    int matrices = CHROMA_FORMAT == CHROMA_422 ? 4 : 2;
     int deadzone[2] = { 32 - h->param.analyse.i_luma_deadzone[1],
                         32 - h->param.analyse.i_luma_deadzone[0] };
+    int intra_mf = j = 1 << ( 10 + h->param.i_intra_dc_precision );
+    int intra_bias = X264_MIN( DIV(deadzone[0]<<10, j), (1<<15)/j );
 
-    for( int i = 0; i < 2; i++ )
+    for( int i = 0; i < matrices; i++ )
     {
         CHECKED_MALLOC( h->quant8_bias[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(udctcoef) );
         CHECKED_MALLOC( h->  quant8_mf[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(udctcoef) );
@@ -298,19 +301,20 @@ int x264_cqm_init_mpeg2( x264_t *h )
     }
     for( int q = 1; q < QP_MAX_SPEC_MPEG2+1; q++ )
     {
-        for( int i = 0; i < 64; i++ )
+        for( int m = 0; m < matrices; m++ )
         {
-            h->  quant8_mf[CQM_8IY][q][i] = j = ( 1 << 17 ) / ( qscale[q] * h->pps->scaling_list[CQM_8IY][i] );
-            h->dequant8_mf[CQM_8IY][q][i] = 2 * qscale[q] * h->pps->scaling_list[CQM_8IY][i];
-            h->quant8_bias[CQM_8IY][q][i] = X264_MIN( DIV(deadzone[0]<<10, j), (1<<15)/j );
-
-            h->  quant8_mf[CQM_8PY][q][i] = j = ( 1 << 17 ) / ( qscale[q] * h->pps->scaling_list[CQM_8PY][i] );
-            h->dequant8_mf[CQM_8PY][q][i] = 2 * qscale[q] * h->pps->scaling_list[CQM_8PY][i];
-            h->quant8_bias[CQM_8PY][q][i] = X264_MIN( DIV(deadzone[1]<<10, j), (1<<15)/j );
+            for( int i = 0; i < 64; i++ )
+            {
+                h->  quant8_mf[m][q][i] = j = ( 1 << 17 ) / ( qscale[q] * h->pps->scaling_list[m][i] );
+                h->dequant8_mf[m][q][i] = 2 * qscale[q] * h->pps->scaling_list[m][i];
+                h->quant8_bias[m][q][i] = X264_MIN( DIV(deadzone[m&1]<<10, j), (1<<15)/j );
+            }
+            if( !( m & 1 ) ) // intra dc
+            {
+                h->  quant8_mf[m][q][0] = intra_mf;
+                h->quant8_bias[m][q][0] = intra_bias;
+            }
         }
-        // intra dc
-        h->  quant8_mf[CQM_8IY][q][0] = j = 1 << ( 10 + h->param.i_intra_dc_precision );
-        h->quant8_bias[CQM_8IY][q][0] = X264_MIN( DIV(deadzone[0]<<10, j), (1<<15)/j );
     }
     return 0;
 fail:
@@ -345,7 +349,7 @@ void x264_cqm_delete( x264_t *h )
 {
     if( !MPEG2 )
         CQM_DELETE( 4, 4 );
-    CQM_DELETE( 8, CHROMA444 ? 4 : 2 );
+    CQM_DELETE( 8, CHROMA444 || ( MPEG2 && CHROMA_FORMAT == CHROMA_422 ) ? 4 : 2 );
     x264_free( h->nr_offset_emergency );
 }
 
@@ -353,6 +357,7 @@ static int x264_cqm_parse_jmlist( x264_t *h, const char *buf, const char *name,
                                   uint8_t *cqm, const uint8_t *jvt, int length )
 {
     int i;
+    int min = MPEG2 ? 4 : 1;
 
     char *p = strstr( buf, name );
     if( !p )
@@ -376,7 +381,7 @@ static int x264_cqm_parse_jmlist( x264_t *h, const char *buf, const char *name,
             memcpy( cqm, jvt, length );
             return 0;
         }
-        if( coef < 1 || coef > 255 )
+        if( coef < min || coef > 255 )
         {
             x264_log( h, X264_LOG_ERROR, "bad coefficient in list '%s'\n", name );
             return -1;
@@ -410,16 +415,35 @@ int x264_cqm_parse_file( x264_t *h, const char *filename )
     while( (p = strchr( buf, '#' )) != NULL )
         memset( p, ' ', strcspn( p, "\n" ) );
 
-    b_error |= x264_cqm_parse_jmlist( h, buf, "INTRA4X4_LUMA",   h->param.cqm_4iy, x264_cqm_jvt4i, 16 );
-    b_error |= x264_cqm_parse_jmlist( h, buf, "INTER4X4_LUMA",   h->param.cqm_4py, x264_cqm_jvt4p, 16 );
-    b_error |= x264_cqm_parse_jmlist( h, buf, "INTRA4X4_CHROMA", h->param.cqm_4ic, x264_cqm_jvt4i, 16 );
-    b_error |= x264_cqm_parse_jmlist( h, buf, "INTER4X4_CHROMA", h->param.cqm_4pc, x264_cqm_jvt4p, 16 );
-    b_error |= x264_cqm_parse_jmlist( h, buf, "INTRA8X8_LUMA",   h->param.cqm_8iy, x264_cqm_jvt8i, 64 );
-    b_error |= x264_cqm_parse_jmlist( h, buf, "INTER8X8_LUMA",   h->param.cqm_8py, x264_cqm_jvt8p, 64 );
-    if( CHROMA444 )
+    if( MPEG2 )
     {
-        b_error |= x264_cqm_parse_jmlist( h, buf, "INTRA8X8_CHROMA", h->param.cqm_8iy, x264_cqm_jvt8i, 64 );
-        b_error |= x264_cqm_parse_jmlist( h, buf, "INTER8X8_CHROMA", h->param.cqm_8py, x264_cqm_jvt8p, 64 );
+        // x264_cqm_intra_mpeg2 is transposed, but param.cqm_8i* is not
+        uint8_t intra[64];
+        for( int i = 0; i < 8; i++ )
+            for( int j = 0; j < 8; j++ )
+                intra[8*i+j] = x264_cqm_intra_mpeg2[8*j+i];
+
+        b_error |= x264_cqm_parse_jmlist( h, buf, "INTRA_LUMA", h->param.cqm_8iy, intra, 64 );
+        b_error |= x264_cqm_parse_jmlist( h, buf, "INTER_LUMA", h->param.cqm_8py, x264_cqm_flat16, 64 );
+        if( CHROMA_FORMAT == CHROMA_422 )
+        {
+            b_error |= x264_cqm_parse_jmlist( h, buf, "INTRA_CHROMA", h->param.cqm_8ic, h->param.cqm_8iy, 64 );
+            b_error |= x264_cqm_parse_jmlist( h, buf, "INTER_CHROMA", h->param.cqm_8pc, h->param.cqm_8py, 64 );
+        }
+    }
+    else
+    {
+        b_error |= x264_cqm_parse_jmlist( h, buf, "INTRA4X4_LUMA",   h->param.cqm_4iy, x264_cqm_jvt4i, 16 );
+        b_error |= x264_cqm_parse_jmlist( h, buf, "INTER4X4_LUMA",   h->param.cqm_4py, x264_cqm_jvt4p, 16 );
+        b_error |= x264_cqm_parse_jmlist( h, buf, "INTRA4X4_CHROMA", h->param.cqm_4ic, x264_cqm_jvt4i, 16 );
+        b_error |= x264_cqm_parse_jmlist( h, buf, "INTER4X4_CHROMA", h->param.cqm_4pc, x264_cqm_jvt4p, 16 );
+        b_error |= x264_cqm_parse_jmlist( h, buf, "INTRA8X8_LUMA",   h->param.cqm_8iy, x264_cqm_jvt8i, 64 );
+        b_error |= x264_cqm_parse_jmlist( h, buf, "INTER8X8_LUMA",   h->param.cqm_8py, x264_cqm_jvt8p, 64 );
+        if( CHROMA444 )
+        {
+            b_error |= x264_cqm_parse_jmlist( h, buf, "INTRA8X8_CHROMA", h->param.cqm_8ic, x264_cqm_jvt8i, 64 );
+            b_error |= x264_cqm_parse_jmlist( h, buf, "INTER8X8_CHROMA", h->param.cqm_8pc, x264_cqm_jvt8p, 64 );
+        }
     }
 
     x264_free( buf );

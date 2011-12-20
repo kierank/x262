@@ -1075,6 +1075,11 @@ static void zigzag_scan_8x8_field_mpeg2( dctcoef level[64], dctcoef dct[64] )
     ZIGZAG8_FIELD_MPEG2
 }
 
+void zigzag_scan_8x8_cqm( uint8_t level[64], const uint8_t dct[64] )
+{
+    ZIGZAG8_FRAME
+}
+
 #undef ZIG
 #define ZIG(i,y,x) level[i] = dct[x*4+y];
 #define ZIGDC(i,y,x) ZIG(i,y,x)

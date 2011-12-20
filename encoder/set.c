@@ -482,18 +482,21 @@ void x264_pps_init( x264_t *h, x264_pps_t *pps, int i_id, x264_param_t *param, x
     switch( pps->i_cqm_preset )
     {
     case X264_CQM_FLAT:
+        for( int i = 0; i < 8; i++ )
+            pps->scaling_list[i] = x264_cqm_flat16;
         if( MPEG2 )
         {
             pps->scaling_list[CQM_8IY] = x264_cqm_intra_mpeg2;
-            pps->scaling_list[CQM_8PY] = x264_cqm_flat16;
+            pps->scaling_list[CQM_8IC] = x264_cqm_intra_mpeg2;
         }
-        else
-            for( int i = 0; i < 8; i++ )
-                pps->scaling_list[i] = x264_cqm_flat16;
         break;
     case X264_CQM_JVT:
-        for( int i = 0; i < 8; i++ )
-            pps->scaling_list[i] = x264_cqm_jvt[i];
+        if( MPEG2 )
+            for( int i = 0; i < 4; i++ )
+                pps->scaling_list[i] = x264_cqm_jvt[i+4];
+        else
+            for( int i = 0; i < 8; i++ )
+                pps->scaling_list[i] = x264_cqm_jvt[i];
         break;
     case X264_CQM_CUSTOM:
         /* match the transposed DCT & zigzag */
@@ -513,10 +516,24 @@ void x264_pps_init( x264_t *h, x264_pps_t *pps, int i_id, x264_param_t *param, x
         pps->scaling_list[CQM_8PY+4] = param->cqm_8py;
         pps->scaling_list[CQM_8IC+4] = param->cqm_8ic;
         pps->scaling_list[CQM_8PC+4] = param->cqm_8pc;
-        for( int i = 0; i < 8; i++ )
-            for( int j = 0; j < (i < 4 ? 16 : 64); j++ )
-                if( pps->scaling_list[i][j] == 0 )
-                    pps->scaling_list[i] = x264_cqm_jvt[i];
+        if( MPEG2 )
+        {
+            pps->scaling_list[CQM_8IY] = param->cqm_8iy;
+            pps->scaling_list[CQM_8PY] = param->cqm_8py;
+            pps->scaling_list[CQM_8IC] = param->cqm_8ic;
+            pps->scaling_list[CQM_8PC] = param->cqm_8pc;
+            for( int i = 0; i < 4; i++ )
+                for( int j = 0; j < 64; j++ )
+                    if( pps->scaling_list[i][j] < 4 )
+                        pps->scaling_list[i] = x264_cqm_flat16;
+        }
+        else
+        {
+            for( int i = 0; i < 8; i++ )
+                for( int j = 0; j < (i < 4 ? 16 : 64); j++ )
+                    if( pps->scaling_list[i][j] == 0 )
+                        pps->scaling_list[i] = x264_cqm_jvt[i];
+        }
         break;
     }
 }
@@ -769,6 +786,66 @@ void x264_sei_dec_ref_pic_marking_write( x264_t *h, bs_t *s )
 }
 
 /* MPEG-2 */
+static void x264_write_cqm_mpeg2( x264_t *h, bs_t *s, int chroma )
+{
+    uint8_t temp[64];
+
+    if( chroma )
+    {
+        // load_chroma_intra_quantiser_matrix
+        if( h->fenc->b_keyframe &&
+            memcmp( h->pps->scaling_list[CQM_8IC],
+                    h->pps->scaling_list[CQM_8IY], 64*sizeof(uint8_t) ) )
+        {
+            bs_write1( s, 1 );
+            zigzag_scan_8x8_cqm( temp, h->pps->scaling_list[CQM_8IC] );
+            bs_write( s, 8, 8 ); // first value must be 8
+            for( int i = 1; i < 64; i++ )
+                bs_write( s, 8, temp[i] );
+        }
+        else
+            bs_write1( s, 0 );
+
+        // load_chroma_non_intra_quantiser_matrix
+        if( memcmp( h->pps->scaling_list[CQM_8PC],
+                    h->pps->scaling_list[CQM_8PY], 64*sizeof(uint8_t) ) )
+        {
+            bs_write1( s, 1 );
+            zigzag_scan_8x8_cqm( temp, h->pps->scaling_list[CQM_8PC] );
+            for( int i = 0; i < 64; i++ )
+                bs_write( s, 8, temp[i] );
+        }
+        else
+            bs_write1( s, 0 );
+    }
+    else
+    {
+        // load_intra_quantiser_matrix
+        if( h->fenc->b_keyframe &&
+            memcmp( h->pps->scaling_list[CQM_8IY], x264_cqm_intra_mpeg2, 64*sizeof(uint8_t) ) )
+        {
+            bs_write1( s, 1 );
+            zigzag_scan_8x8_cqm( temp, h->pps->scaling_list[CQM_8IY] );
+            bs_write( s, 8, 8 ); // first value must be 8
+            for( int i = 1; i < 64; i++ )
+                bs_write( s, 8, temp[i] );
+        }
+        else
+            bs_write1( s, 0 );
+
+        // load_non_intra_quantiser_matrix
+        if( memcmp( h->pps->scaling_list[CQM_8PY], x264_cqm_flat16, 64*sizeof(uint8_t) ) )
+        {
+            bs_write1( s, 1 );
+            zigzag_scan_8x8_cqm( temp, h->pps->scaling_list[CQM_8PY] );
+            for( int i = 0; i < 64; i++ )
+                bs_write( s, 8, temp[i] );
+        }
+        else
+            bs_write1( s, 0 );
+    }
+}
+
 void x264_seq_header_write_mpeg2( x264_t *h, bs_t *s )
 {
     int i;
@@ -799,8 +876,8 @@ void x264_seq_header_write_mpeg2( x264_t *h, bs_t *s )
     bs_write( s, 10, i ); // vbv_buffer_size_value
 
     bs_write1( s, 0 ); // constrained_parameters_flag
-    bs_write1( s, 0 ); // load_intra_quantiser_matrix
-    bs_write1( s, 0 ); // load_non_intra_quantiser_matrix
+
+    x264_write_cqm_mpeg2( h, s, 0 );
 
     bs_align_0( s );
     bs_flush( s );
@@ -973,6 +1050,32 @@ void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s )
     bs_write1( s, CHROMA_FORMAT == CHROMA_420 ? !( PARAM_INTERLACED || param->b_fake_interlaced ) : 0 ); // chroma_420_type
     bs_write1( s, !( PARAM_INTERLACED || param->b_fake_interlaced ) ); // progressive_frame
     bs_write1( s, 0 ); // composite_display_flag
+
+    bs_align_0( s );
+    bs_flush( s );
+}
+
+void x264_quant_matrix_extension_write_mpeg2( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    bs_write( s, 4, MPEG2_QUANT_MATRIX_EXT_ID ); // extension_start_code_identifier
+
+    if( !h->fenc->b_keyframe )
+        x264_write_cqm_mpeg2( h, s, 0 );
+    else
+    {
+        bs_write1( s, 0 ); // load_intra_quantiser_matrix
+        bs_write1( s, 0 ); // load_non_intra_quantiser_matrix
+    }
+
+    if( CHROMA_FORMAT == CHROMA_422 )
+        x264_write_cqm_mpeg2( h, s, 1 );
+    else
+    {
+        bs_write1( s, 0 ); // load_chroma_intra_quantiser_matrix
+        bs_write1( s, 0 ); // load_chroma_non_intra_quantiser_matrix
+    }
 
     bs_align_0( s );
     bs_flush( s );

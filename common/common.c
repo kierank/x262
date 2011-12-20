@@ -578,12 +578,13 @@ static int parse_enum( const char *arg, const char * const *names, int *dst )
     return -1;
 }
 
-static int parse_cqm( const char *str, uint8_t *cqm, int length )
+static int parse_cqm( const char *str, uint8_t *cqm, int length, int b_mpeg2 )
 {
     int i = 0;
+    int min = b_mpeg2 ? 4 : 1;
     do {
         int coef;
-        if( !sscanf( str, "%d", &coef ) || coef < 1 || coef > 255 )
+        if( !sscanf( str, "%d", &coef ) || coef < min || coef > 255 )
             return -1;
         cqm[i++] = coef;
     } while( i < length && (str = strchr( str, ',' )) && str++ );
@@ -889,62 +890,62 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
     OPT("cqm4")
     {
         p->i_cqm_preset = X264_CQM_CUSTOM;
-        b_error |= parse_cqm( value, p->cqm_4iy, 16 );
-        b_error |= parse_cqm( value, p->cqm_4py, 16 );
-        b_error |= parse_cqm( value, p->cqm_4ic, 16 );
-        b_error |= parse_cqm( value, p->cqm_4pc, 16 );
+        b_error |= parse_cqm( value, p->cqm_4iy, 16, 0 );
+        b_error |= parse_cqm( value, p->cqm_4py, 16, 0 );
+        b_error |= parse_cqm( value, p->cqm_4ic, 16, 0 );
+        b_error |= parse_cqm( value, p->cqm_4pc, 16, 0 );
     }
     OPT("cqm8")
     {
         p->i_cqm_preset = X264_CQM_CUSTOM;
-        b_error |= parse_cqm( value, p->cqm_8iy, 64 );
-        b_error |= parse_cqm( value, p->cqm_8py, 64 );
-        b_error |= parse_cqm( value, p->cqm_8ic, 64 );
-        b_error |= parse_cqm( value, p->cqm_8pc, 64 );
+        b_error |= parse_cqm( value, p->cqm_8iy, 64, p->b_mpeg2 );
+        b_error |= parse_cqm( value, p->cqm_8py, 64, p->b_mpeg2 );
+        b_error |= parse_cqm( value, p->cqm_8ic, 64, p->b_mpeg2 );
+        b_error |= parse_cqm( value, p->cqm_8pc, 64, p->b_mpeg2 );
     }
     OPT("cqm4i")
     {
         p->i_cqm_preset = X264_CQM_CUSTOM;
-        b_error |= parse_cqm( value, p->cqm_4iy, 16 );
-        b_error |= parse_cqm( value, p->cqm_4ic, 16 );
+        b_error |= parse_cqm( value, p->cqm_4iy, 16, 0 );
+        b_error |= parse_cqm( value, p->cqm_4ic, 16, 0 );
     }
     OPT("cqm4p")
     {
         p->i_cqm_preset = X264_CQM_CUSTOM;
-        b_error |= parse_cqm( value, p->cqm_4py, 16 );
-        b_error |= parse_cqm( value, p->cqm_4pc, 16 );
+        b_error |= parse_cqm( value, p->cqm_4py, 16, 0 );
+        b_error |= parse_cqm( value, p->cqm_4pc, 16, 0 );
     }
     OPT("cqm4iy")
     {
         p->i_cqm_preset = X264_CQM_CUSTOM;
-        b_error |= parse_cqm( value, p->cqm_4iy, 16 );
+        b_error |= parse_cqm( value, p->cqm_4iy, 16, 0 );
     }
     OPT("cqm4ic")
     {
         p->i_cqm_preset = X264_CQM_CUSTOM;
-        b_error |= parse_cqm( value, p->cqm_4ic, 16 );
+        b_error |= parse_cqm( value, p->cqm_4ic, 16, 0 );
     }
     OPT("cqm4py")
     {
         p->i_cqm_preset = X264_CQM_CUSTOM;
-        b_error |= parse_cqm( value, p->cqm_4py, 16 );
+        b_error |= parse_cqm( value, p->cqm_4py, 16, 0 );
     }
     OPT("cqm4pc")
     {
         p->i_cqm_preset = X264_CQM_CUSTOM;
-        b_error |= parse_cqm( value, p->cqm_4pc, 16 );
+        b_error |= parse_cqm( value, p->cqm_4pc, 16, 0 );
     }
     OPT("cqm8i")
     {
         p->i_cqm_preset = X264_CQM_CUSTOM;
-        b_error |= parse_cqm( value, p->cqm_8iy, 64 );
-        b_error |= parse_cqm( value, p->cqm_8ic, 64 );
+        b_error |= parse_cqm( value, p->cqm_8iy, 64, p->b_mpeg2 );
+        b_error |= parse_cqm( value, p->cqm_8ic, 64, p->b_mpeg2 );
     }
     OPT("cqm8p")
     {
         p->i_cqm_preset = X264_CQM_CUSTOM;
-        b_error |= parse_cqm( value, p->cqm_8py, 64 );
-        b_error |= parse_cqm( value, p->cqm_8pc, 64 );
+        b_error |= parse_cqm( value, p->cqm_8py, 64, p->b_mpeg2 );
+        b_error |= parse_cqm( value, p->cqm_8pc, 64, p->b_mpeg2 );
     }
     OPT("log")
         p->i_log_level = atoi(value);

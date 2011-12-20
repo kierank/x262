@@ -48,6 +48,7 @@ void x264_seq_disp_extension_write_mpeg2( x264_t *h, bs_t *s );
 void x264_gop_header_write_mpeg2( x264_t *h, bs_t *s );
 void x264_pic_header_write_mpeg2( x264_t *h, bs_t *s );
 void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s );
+void x264_quant_matrix_extension_write_mpeg2( x264_t *h, bs_t *s );
 void x264_pic_display_extension_write_mpeg2( x264_t *h, bs_t *s );
 void x264_user_data_write_mpeg2( bs_t *s, uint8_t *payload, int payload_size );
 

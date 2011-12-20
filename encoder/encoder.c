@@ -3223,6 +3223,20 @@ int     x264_encoder_encode( x264_t *h,
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
+        /* generate quant matrix extension */
+        if( h->fenc->b_keyframe && CHROMA_FORMAT == CHROMA_422 &&
+            ( memcmp( h->pps->scaling_list[CQM_8IC],
+                      h->pps->scaling_list[CQM_8IY], 64*sizeof(uint8_t) ) ||
+              memcmp( h->pps->scaling_list[CQM_8PC],
+                      h->pps->scaling_list[CQM_8PY], 64*sizeof(uint8_t) ) ) )
+        {
+            x264_nal_start( h, MPEG2_QUANT_MATRIX_EXT, NAL_PRIORITY_HIGHEST );
+            x264_quant_matrix_extension_write_mpeg2( h, &h->out.bs );
+            if( x264_nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+        }
+
         /* generate picture display extension */
         if( h->param.crop_rect.i_left || h->param.crop_rect.i_right ||
             h->param.crop_rect.i_top || h->param.crop_rect.i_bottom )
