@@ -157,7 +157,11 @@ struct x264_ratecontrol_t
     int initial_cpb_removal_delay;
     int initial_cpb_removal_delay_offset;
     int64_t nrt_first_access_unit; /* nominal removal time */
-    int64_t previous_cpb_final_arrival_time;
+
+    /* Integer and fractional part of the cpb arrival time */
+    int64_t previous_cpb_final_arrival_time_int;
+    int64_t previous_cpb_final_arrival_time_frac;
+
     uint64_t hrd_multiply_denom;
 };
 
@@ -638,11 +642,11 @@ int x264_ratecontrol_new( x264_t *h )
     if( h->param.i_nal_hrd )
     {
         uint64_t denom = (uint64_t)h->sps->vui.hrd.i_bit_rate_unscaled * h->sps->vui.i_time_scale;
-        uint64_t num = 180000;
+        uint64_t num = 54000000;
         x264_reduce_fraction64( &num, &denom );
-        rc->hrd_multiply_denom = 180000 / num;
+        rc->hrd_multiply_denom = 54000000 / num;
 
-        double bits_required = log2( 180000 / rc->hrd_multiply_denom )
+        double bits_required = log2( 54000000 / rc->hrd_multiply_denom )
                              + log2( h->sps->vui.i_time_scale )
                              + log2( h->sps->vui.hrd.i_cpb_size_unscaled );
         if( bits_required >= 63 )
@@ -1720,6 +1724,9 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
 
     if( h->param.i_nal_hrd )
     {
+        uint64_t denom = (uint64_t)h->sps->vui.hrd.i_bit_rate_unscaled * h->sps->vui.i_time_scale / rc->hrd_multiply_denom;
+        uint64_t multiply_factor = 54000000 / rc->hrd_multiply_denom;
+
         if( h->fenc->i_frame == 0 )
         {
             // access unit initialises the HRD
@@ -1733,7 +1740,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
             h->fenc->hrd_timing.cpb_removal_time = rc->nrt_first_access_unit + (int64_t)(h->fenc->i_cpb_delay - h->i_cpb_delay_pir_offset) *
                                                    27000000LL * h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
 
-            h->fenc->hrd_timing.cpb_initial_arrival_time = h->fenc->hrd_timing.cpb_removal_time - rc->initial_cpb_removal_delay * 300;
+	    int64_t cpb_earliest_arrival_time = h->fenc->hrd_timing.cpb_removal_time - rc->initial_cpb_removal_delay * 300;
 
             if( h->fenc->b_keyframe )
             {
@@ -1741,12 +1748,28 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
                 rc->initial_cpb_removal_delay = h->initial_cpb_removal_delay;
                 rc->initial_cpb_removal_delay_offset = h->initial_cpb_removal_delay_offset;
             }
+            else
+                cpb_earliest_arrival_time -= rc->initial_cpb_removal_delay_offset * 300;
 
-            /* It's safe to do this when using single frame vbv */
-            if( rc->single_frame_vbv )
-                h->fenc->hrd_timing.cpb_initial_arrival_time -= rc->initial_cpb_removal_delay_offset * 300;
+            /* Compare the arrival times using the 27MHz clock which should be acceptable */
+            int64_t previous_cpb_arrival_time = rc->previous_cpb_final_arrival_time_int + (multiply_factor * rc->previous_cpb_final_arrival_time_frac + denom)
+                                                / (2*denom);
 
+            if( h->sps->vui.hrd.b_cbr_hrd )
+                h->fenc->hrd_timing.cpb_initial_arrival_time = previous_cpb_arrival_time;
+            else
+                h->fenc->hrd_timing.cpb_initial_arrival_time = X264_MAX( previous_cpb_arrival_time, cpb_earliest_arrival_time );
         }
+
+        int filler_bits = *filler ? X264_MAX( (FILLER_OVERHEAD - h->param.b_annexb), *filler )*8 : 0;
+        uint64_t frame_size = (bits + filler_bits) * h->sps->vui.i_time_scale;
+        uint64_t integer = (multiply_factor * frame_size) / (2*denom);
+
+        rc->previous_cpb_final_arrival_time_int = h->fenc->hrd_timing.cpb_initial_arrival_time + integer;
+        rc->previous_cpb_final_arrival_time_frac = frame_size - ((integer * (2*denom)) / multiply_factor);
+
+        h->fenc->hrd_timing.cpb_final_arrival_time = rc->previous_cpb_final_arrival_time_int + (multiply_factor * rc->previous_cpb_final_arrival_time_frac + denom)
+                                                     / (2*denom);
 
         h->fenc->hrd_timing.dpb_output_time = (int64_t)h->fenc->i_dpb_output_delay * 27000000LL * h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale +
                                               h->fenc->hrd_timing.cpb_removal_time;
@@ -1943,7 +1966,7 @@ void x264_hrd_fullness( x264_t *h )
     uint64_t denom = (uint64_t)h->sps->vui.hrd.i_bit_rate_unscaled * h->sps->vui.i_time_scale / rct->hrd_multiply_denom;
     uint64_t cpb_state = rct->buffer_fill_final;
     uint64_t cpb_size = (uint64_t)h->sps->vui.hrd.i_cpb_size_unscaled * h->sps->vui.i_time_scale;
-    uint64_t multiply_factor = 180000 / rct->hrd_multiply_denom;
+    uint64_t multiply_factor = 54000000 / rct->hrd_multiply_denom;
 
     if( rct->buffer_fill_final < 0 || rct->buffer_fill_final > cpb_size )
     {
@@ -1951,8 +1974,8 @@ void x264_hrd_fullness( x264_t *h )
                    rct->buffer_fill_final < 0 ? "underflow" : "overflow", (float)rct->buffer_fill_final/denom, (float)cpb_size/denom );
     }
 
-    h->initial_cpb_removal_delay = (multiply_factor * cpb_state + denom) / (2*denom);
-    h->initial_cpb_removal_delay_offset = (multiply_factor * cpb_size + denom) / (2*denom) - h->initial_cpb_removal_delay;
+    h->initial_cpb_removal_delay = (multiply_factor * cpb_state + denom) / (600*denom);
+    h->initial_cpb_removal_delay_offset = (multiply_factor * cpb_size + denom) / (600*denom) - h->initial_cpb_removal_delay;
 }
 
 // provisionally update VBV according to the planned size of all frames currently in progress
@@ -2512,7 +2535,8 @@ void x264_thread_sync_ratecontrol( x264_t *cur, x264_t *prev, x264_t *next )
         COPY(bframe_bits);
         COPY(initial_cpb_removal_delay);
         COPY(initial_cpb_removal_delay_offset);
-        COPY(previous_cpb_final_arrival_time);
+        COPY(previous_cpb_final_arrival_time_int);
+        COPY(previous_cpb_final_arrival_time_frac);
         COPY(nrt_first_access_unit);
 #undef COPY
     }
