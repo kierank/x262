@@ -645,6 +645,7 @@ enum pic_struct_e
 typedef struct
 {
     int64_t cpb_initial_arrival_time;
+    int64_t safe_cpb_initial_arrival_time;
     int64_t cpb_final_arrival_time;
     int64_t cpb_removal_time;
     int64_t dpb_output_time;
