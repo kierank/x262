@@ -949,7 +949,8 @@ struct x264_t
 
     } stat;
 
-    /* 0 = luma 4x4, 1 = luma 8x8, 2 = chroma 4x4, 3 = chroma 8x8 */
+    /* H.264:  0 = luma 4x4, 1 = luma 8x8, 2 = chroma 4x4, 3 = chroma 8x8
+     * MPEG-2: 0 = luma 8x8, 1 = chroma 8x8 */
     udctcoef (*nr_offset)[64];
     uint32_t (*nr_residual_sum)[64];
     uint32_t *nr_count;

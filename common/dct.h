@@ -88,6 +88,34 @@ static const uint16_t x264_dct8_weight2_tab[64] = {
 };
 #undef W
 
+#define W(i) (i==0 ? FIX8(0.25) :0)
+static const uint16_t x264_mpeg2_weight_tab[64] = {
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0)
+};
+#undef W
+
+#define W(i) (i==0 ? FIX8(0.015625) :0)
+static const uint16_t x264_mpeg2_weight2_tab[64] = {
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0)
+};
+#undef W
+
 extern uint16_t x264_dct4_weight2_zigzag[2][16]; // [2] = {frame, field}
 extern uint16_t x264_dct8_weight2_zigzag[2][64];
 

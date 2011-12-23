@@ -226,6 +226,7 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
     ALIGNED_ARRAY_16( dctcoef, dct8x8,[64] );
     int nz, cur_dc_predictor, dc_diff, size;
     int chroma422 = ( CHROMA_FORMAT == CHROMA_422 && idx > 3 ) ? 2 : 0;
+    int chroma = idx > 3 ? 1 : 0;
 
     // TODO decimation
 
@@ -251,6 +252,11 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
     }
 
     h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
+
+    h->nr_count[chroma] += h->mb.b_noise_reduction;
+    if( h->mb.b_noise_reduction)
+        h->quantf.denoise_dct( dct8x8, h->nr_residual_sum[chroma], h->nr_offset[chroma], 64 );
+
     nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8IY+chroma422][i_qp],
                               h->quant8_bias[CQM_8IY+chroma422][i_qp] );
 
@@ -288,6 +294,7 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
     pixel *p_dst;
     ALIGNED_ARRAY_16( dctcoef, dct8x8,[64] );
     int chroma422 = ( CHROMA_FORMAT == CHROMA_422 && idx > 3 ) ? 2 : 0;
+    int chroma = idx > 3 ? 1 : 0;
 
     int x = idx&1;
     if( idx < 4 )
@@ -307,6 +314,10 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
         p_dst = &h->mb.pic.p_fdec[1+x][8*FDEC_STRIDE];
     }
     h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
+
+    h->nr_count[chroma] += h->mb.b_noise_reduction;
+    if( h->mb.b_noise_reduction)
+        h->quantf.denoise_dct( dct8x8, h->nr_residual_sum[chroma], h->nr_offset[chroma], 64 );
 
     int nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8PY+chroma422][i_qp],
                                           h->quant8_bias[CQM_8PY+chroma422][i_qp] );
@@ -1284,6 +1295,10 @@ int x264_macroblock_probe_skip_mpeg2( x264_t *h, int b_bidir )
         pixel *p_dst = &h->mb.pic.p_fdec[0][8*x + 8*y*FDEC_STRIDE];;
 
         h->dctf.sub8x8_dct8( dct8x8[idx], p_src, p_dst );
+
+        if( h->mb.b_noise_reduction)
+            h->quantf.denoise_dct( dct8x8[idx], h->nr_residual_sum[0], h->nr_offset[0], 64 );
+
         if( !h->quantf.quant_8x8( dct8x8[idx], h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] ) )
             continue;
         h->zigzagf.scan_8x8( dctscan8, dct8x8[idx] );
@@ -1315,6 +1330,10 @@ int x264_macroblock_probe_skip_mpeg2( x264_t *h, int b_bidir )
             p_dst = &h->mb.pic.p_fdec[1+x][8*FDEC_STRIDE];
         }
         h->dctf.sub8x8_dct8( dct8x8[idx], p_src, p_dst );
+
+        if( h->mb.b_noise_reduction)
+            h->quantf.denoise_dct( dct8x8[idx], h->nr_residual_sum[1], h->nr_offset[1], 64 );
+
         if( !h->quantf.quant_8x8( dct8x8[idx], h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] ) )
             continue;
         h->zigzagf.scan_8x8( dctscan8, dct8x8[idx] );
@@ -1346,14 +1365,16 @@ int x264_macroblock_probe_skip( x264_t *h, int b_bidir )
 
 void x264_noise_reduction_update( x264_t *h )
 {
+    int count = MPEG2 ? 2 : 3 + CHROMA444;
     h->nr_offset = h->nr_offset_denoise;
     h->nr_residual_sum = h->nr_residual_sum_buf[0];
     h->nr_count = h->nr_count_buf[0];
-    for( int cat = 0; cat < 3 + CHROMA444; cat++ )
+    for( int cat = 0; cat < count; cat++ )
     {
-        int dct8x8 = cat&1;
+        int dct8x8 = MPEG2 ? 1 : cat&1;
         int size = dct8x8 ? 64 : 16;
-        const uint16_t *weight = dct8x8 ? x264_dct8_weight2_tab : x264_dct4_weight2_tab;
+        const uint16_t *weight = MPEG2 ? x264_mpeg2_weight2_tab :
+                                 dct8x8 ? x264_dct8_weight2_tab : x264_dct4_weight2_tab;
 
         if( h->nr_count[cat] > (dct8x8 ? (1<<16) : (1<<18)) )
         {
