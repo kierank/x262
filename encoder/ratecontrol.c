@@ -1730,7 +1730,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
         if( h->fenc->i_frame == 0 )
         {
             // access unit initialises the HRD
-            h->fenc->hrd_timing.cpb_initial_arrival_time = 0;
+            h->fenc->hrd_timing.cpb_initial_arrival_time = h->fenc->hrd_timing.safe_cpb_initial_arrival_time = 0;
             rc->initial_cpb_removal_delay = h->initial_cpb_removal_delay;
             rc->initial_cpb_removal_delay_offset = h->initial_cpb_removal_delay_offset;
             h->fenc->hrd_timing.cpb_removal_time = rc->nrt_first_access_unit = (int64_t)h->initial_cpb_removal_delay * 300;
@@ -1759,6 +1759,9 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
                 h->fenc->hrd_timing.cpb_initial_arrival_time = previous_cpb_arrival_time;
             else
                 h->fenc->hrd_timing.cpb_initial_arrival_time = X264_MAX( previous_cpb_arrival_time, cpb_earliest_arrival_time );
+
+            /* With single frame vbv it's safe to allow the frame to arrive as early as possible */
+            h->fenc->hrd_timing.safe_cpb_initial_arrival_time = rc->single_frame_vbv ? cpb_earliest_arrival_time : h->fenc->hrd_timing.cpb_initial_arrival_time;
         }
 
         int filler_bits = *filler ? X264_MAX( (FILLER_OVERHEAD - h->param.b_annexb), *filler )*8 : 0;
