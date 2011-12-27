@@ -4,6 +4,8 @@ include config.mak
 
 all: default
 
+CLIS = x264$(EXE)
+
 SRCS = common/mc.c common/predict.c common/pixel.c common/macroblock.c \
        common/frame.c common/dct.c common/cpu.c common/cabac.c \
        common/common.c common/osdep.c common/rectangle.c \
@@ -57,8 +59,9 @@ ifneq ($(findstring HAVE_GPAC 1, $(CONFIG)),)
 SRCCLI += output/mp4.c
 endif
 
-ifneq ($(findstring HAVE_MPEG2 1, $(CONFIG)),)
+ifeq ($(HAVE_MPEG2),1)
 SRCS   += common/mpeg2vlc.c encoder/mpeg2vlc.c
+CLIS   += x262$(EXE)
 endif
 
 # Visualization sources
@@ -145,7 +148,7 @@ DEP  = depend
 
 default: $(DEP)
 
-cli: x264$(EXE)
+cli: $(CLIS)
 lib-static: $(LIBX264)
 lib-shared: $(SONAME)
 
@@ -165,6 +168,15 @@ endif
 
 x264$(EXE): .depend $(OBJCLI) $(CLI_LIBX264)
 	$(LD)$@ $(OBJCLI) $(CLI_LIBX264) $(LDFLAGSCLI) $(LDFLAGS)
+
+ifeq ($(HAVE_MPEG2),1)
+ifneq ($(EXE),)
+.PHONY: x262$(EXE)
+x262: x262$(EXE)
+endif
+x262$(EXE): x264
+	ln -sf x264$(EXE) x262$(EXE)
+endif
 
 checkasm$(EXE): .depend $(OBJCHK) $(LIBX264)
 	$(LD)$@ $(OBJCHK) $(LIBX264) $(LDFLAGS)
@@ -219,7 +231,7 @@ fprofiled:
 endif
 
 clean:
-	rm -f $(OBJS) $(OBJASM) $(OBJCLI) $(OBJSO) $(SONAME) *.a *.lib *.exp *.pdb x264 x264.exe .depend TAGS
+	rm -f $(OBJS) $(OBJASM) $(OBJCLI) $(OBJSO) $(SONAME) *.a *.lib *.exp *.pdb x264 x264.exe x262 x262.exe .depend TAGS
 	rm -f checkasm checkasm.exe $(OBJCHK)
 	rm -f $(SRC2:%.c=%.gcda) $(SRC2:%.c=%.gcno) *.dyn pgopti.dpi pgopti.dpi.lock
 
@@ -228,7 +240,7 @@ distclean: clean
 
 install-cli: cli
 	install -d $(DESTDIR)$(bindir)
-	install x264$(EXE) $(DESTDIR)$(bindir)
+	install $(CLIS) $(DESTDIR)$(bindir)
 
 install-lib-dev:
 	install -d $(DESTDIR)$(includedir)
@@ -254,7 +266,7 @@ endif
 
 uninstall:
 	rm -f $(DESTDIR)$(includedir)/x264.h $(DESTDIR)$(includedir)/x264_config.h $(DESTDIR)$(libdir)/libx264.a
-	rm -f $(DESTDIR)$(bindir)/x264$(EXE) $(DESTDIR)$(libdir)/pkgconfig/x264.pc
+	rm -f $(DESTDIR)$(bindir)/x264$(EXE) $(DESTDIR)$(bindir)/x262$(EXE) $(DESTDIR)$(libdir)/pkgconfig/x264.pc
 ifneq ($(IMPLIBNAME),)
 	rm -f $(DESTDIR)$(bindir)/$(SONAME) $(DESTDIR)$(libdir)/$(IMPLIBNAME)
 else ifneq ($(SONAME),)

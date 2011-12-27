@@ -28,6 +28,7 @@
  *****************************************************************************/
 
 #include <signal.h>
+#include <libgen.h>
 #define _GNU_SOURCE
 #include <getopt.h>
 #include "common/common.h"
@@ -1237,6 +1238,8 @@ static int parse_enum_value( const char *arg, const char * const *names, int *ds
 
 static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
 {
+    char *cli_name = strdup( argv[0] );
+    char *cli_ext = NULL;
     char *input_filename = NULL;
     const char *demuxer = demuxer_names[0];
     char *output_filename = NULL;
@@ -1284,6 +1287,15 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
 
     if( x264_param_default_preset( param, preset, tune ) < 0 )
         return -1;
+
+    if( !cli_name )
+        return -1;
+    if( (cli_ext = strrchr( cli_name, '.' )) )
+        *cli_ext = 0;
+    /* If the binary is called as x262, default to mpeg2 */
+    if( !strcasecmp( basename( cli_name ), "x262" ) )
+        param->b_mpeg2 = 1;
+    free( cli_name );
 
     /* Parse command line options */
     for( optind = 0;; )

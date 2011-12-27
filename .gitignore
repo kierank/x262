@@ -23,6 +23,7 @@ config.mak
 config.log
 x264_config.h
 x264
+x262
 checkasm
 
 *.264
