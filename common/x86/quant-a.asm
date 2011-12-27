@@ -1394,11 +1394,11 @@ cglobal coeff_level_run%1,0,7
     LZCOUNT t3d, t5d, 0x1f
 %ifdef HIGH_BIT_DEPTH
     mov    t2d, [t0+t4*4]
-    mov   [t1+t6  +4+16*4], t3b
+    mov   [t1+t6  +4+64*4], t3b
     mov   [t1+t6*4+ 4], t2d
 %else
     mov    t2w, [t0+t4*2]
-    mov   [t1+t6  +4+16*2], t3b
+    mov   [t1+t6  +4+64*2], t3b
     mov   [t1+t6*2+ 4], t2w
 %endif
     inc    t3d
