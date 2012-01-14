@@ -213,7 +213,9 @@ OPT4 = --crf 22 -b3 -m7 -r4 --me esa -t2 -A all --psy-rd 1.0:1.0 --slices 4
 OPT5 = --frames 50 --crf 24 -b3 -m10 -r3 --me tesa -t2
 OPT6 = --frames 50 -q0 -m9 -r2 --me hex -Aall
 OPT7 = --frames 50 -q0 -m2 -r1 --me hex --no-cabac
+ifeq ($(HAVE_MPEG2),1)
 OPT8 = --mpeg2 --crf 6 -b2 -m9 --me esa -t2 -I15
+endif
 
 ifeq (,$(VIDS))
 fprofiled:
