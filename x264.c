@@ -251,6 +251,9 @@ static void print_version_info()
     printf( "using an unknown compiler\n" );
 #endif
     printf( "configuration: --bit-depth=%d --chroma-format=%s\n", x264_bit_depth, X264_CHROMA_FORMAT ? (output_csp_names[0]+1) : "all" );
+#if HAVE_MPEG2
+    printf( "               --enabled-mpeg2\n" );
+#endif
     printf( "x264 license: " );
 #if HAVE_GPL
     printf( "GPL version 2 or later\n" );
