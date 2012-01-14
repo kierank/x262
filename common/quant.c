@@ -131,16 +131,13 @@ static void dequant_mpeg2_inter( dctcoef dct[64], int dequant_mf[64] )
         if( dct[i] )
         {
             sign = dct[i] >> 15;
-            dct[i] = ( dct[i] + sign ) ^ sign; // absval
-            dct[i] = ( ( (dct[i]<<1) + 1 ) * dequant_mf[i]) >> 6; // inter dequant
-            dct[i] = (dct[i] ^ sign) - sign; // sign restore
-            x264_clip3( dct[i], -2048, 2047 );
+            dct[i] = (( (dct[i]<<1) + (sign|1) ) * dequant_mf[i] + (sign & 63)) >> 6;
+            dct[i] = x264_clip3( dct[i], -2048, 2047 );
             sum ^= dct[i];
         }
     }
     /* mismatch control */
-    if( !(sum & 1) )
-        dct[63] ^= 1;
+    dct[63] ^= 1&~sum;
 }
 
 static void dequant_mpeg2_intra( dctcoef dct[64], int dequant_mf[64], int precision )
@@ -150,15 +147,12 @@ static void dequant_mpeg2_intra( dctcoef dct[64], int dequant_mf[64], int precis
     for( int i = 1; i < 64; i++ )
     {
         sign = dct[i] >> 15;
-        dct[i] = ( dct[i] + sign ) ^ sign; // absval
-        dct[i] = ( dct[i] * dequant_mf[i] ) >> 5; // AC dequant
-        dct[i] = (dct[i] ^ sign) - sign; // sign restore
-        x264_clip3( dct[i], -2048, 2047 );
+        dct[i] = (dct[i] * dequant_mf[i] + (sign & 31)) >> 5;
+        dct[i] = x264_clip3( dct[i], -2048, 2047 );
         sum ^= dct[i];
     }
     /* mismatch control */
-    if( !(sum & 1) )
-        dct[63] ^= 1;
+    dct[63] ^= 1&~sum;
 }
 
 static void dequant_4x4_dc( dctcoef dct[16], int dequant_mf[6][16], int i_qp )
