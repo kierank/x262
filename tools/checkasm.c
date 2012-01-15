@@ -2022,6 +2022,130 @@ static int check_quant( int cpu_ref, int cpu_new )
     return ret;
 }
 
+static int check_quant_mpeg2( int cpu_ref, int cpu_new )
+{
+    x264_quant_function_t qf_c;
+    x264_quant_function_t qf_ref;
+    x264_quant_function_t qf_a;
+    ALIGNED_16( dctcoef dct1[64] );
+    ALIGNED_16( dctcoef dct2[64] );
+    ALIGNED_16( uint8_t cqm_buf[64] );
+    int ret = 0, ok = 1, used_asm = 0;
+    x264_t h_buf;
+    x264_t *h = &h_buf;
+    memset( h, 0, sizeof(*h) );
+    h->sps->i_chroma_format_idc = 1;
+    h->param.b_mpeg2 = 1;
+    x264_param_default( &h->param );
+    x264_param_apply_profile( &h->param, "high" );
+
+    for( int i_cqm = 0; i_cqm < 4 && ok; i_cqm++ )
+    {
+        if( i_cqm == 0 )
+        {
+            for( int i = 0; i < 8; i++ )
+                h->pps->scaling_list[i] = x264_cqm_flat16;
+            h->pps->scaling_list[CQM_8IY] = x264_cqm_intra_mpeg2;
+            h->pps->scaling_list[CQM_8IC] = x264_cqm_intra_mpeg2;
+            h->param.i_cqm_preset = h->pps->i_cqm_preset = X264_CQM_FLAT;
+        }
+        else if( i_cqm == 1 )
+        {
+            for( int i = 0; i < 4; i++ )
+                h->pps->scaling_list[i] = x264_cqm_jvt[i+4];
+            h->param.i_cqm_preset = h->pps->i_cqm_preset = X264_CQM_JVT;
+        }
+        else
+        {
+            if( i_cqm == 2 )
+                for( int i = 0; i < 64; i++ )
+                    cqm_buf[i] = 4 + rand() % 252;
+            else
+                for( int i = 0; i < 64; i++ )
+                    cqm_buf[i] = 4;
+            for( int i = 0; i < 6; i++ )
+                h->pps->scaling_list[i] = cqm_buf;
+            h->param.i_cqm_preset = h->pps->i_cqm_preset = X264_CQM_CUSTOM;
+        }
+
+        x264_quant_init( h, 0, &qf_c );
+        x264_quant_init( h, cpu_ref, &qf_ref );
+        x264_quant_init( h, cpu_new, &qf_a );
+
+#define TEST_DEQUANT_MPEG2_INTRA( qname, dqname, block ) \
+        if( qf_a.dqname != qf_ref.dqname ) \
+        { \
+            set_func_name( "%s_%s", #dqname, i_cqm?"cqm":"flat" ); \
+            used_asm = 1; \
+            for( int qp = 31; qp > 0; qp-- ) \
+           { \
+                INIT_QUANT8(1) \
+                qf_c.qname( dct1, h->quant8_mf[block][qp], h->quant8_bias[block][qp] ); \
+                memcpy( dct2, dct1, 64*sizeof(dctcoef) ); \
+                call_c1( qf_c.dqname, dct1, h->dequant8_mf[block][qp], h->param.i_intra_dc_precision ); \
+                call_a1( qf_a.dqname, dct2, h->dequant8_mf[block][qp], h->param.i_intra_dc_precision ); \
+                if( memcmp( dct1, dct2, 64*sizeof(dctcoef) ) ) \
+                { \
+                    ok = 0; \
+                    fprintf( stderr, #dqname "(qp=%d, cqm=%d, block="#block"): [FAILED]\n", qp, i_cqm ); \
+                    for (int r = 0; r < 64; r++) fprintf( stderr, "%d ", dct2[r] ); \
+                    fprintf( stderr, "\n" ); \
+                    for (int r = 0; r < 64; r++) fprintf( stderr, "%d ", dct1[r] ); \
+                    fprintf( stderr, "\n" ); \
+                    break; \
+                } \
+                call_c2( qf_c.dqname, dct1, h->dequant8_mf[block][qp], h->param.i_intra_dc_precision ); \
+                call_a2( qf_a.dqname, dct2, h->dequant8_mf[block][qp], h->param.i_intra_dc_precision ); \
+            } \
+        }
+
+        for( int precision = 0; precision < 4; precision++ )
+        {
+            h->param.i_intra_dc_precision = precision;
+            x264_cqm_init_mpeg2( h );
+            TEST_DEQUANT_MPEG2_INTRA( quant_8x8, dequant_mpeg2_intra, CQM_8IY );
+            x264_cqm_delete( h );
+        }
+
+        x264_cqm_init_mpeg2( h );
+
+#define TEST_DEQUANT_MPEG2_INTER( qname, dqname, block ) \
+        if( qf_a.dqname != qf_ref.dqname ) \
+        { \
+            set_func_name( "%s_%s", #dqname, i_cqm?"cqm":"flat" ); \
+            used_asm = 1; \
+            for( int qp = 31; qp > 0; qp-- ) \
+           { \
+                INIT_QUANT8(1) \
+                qf_c.qname( dct1, h->quant8_mf[block][qp], h->quant8_bias[block][qp] ); \
+                memcpy( dct2, dct1, 64*sizeof(dctcoef) ); \
+                call_c1( qf_c.dqname, dct1, h->dequant8_mf[block][qp] ); \
+                call_a1( qf_a.dqname, dct2, h->dequant8_mf[block][qp] ); \
+                if( memcmp( dct1, dct2, 64*sizeof(dctcoef) ) ) \
+                { \
+                    ok = 0; \
+                    fprintf( stderr, #dqname "(qp=%d, cqm=%d, block="#block"): [FAILED]\n", qp, i_cqm ); \
+                    for (int r = 0; r < 64; r++) fprintf( stderr, "%d ", dct2[r] ); \
+                    fprintf( stderr, "\n" ); \
+                    for (int r = 0; r < 64; r++) fprintf( stderr, "%d ", dct1[r] ); \
+                    fprintf( stderr, "\n" ); \
+                    break; \
+                } \
+                call_c2( qf_c.dqname, dct1, h->dequant8_mf[block][qp] ); \
+                call_a2( qf_a.dqname, dct2, h->dequant8_mf[block][qp] ); \
+            } \
+        }
+
+        TEST_DEQUANT_MPEG2_INTER( quant_8x8, dequant_mpeg2_inter, CQM_8PY );
+
+        x264_cqm_delete( h );
+    }
+
+    report( "dequant mpeg2 :" );
+
+    return ret;
+}
+
 static int check_intra( int cpu_ref, int cpu_new )
 {
     int ret = 0, ok = 1, used_asm = 0;
@@ -2294,6 +2418,7 @@ static int check_all_funcs( int cpu_ref, int cpu_new )
          + check_intra( cpu_ref, cpu_new )
          + check_deblock( cpu_ref, cpu_new )
          + check_quant( cpu_ref, cpu_new )
+         + check_quant_mpeg2( cpu_ref, cpu_new )
          + check_cabac( cpu_ref, cpu_new )
          + check_bitstream( cpu_ref, cpu_new );
 }

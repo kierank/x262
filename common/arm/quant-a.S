@@ -353,3 +353,144 @@ function x264_coeff_last64_neon
     movlt       r0,  #0
     bx          lr
 .endfunc
+
+function x264_dequant_mpeg2_inter_neon
+    vmov.i16    q11, #2047
+    vmov.i16    q8, #1
+    vmov.i8     q14, #0
+.rept 4
+    vld1.64     {d0-d3}, [r0]
+
+    vshr.s16    q3, q0, #15 //carry sign
+    vshr.s16    q2, q1, #15 //carry sign
+    vabs.s16    q0, q0
+    vabs.s16    q1, q1
+    vtst.i16    q15, q0, q0 //zero check
+    vtst.i16    q12, q1, q1 //zero check
+
+    vshl.u16    q0, #1
+    vshl.u16    q1, #1
+    vadd.u16    q0, q8
+    vadd.u16    q1, q8
+
+    vld1.64     {d18-d21}, [r1]!
+    vmovl.u16   q13, d1
+    vmovl.u16   q0, d0
+    vmul.u32    q10, q13
+    vmul.u32    q9, q0
+    vshrn.u32   d1, q10, #6
+    vshrn.u32   d0, q9, #6
+
+    vld1.64     {d18-d21}, [r1]!
+    vmovl.u16   q13, d3
+    vmovl.u16   q1, d2
+    vmul.u32    q10, q13
+    vmul.u32    q9, q1
+    vshrn.u32   d3, q10, #6
+    vshrn.u32   d2, q9, #6
+
+    veor        q0, q3 //sign restore
+    veor        q1, q2 //
+    vsub.s16    q0, q3 //
+    vsub.s16    q1, q2 //
+
+    vmin.s16    q0, q11
+    vmin.s16    q1, q11
+    vmvn.i16    q11, q11
+    vmax.s16    q0, q11 //clip
+    vmax.s16    q1, q11 //clip
+    vmvn.i16    q11, q11
+
+    vand        q0, q15 //zero check
+    vand        q1, q12 //zero check
+
+    veor        q14, q0
+    vst1.64     {d0-d3}, [r0]!
+    veor        q14, q1 //sum
+.endr
+    veor        d28, d29
+    vshr.u64    d29, d28, #32
+    veor        d28, d29
+    vshr.u64    d29, d28, #16
+    veor        d28, d29
+
+    vmvn        d2, d28
+    vshl.u64    d2, #63
+    vshr.u64    d2, #15
+    sub         r0, #8
+    veor        d3, d2
+    vst1.64     {d3}, [r0]
+    bx          lr
+.endfunc
+
+function x264_dequant_mpeg2_intra_neon
+    vmov.i16    q12, #2047
+    vmov.i8     q3, #0
+    vmvn.i16    q14, q12
+    ldrh        r3, [r0]
+    rsb         r2, r2, #3
+    lsl         r3, r2
+    bic         r3, #0xf0000
+    vmov.32     d6[0], r3
+.set Y, 0
+.rept 4
+    vld1.64     {d0-d3}, [r0]
+    vld1.64     {d16-d19}, [r1]!
+    vld1.64     {d20-d23}, [r1]!
+    vshr.s16    q2, q0, #15 //carry sign
+    vshr.s16    q15, q1, #15 //carry sign
+    vabs.s16    q0, q0
+    vabs.s16    q1, q1
+
+    vmovl.u16   q13, d1
+    vmovl.u16   q0, d0
+    vmul.u32    q9, q13
+    vmul.u32    q8, q0
+
+    vmovl.u16   q13, d3
+    vmovl.u16   q1, d2
+    vmul.u32    q11, q13
+    vmul.u32    q10, q1
+
+    vshrn.u32   d0, q8, #5
+    vshrn.u32   d1, q9, #5
+    vshrn.u32   d2, q10, #5
+    vshrn.u32   d3, q11, #5
+
+    veor        q0, q2  //sign restore
+    veor        q1, q15 //
+    vsub.s16    q0, q2  //
+    vsub.s16    q1, q15 //
+
+    vmin.s16    q0, q12 //clip
+    vmin.s16    q1, q12 //
+    vmax.s16    q0, q14 //
+    vmax.s16    q1, q14 //
+
+    vst1.64     {d0-d3}, [r0]!
+    veor        q3, q1 //sum
+.if Y == 0
+    vshr.u64    d0, #16
+    vshl.u64    d0, #16
+.endif
+    veor        q3, q0 //sum
+.set Y, -1
+.endr
+
+    veor        d6, d7
+    vshr.u64    d7, d6, #32
+    veor        d6, d7
+    vshr.u64    d7, d6, #16
+    veor        d6, d7
+
+    vmvn        d6, d6
+    vshl.u64    d6, #63
+    vshr.u64    d6, #15
+    sub         r0, #8
+
+    veor        d3, d6
+    vst1.64     {d3}, [r0]
+    sub         r0, #120
+    strh        r3, [r0]
+    bx          lr
+.endfunc
