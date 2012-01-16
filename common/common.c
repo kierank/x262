@@ -860,6 +860,8 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         p->b_alternate_scan = atobool(value);
     OPT("linear-quant")
         p->b_nonlinear_quant = !atobool(value);
+    OPT("altintra")
+        p->b_alt_intra_vlc = atobool(value);
 #endif
     OPT("cabac")
         p->b_cabac = atobool(value);

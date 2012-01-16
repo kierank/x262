@@ -37,19 +37,20 @@ static void x264_write_dct_vlc_mpeg2( x264_t *h, dctcoef *l, int intra_tab )
     bs_t *s = &h->out.bs;
     x264_run_level_t runlevel;
     int i_total = 0;
+    const int inter = h->mb.i_type != I_16x16;
 
     /* minus one because runlevel is zero-indexed and backwards */
     i_total = h->quantf.coeff_level_run[DCT_LUMA_8x8]( l, &runlevel ) - 1;
-    if( runlevel.run[i_total] && h->mb.i_type == I_16x16)
+    if( !inter && runlevel.run[i_total] )
         runlevel.run[i_total]--; // compensate for the DC coefficient set to zero
 
-    for( int i = i_total; i >= 0 && ( runlevel.last > 0 || h->mb.i_type != I_16x16 ); i-- )
+    for( int i = i_total; i >= 0 && ( runlevel.last > 0 || inter ); i-- )
     {
         if( abs( runlevel.level[i] ) <= 40 && runlevel.run[i] <= dct_vlc_largest_run[abs( runlevel.level[i] )] )
         {
             /* special case in table B.14 for abs(DC) == 1 */
-            if( !intra_tab && i == i_total && runlevel.run[i] == 0
-                && ( runlevel.level[i] == 1 || runlevel.level[i] == -1 ) )
+            if( i == i_total && runlevel.run[i] == 0 &&
+                ( runlevel.level[i] == 1 || runlevel.level[i] == -1 ) && inter )
                 bs_write1( s, 1 );
             else
                 bs_write_vlc( s, dct_vlcs[intra_tab][abs( runlevel.level[i] )][runlevel.run[i]] );
