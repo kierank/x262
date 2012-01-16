@@ -2,6 +2,11 @@
 
 include config.mak
 
+vpath %.c $(SRCPATH)
+vpath %.h $(SRCPATH)
+vpath %.S $(SRCPATH)
+vpath %.asm $(SRCPATH)
+
 all: default
 
 CLIS = x264$(EXE)
@@ -88,12 +93,12 @@ endif
 
 ifeq ($(ARCH),X86_64)
 ARCH_X86 = yes
-ASMSRC   = $(X86SRC:-32.asm=-64.asm)
+ASMSRC   = $(X86SRC:-32.asm=-64.asm) common/x86/trellis-64.asm
 ASFLAGS += -DARCH_X86_64
 endif
 
 ifdef ARCH_X86
-ASFLAGS += -Icommon/x86/
+ASFLAGS += -I$(SRCPATH)/common/x86/
 SRCS   += common/x86/mc-c.c common/x86/predict-c.c
 OBJASM  = $(ASMSRC:%.asm=%.o)
 $(OBJASM): common/x86/x86inc.asm common/x86/x86util.asm
@@ -193,7 +198,7 @@ $(OBJS) $(OBJASM) $(OBJSO) $(OBJCLI) $(OBJCHK): .depend
 
 .depend: config.mak
 	@rm -f .depend
-	@$(foreach SRC, $(SRCS) $(SRCCLI) $(SRCSO), $(CC) $(CFLAGS) $(SRC) $(DEPMT) $(SRC:%.c=%.o) $(DEPMM) 1>> .depend;)
+	@$(foreach SRC, $(addprefix $(SRCPATH)/, $(SRCS) $(SRCCLI) $(SRCSO)), $(CC) $(CFLAGS) $(SRC) $(DEPMT) $(SRC:$(SRCPATH)/%.c=%.o) $(DEPMM) 1>> .depend;)
 
 config.mak:
 	./configure
@@ -248,7 +253,7 @@ install-lib-dev:
 	install -d $(DESTDIR)$(includedir)
 	install -d $(DESTDIR)$(libdir)
 	install -d $(DESTDIR)$(libdir)/pkgconfig
-	install -m 644 x264.h $(DESTDIR)$(includedir)
+	install -m 644 $(SRCPATH)/x264.h $(DESTDIR)$(includedir)
 	install -m 644 x264_config.h $(DESTDIR)$(includedir)
 	install -m 644 x264.pc $(DESTDIR)$(libdir)/pkgconfig
 

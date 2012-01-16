@@ -1373,7 +1373,7 @@ void x264_noise_reduction_update( x264_t *h )
     {
         int dct8x8 = MPEG2 ? 1 : cat&1;
         int size = dct8x8 ? 64 : 16;
-        const uint16_t *weight = MPEG2 ? x264_mpeg2_weight2_tab :
+        const uint32_t *weight = MPEG2 ? x264_mpeg2_weight2_tab :
                                  dct8x8 ? x264_dct8_weight2_tab : x264_dct4_weight2_tab;
 
         if( h->nr_count[cat] > (dct8x8 ? (1<<16) : (1<<18)) )
