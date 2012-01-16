@@ -961,9 +961,12 @@ static struct option long_options[] =
     { "level",       required_argument, NULL, 0 },
 #if HAVE_MPEG2
     { "mpeg2",             no_argument, NULL, 0 },
+    { "no-mpeg2",          no_argument, NULL, 0 },
     { "dc",          required_argument, NULL, 0 },
     { "altscan",           no_argument, NULL, 0 },
+    { "no-altscan",        no_argument, NULL, 0 },
     { "linear-quant",      no_argument, NULL, 0 },
+    { "no-linear-quant",   no_argument, NULL, 0 },
 #endif
     { "ratetol",     required_argument, NULL, 0 },
     { "vbv-maxrate", required_argument, NULL, 0 },
