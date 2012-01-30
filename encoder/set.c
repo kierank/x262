@@ -976,7 +976,7 @@ void x264_pic_header_write_mpeg2( x264_t *h, bs_t *s )
         temporal_ref = h->fenc->i_frame - h->fenc->i_coded;
     else
         temporal_ref = h->fenc->i_frame - h->frames.i_last_temporal_ref;
-    bs_write( s, 10, temporal_ref ); // temporal_reference
+    bs_write( s, 10, temporal_ref % 1024 ); // temporal_reference
     bs_write( s, 3, IS_X264_TYPE_I( h->fenc->i_type ) ? 1 : h->fenc->i_type == X264_TYPE_P ? 2 : 3 ); // picture_coding_type
     bs_write( s, 16, 0xffff ); // vbv_delay FIXME
     if( !IS_X264_TYPE_I( h->fenc->i_type ) )

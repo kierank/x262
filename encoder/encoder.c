@@ -3029,6 +3029,7 @@ int     x264_encoder_encode( x264_t *h,
         h->sh.i_type = SLICE_TYPE_I;
         x264_reference_reset( h );
         h->frames.i_poc_last_open_gop = -1;
+        h->frames.i_last_temporal_ref = h->fenc->i_frame;
     }
     else if( h->fenc->i_type == X264_TYPE_I )
     {
