@@ -976,8 +976,8 @@ static int x264_validate_parameters( x264_t *h, int b_open )
             x264_log( h, X264_LOG_ERROR, "invalid frame rate code specified\n" );
             return -1;
         }
-        else if( ( f[h->param.i_frame_rate_code].fps_num != h->param.i_fps_num ||
-                   f[h->param.i_frame_rate_code].fps_den != h->param.i_fps_den ) && !h->param.b_pulldown )
+        else if( ( f[h->param.i_frame_rate_code - 1].fps_num != h->param.i_fps_num ||
+                   f[h->param.i_frame_rate_code - 1].fps_den != h->param.i_fps_den ) && !h->param.b_pulldown )
         {
             x264_log( h, X264_LOG_ERROR, "frame rate code doesn't match specified fps\n" );
             return -1;
