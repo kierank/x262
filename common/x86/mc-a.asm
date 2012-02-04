@@ -1,7 +1,7 @@
 ;*****************************************************************************
 ;* mc-a.asm: x86 motion compensation
 ;*****************************************************************************
-;* Copyright (C) 2003-2011 x264 project
+;* Copyright (C) 2003-2012 x264 project
 ;*
 ;* Authors: Loren Merritt <lorenm@u.washington.edu>
 ;*          Jason Garrett-Glaser <darkshikari@gmail.com>
@@ -58,13 +58,13 @@ cextern pd_32
 ; implicit weighted biprediction
 ;=============================================================================
 ; assumes log2_denom = 5, offset = 0, weight1 + weight2 = 64
-%ifdef WIN64
+%if WIN64
     DECLARE_REG_TMP 0,1,2,3,4,5,4,5
     %macro AVG_START 0-1 0
         PROLOGUE 5,7,%1
         movsxd r5, dword r5m
     %endmacro
-%elifdef UNIX64
+%elif UNIX64
     DECLARE_REG_TMP 0,1,2,3,4,5,7,8
     %macro AVG_START 0-1 0
         PROLOGUE 6,9,%1
@@ -91,7 +91,7 @@ cextern pd_32
     REP_RET
 %endmacro
 
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 
 %macro BIWEIGHT_MMX 2
     movh      m0, %1
@@ -157,7 +157,7 @@ cextern pd_32
     SPLATW  m3, m3   ; weight_dst,src
 %endmacro
 
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 %macro BIWEIGHT_ROW 4
     BIWEIGHT   [%2], [%3]
 %if %4==mmsize/4
@@ -196,7 +196,7 @@ cextern pd_32
 cglobal pixel_avg_weight_w%1
     BIWEIGHT_START
     AVG_START %2
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     mova    m7, [pw_pixel_max]
 %endif
 .height_loop:
@@ -204,7 +204,7 @@ cglobal pixel_avg_weight_w%1
     BIWEIGHT [t2], [t4]
     SWAP 0, 6
     BIWEIGHT [t2+SIZEOF_PIXEL*t3], [t4+SIZEOF_PIXEL*t5]
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     packssdw m6, m0
     CLIPW    m6, m5, m7
 %else ;!HIGH_BIT_DEPTH
@@ -229,7 +229,7 @@ INIT_MMX mmx2
 AVG_WEIGHT 4
 AVG_WEIGHT 8
 AVG_WEIGHT 16
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 INIT_XMM sse2
 AVG_WEIGHT 4,  8
 AVG_WEIGHT 8,  8
@@ -251,8 +251,9 @@ AVG_WEIGHT 16, 7
 ; P frame explicit weighted prediction
 ;=============================================================================
 
-%ifdef HIGH_BIT_DEPTH
-%macro WEIGHT_START 1 ; (width)
+%if HIGH_BIT_DEPTH
+; width
+%macro WEIGHT_START 1
     mova        m0, [r4+ 0]         ; 1<<denom
     mova        m3, [r4+16]
     movd        m2, [r4+32]         ; denom
@@ -260,7 +261,8 @@ AVG_WEIGHT 16, 7
     paddw       m2, [sq_1]          ; denom+1
 %endmacro
 
-%macro WEIGHT 2 ; (src1, src2)
+; src1, src2
+%macro WEIGHT 2
     movh        m5, [%1]
     movh        m6, [%2]
     punpcklwd   m5, m0
@@ -272,7 +274,8 @@ AVG_WEIGHT 16, 7
     packssdw    m5, m6
 %endmacro
 
-%macro WEIGHT_TWO_ROW 3 ; (src, dst, width)
+; src, dst, width
+%macro WEIGHT_TWO_ROW 3
     %assign x 0
 %rep (%3+mmsize/2-1)/(mmsize/2)
 %if %3-x/2 <= 4 && mmsize == 16
@@ -297,109 +300,98 @@ AVG_WEIGHT 16, 7
 
 %macro WEIGHT_START 1
     mova     m3, [r4]
-    mova     m6, [r4+16]
-    movd     m5, [r4+32]
-    pxor     m2, m2
-%if (%1 == 20 || %1 == 12) && mmsize == 16
-    movdq2q mm3, xmm3
-    movdq2q mm4, xmm4
-    movdq2q mm5, xmm5
-    movdq2q mm6, xmm6
-    pxor    mm2, mm2
-%endif
-%endmacro
-
-%macro WEIGHT_START_SSSE3 1
-    mova     m3, [r4]
     mova     m4, [r4+16]
-    pxor     m2, m2
-%if %1 == 20 || %1 == 12
-    movdq2q mm3, xmm3
-    movdq2q mm4, xmm4
-    pxor    mm2, mm2
+%if notcpuflag(ssse3)
+    movd     m5, [r4+32]
 %endif
+    pxor     m2, m2
 %endmacro
 
-;; macro to weight mmsize bytes taking half from %1 and half from %2
-%macro WEIGHT 2             ; (src1,src2)
-    movh      m0, [%1]
-    movh      m1, [%2]
-    punpcklbw m0, m2        ;setup
-    punpcklbw m1, m2        ;setup
-    pmullw    m0, m3        ;scale
-    pmullw    m1, m3        ;scale
-    paddsw    m0, m6        ;1<<(denom-1)+(offset<<denom)
-    paddsw    m1, m6        ;1<<(denom-1)+(offset<<denom)
-    psraw     m0, m5        ;denom
-    psraw     m1, m5        ;denom
+; src1, src2, dst1, dst2
+%macro WEIGHT_ROWx2 4
+    movh      m0, [%1         ]
+    movh      m1, [%1+mmsize/2]
+    movh      m6, [%2         ]
+    movh      m7, [%2+mmsize/2]
+    punpcklbw m0, m2
+    punpcklbw m1, m2
+    punpcklbw m6, m2
+    punpcklbw m7, m2
+%if cpuflag(ssse3)
+    psllw     m0, 7
+    psllw     m1, 7
+    psllw     m6, 7
+    psllw     m7, 7
+    pmulhrsw  m0, m3
+    pmulhrsw  m1, m3
+    pmulhrsw  m6, m3
+    pmulhrsw  m7, m3
+    paddw     m0, m4
+    paddw     m1, m4
+    paddw     m6, m4
+    paddw     m7, m4
+%else
+    pmullw    m0, m3
+    pmullw    m1, m3
+    pmullw    m6, m3
+    pmullw    m7, m3
+    paddsw    m0, m4        ;1<<(denom-1)+(offset<<denom)
+    paddsw    m1, m4
+    paddsw    m6, m4
+    paddsw    m7, m4
+    psraw     m0, m5
+    psraw     m1, m5
+    psraw     m6, m5
+    psraw     m7, m5
+%endif
+    packuswb  m0, m1
+    packuswb  m6, m7
+    mova    [%3], m0
+    mova    [%4], m6
 %endmacro
 
-%macro WEIGHT_SSSE3 2
+; src1, src2, dst1, dst2, width
+%macro WEIGHT_COL 5
     movh      m0, [%1]
     movh      m1, [%2]
     punpcklbw m0, m2
     punpcklbw m1, m2
+%if cpuflag(ssse3)
     psllw     m0, 7
     psllw     m1, 7
     pmulhrsw  m0, m3
     pmulhrsw  m1, m3
     paddw     m0, m4
     paddw     m1, m4
-%endmacro
-
-%macro WEIGHT_SAVE_ROW 3        ;(src,dst,width)
-%if %3 == 16
-    mova     [%2], %1
-%elif %3 == 8
-    movq     [%2], %1
 %else
-    movd     [%2], %1       ; width 2 can write garbage for last 2 bytes
+    pmullw    m0, m3
+    pmullw    m1, m3
+    paddsw    m0, m4        ;1<<(denom-1)+(offset<<denom)
+    paddsw    m1, m4
+    psraw     m0, m5
+    psraw     m1, m5
+%endif
+%if %5 == 8
+    packuswb  m0, m1
+    movh    [%3], m0
+    movhps  [%4], m0
+%else
+    packuswb  m0, m0
+    packuswb  m1, m1
+    movd    [%3], m0    ; width 2 can write garbage for the last 2 bytes
+    movd    [%4], m1
 %endif
 %endmacro
 
-%macro WEIGHT_ROW 3         ; (src,dst,width)
-    ;; load weights
-    WEIGHT           %1, (%1+(mmsize/2))
-    packuswb         m0, m1        ;put bytes into m0
-    WEIGHT_SAVE_ROW  m0, %2, %3
-%endmacro
-
-%macro WEIGHT_SAVE_COL 2        ;(dst,size)
-%if %2 == 8
-    packuswb     m0, m1
-    movq       [%1], m0
-    movhps  [%1+r1], m0
-%else
-    packuswb     m0, m0
-    packuswb     m1, m1
-    movd       [%1], m0    ; width 2 can write garbage for last 2 bytes
-    movd    [%1+r1], m1
-%endif
-%endmacro
-
-%macro WEIGHT_COL 3     ; (src,dst,width)
-%if %3 <= 4 && mmsize == 16
-    INIT_MMX
-    ;; load weights
-    WEIGHT           %1, (%1+r3)
-    WEIGHT_SAVE_COL  %2, %3
-    INIT_XMM
-%else
-    WEIGHT           %1, (%1+r3)
-    WEIGHT_SAVE_COL  %2, %3
-%endif
-
-%endmacro
-
-%macro WEIGHT_TWO_ROW 3 ; (src,dst,width)
+; src, dst, width
+%macro WEIGHT_TWO_ROW 3
 %assign x 0
 %rep %3
 %if (%3-x) >= mmsize
-    WEIGHT_ROW    (%1+x),    (%2+x), mmsize     ; weight 1 mmsize
-    WEIGHT_ROW (%1+r3+x), (%2+r1+x), mmsize     ; weight 1 mmsize
+    WEIGHT_ROWx2 %1+x, %1+r3+x, %2+x, %2+r1+x
     %assign x (x+mmsize)
 %else
-    WEIGHT_COL (%1+x),(%2+x),(%3-x)
+    WEIGHT_COL %1+x, %1+r3+x, %2+x, %2+r1+x, %3-x
     %exitrep
 %endif
 %if x >= %3
@@ -414,34 +406,15 @@ AVG_WEIGHT 16, 7
 ;void mc_weight_wX( pixel *dst, int i_dst_stride, pixel *src, int i_src_stride, weight_t *weight, int h )
 ;-----------------------------------------------------------------------------
 
-%ifdef ARCH_X86_64
-%define NUMREGS 6
-%define LOAD_HEIGHT
-%define HEIGHT_REG r5d
-%define TMP_REG r6d
-%else
-%define NUMREGS 5
-%define TMP_REG r5d
-%define LOAD_HEIGHT mov r4d, r5m
-%define HEIGHT_REG r4d
-%endif
-
-%assign XMMREGS 7
-%ifdef HIGH_BIT_DEPTH
-%assign NUMREGS NUMREGS+1
-%assign XMMREGS 8
-%endif
-
 %macro WEIGHTER 1
-    cglobal mc_weight_w%1, NUMREGS, NUMREGS, XMMREGS
+cglobal mc_weight_w%1, 6,6,8
     FIX_STRIDES r1, r3
     WEIGHT_START %1
-    LOAD_HEIGHT
 .loop:
     WEIGHT_TWO_ROW r2, r0, %1
     lea  r0, [r0+r1*2]
     lea  r2, [r2+r3*2]
-    sub HEIGHT_REG, 2
+    sub r5d, 2
     jg .loop
     REP_RET
 %endmacro
@@ -456,23 +429,12 @@ INIT_XMM sse2
 WEIGHTER  8
 WEIGHTER 16
 WEIGHTER 20
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 WEIGHTER 12
-INIT_XMM avx
-WEIGHTER  8
-WEIGHTER 12
-WEIGHTER 16
-WEIGHTER 20
 %else
-%define WEIGHT WEIGHT_SSSE3
-%define WEIGHT_START WEIGHT_START_SSSE3
 INIT_MMX ssse3
 WEIGHTER  4
 INIT_XMM ssse3
-WEIGHTER  8
-WEIGHTER 16
-WEIGHTER 20
-INIT_XMM avx
 WEIGHTER  8
 WEIGHTER 16
 WEIGHTER 20
@@ -481,7 +443,7 @@ WEIGHTER 20
 %macro OFFSET_OP 7
     mov%6        m0, [%1]
     mov%6        m1, [%2]
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     p%5usw       m0, m2
     p%5usw       m1, m2
 %ifidn %5,add
@@ -503,7 +465,7 @@ WEIGHTER 20
     OFFSET_OP (%1+x), (%1+x+r3), (%2+x), (%2+x+r1), %4, u, a
     %assign x (x+mmsize)
 %else
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     OFFSET_OP (%1+x), (%1+x+r3), (%2+x), (%2+x+r1), %4, h, h
 %else
     OFFSET_OP (%1+x), (%1+x+r3), (%2+x), (%2+x+r1), %4, d, d
@@ -520,20 +482,19 @@ WEIGHTER 20
 ;void mc_offset_wX( pixel *src, int i_src_stride, pixel *dst, int i_dst_stride, weight_t *w, int h )
 ;-----------------------------------------------------------------------------
 %macro OFFSET 2
-    cglobal mc_offset%2_w%1, NUMREGS, NUMREGS
+cglobal mc_offset%2_w%1, 6,6
     FIX_STRIDES r1, r3
     mova m2, [r4]
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 %ifidn %2,add
     mova m3, [pw_pixel_max]
 %endif
 %endif
-    LOAD_HEIGHT
 .loop:
     OFFSET_TWO_ROW r2, r0, %1, %2
     lea  r0, [r0+r1*2]
     lea  r2, [r2+r3*2]
-    sub HEIGHT_REG, 2
+    sub r5d, 2
     jg .loop
     REP_RET
 %endmacro
@@ -552,20 +513,10 @@ INIT_XMM sse2
 OFFSETPN 12
 OFFSETPN 16
 OFFSETPN 20
-INIT_XMM avx
-OFFSETPN 12
-OFFSETPN 16
-OFFSETPN 20
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 INIT_XMM sse2
 OFFSETPN  8
-INIT_XMM avx
-OFFSETPN  8
 %endif
-%undef LOAD_HEIGHT
-%undef HEIGHT_REG
-%undef NUMREGS
-
 
 
 ;=============================================================================
@@ -602,7 +553,7 @@ cglobal pixel_avg_w%1
 %rep (%1*SIZEOF_PIXEL+mmsize-1)/mmsize
     %2     m0, [t2+x]
     %2     m1, [t2+x+SIZEOF_PIXEL*t3]
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     pavgw  m0, [t4+x]
     pavgw  m1, [t4+x+SIZEOF_PIXEL*t5]
 %else ;!HIGH_BIT_DEPTH
@@ -616,7 +567,7 @@ cglobal pixel_avg_w%1
     AVG_END
 %endmacro
 
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 
 INIT_MMX mmx2
 AVG_FUNC 4, movq, movq
@@ -695,7 +646,7 @@ AVGH  4,  2
 ; pixel avg2
 ;=============================================================================
 
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 ;-----------------------------------------------------------------------------
 ; void pixel_avg2_wN( uint16_t *dst,  int dst_stride,
 ;                     uint16_t *src1, int src_stride,
@@ -879,7 +830,7 @@ cglobal pixel_avg2_w18_sse2, 6,7,6
     REP_RET
 %endif ; HIGH_BIT_DEPTH
 
-%ifndef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH == 0
 ;-----------------------------------------------------------------------------
 ; void pixel_avg2_w4( uint8_t *dst, int dst_stride,
 ;                     uint8_t *src1, int src_stride,
@@ -1094,7 +1045,7 @@ cglobal pixel_avg2_w%1_cache%2_%3
 %endif
 %if 0 ; or %1==8 - but the extra branch seems too expensive
     ja cachesplit
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     test      r4b, 1
 %else
     test byte r4m, 1
@@ -1116,7 +1067,7 @@ cglobal pixel_avg2_w%1_cache%2_%3
 INIT_MMX
 AVG_CACHELINE_CHECK  8, 64, mmx2
 AVG_CACHELINE_CHECK 12, 64, mmx2
-%ifndef ARCH_X86_64
+%if ARCH_X86_64 == 0
 AVG_CACHELINE_CHECK 16, 64, mmx2
 AVG_CACHELINE_CHECK 20, 64, mmx2
 AVG_CACHELINE_CHECK  8, 32, mmx2
@@ -1191,12 +1142,7 @@ cglobal pixel_avg2_w16_cache64_ssse3
 %else
     lea    r6, [avg_w16_addr + r6]
 %endif
-%ifdef UNIX64
-    jmp    r6
-%else
-    call   r6
-    RET
-%endif
+    TAIL_CALL r6, 1
 
 %assign j 0
 %assign k 1
@@ -1258,7 +1204,7 @@ cglobal mc_copy_w4_mmx, 4,6
     lea     r5, [r3*3]
     lea     r4, [r1*3]
     je .end
-%ifndef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH == 0
     %define mova movd
     %define movu movd
 %endif
@@ -1309,7 +1255,7 @@ MC_COPY 16
 ;-----------------------------------------------------------------------------
 
 %macro PREFETCH_FENC 1
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
 cglobal prefetch_fenc_%1, 5,5
     FIX_STRIDES r1d, r3d
     and    r4d, 3
@@ -1397,14 +1343,14 @@ cglobal prefetch_ref, 3,3
 ; chroma MC
 ;=============================================================================
 
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     DECLARE_REG_TMP 6,7,8
 %else
     DECLARE_REG_TMP 0,1,2
 %endif
 
 %macro MC_CHROMA_START 1
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     PROLOGUE 0,9,%1
 %else
     PROLOGUE 0,6,%1
@@ -1424,7 +1370,7 @@ cglobal prefetch_ref, 3,3
     add       r3,  t0            ; src += (dx>>3) + (dy>>3) * src_stride
 %endmacro
 
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 %macro UNPACK_UNALIGNED 4
     movu       %1, [%4+0]
     movu       %2, [%4+4]
@@ -1461,11 +1407,11 @@ cglobal mc_chroma
     MC_CHROMA_START 0
     FIX_STRIDES r4
     and       r5d, 7
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     jz .mc1dy
 %endif
     and       t2d, 7
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     jz .mc1dx
 %endif
     shl       r5d, 16
@@ -1494,7 +1440,7 @@ cglobal mc_chroma
     pshufw     m5, m5, q1111
     jge .width4
 %else
-%ifdef WIN64
+%if WIN64
     cmp dword r7m, 4 ; flags were clobbered by WIN64_SPILL_XMM
 %endif
     pshufd     m7, m5, q1111
@@ -1503,7 +1449,7 @@ cglobal mc_chroma
     pshufd     m5, m5, q1111
     jg .width8
 %endif
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     add        r2, r2
     UNPACK_UNALIGNED m0, m1, m2, r3
 %else
@@ -1519,7 +1465,7 @@ cglobal mc_chroma
     SWAP        3, 0
 ALIGN 4
 .loop2:
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     UNPACK_UNALIGNED m0, m1, m2, r3+r4
     pmullw     m3, m6
 %else ; !HIGH_BIT_DEPTH
@@ -1539,7 +1485,7 @@ ALIGN 4
     pmullw     m0, m5
     paddw      m0, m2
     psrlw      m0, 6
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     movh     [r0], m0
 %if mmsize == 8
     psrlq      m0, 32
@@ -1566,7 +1512,7 @@ ALIGN 4
 
 %if mmsize==8
 .width4:
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     mov        t0, r0
     mov        t1, r1
     mov        t2, r3
@@ -1579,7 +1525,7 @@ ALIGN 4
 %endif
 %else
 .width8:
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     %define multy0 m8
     SWAP        8, 5
 %else
@@ -1589,7 +1535,7 @@ ALIGN 4
 %endif
     FIX_STRIDES r2
 .loopx:
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     UNPACK_UNALIGNED m0, m2, m4, r3
     UNPACK_UNALIGNED m1, m3, m5, r3+mmsize
 %else
@@ -1613,7 +1559,7 @@ ALIGN 4
     add        r3, r4
 ALIGN 4
 .loop4:
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     UNPACK_UNALIGNED m0, m1, m2, r3
     pmaddwd    m0, m7
     pmaddwd    m1, m7
@@ -1651,7 +1597,7 @@ ALIGN 4
     paddw      m1, m3
     psrlw      m0, 6
     psrlw      m1, 6
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     movh     [r0], m0
     movh     [r0+mmsize/2], m1
 %if mmsize==8
@@ -1688,7 +1634,7 @@ ALIGN 4
     jg .width8
     REP_RET
 .width8:
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     lea        r3, [t2+8*SIZEOF_PIXEL]
     lea        r0, [t0+4*SIZEOF_PIXEL]
     lea        r1, [t1+4*SIZEOF_PIXEL]
@@ -1704,9 +1650,9 @@ ALIGN 4
     jmp .loopx
 %endif
 
-%ifdef ARCH_X86_64 ; too many regs for x86_32
+%if ARCH_X86_64 ; too many regs for x86_32
     RESET_MM_PERMUTATION
-%ifdef WIN64
+%if WIN64
 %if xmm_regs_used > 6
     %assign stack_offset stack_offset-(xmm_regs_used-6)*16-16
     %assign xmm_regs_used 6
@@ -1721,10 +1667,8 @@ ALIGN 4
     movd       m5, r5d
     mov       r6d, 2*SIZEOF_PIXEL
 .mc1d:
-%ifdef HIGH_BIT_DEPTH
-%if mmsize == 16
+%if HIGH_BIT_DEPTH && mmsize == 16
     WIN64_SPILL_XMM 8
-%endif
 %endif
     mova       m4, [pw_8]
     SPLATW     m5, m5
@@ -1742,7 +1686,7 @@ ALIGN 4
     shr       r5d, 1
 %endif
 .loop1d_w4:
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 %if mmsize == 8
     movq       m0, [r3+0]
     movq       m2, [r3+8]
@@ -1786,7 +1730,7 @@ ALIGN 4
     paddw      m2, m3
     psrlw      m0, 3
     psrlw      m2, 3
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 %if mmsize == 8
     xchg       r4, r8
     xchg       r2, r7
@@ -1913,7 +1857,7 @@ cglobal mc_chroma
     pshufb     m0, m5
     movu       m1, [r3+8]
     pshufb     m1, m5
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     SWAP        8, 6
     %define  mult1 m8
 %else
@@ -1970,7 +1914,7 @@ cglobal mc_chroma
     REP_RET
 %endmacro
 
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 INIT_MMX mmx2
 MC_CHROMA
 INIT_XMM sse2

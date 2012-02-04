@@ -6,8 +6,10 @@ vpath %.c $(SRCPATH)
 vpath %.h $(SRCPATH)
 vpath %.S $(SRCPATH)
 vpath %.asm $(SRCPATH)
+vpath %.rc $(SRCPATH)
 
 all: default
+default:
 
 CLIS = x264$(EXE)
 
@@ -28,6 +30,9 @@ SRCCLI = x264.c input/input.c input/timecode.c input/raw.c input/y4m.c \
          filters/video/select_every.c filters/video/crop.c filters/video/depth.c
 
 SRCSO =
+OBJS =
+OBJSO =
+OBJCLI =
 
 OBJCHK = tools/checkasm.o
 
@@ -89,12 +94,13 @@ X86SRC = $(X86SRC0:%=common/x86/%)
 ifeq ($(ARCH),X86)
 ARCH_X86 = yes
 ASMSRC   = $(X86SRC) common/x86/pixel-32.asm
+ASFLAGS += -DARCH_X86_64=0
 endif
 
 ifeq ($(ARCH),X86_64)
 ARCH_X86 = yes
 ASMSRC   = $(X86SRC:-32.asm=-64.asm) common/x86/trellis-64.asm
-ASFLAGS += -DARCH_X86_64
+ASFLAGS += -DARCH_X86_64=1
 endif
 
 ifdef ARCH_X86
@@ -138,20 +144,19 @@ ifneq ($(HAVE_GETOPT_LONG),1)
 SRCCLI += extras/getopt.c
 endif
 
-ifneq ($(SONAME),)
 ifeq ($(SYS),WINDOWS)
-SRCSO += x264dll.c
+OBJCLI += $(if $(RC), x264res.o)
+ifneq ($(SONAME),)
+SRCSO  += x264dll.c
+OBJSO  += $(if $(RC), x264res.dll.o)
 endif
 endif
 
-OBJS = $(SRCS:%.c=%.o)
-OBJCLI = $(SRCCLI:%.c=%.o)
-OBJSO = $(SRCSO:%.c=%.o)
-DEP  = depend
+OBJS   += $(SRCS:%.c=%.o)
+OBJCLI += $(SRCCLI:%.c=%.o)
+OBJSO  += $(SRCSO:%.c=%.o)
 
 .PHONY: all default fprofiled clean distclean install uninstall lib-static lib-shared cli install-lib-dev install-lib-static install-lib-shared install-cli
-
-default: $(DEP)
 
 cli: $(CLIS)
 lib-static: $(LIBX264)
@@ -195,6 +200,12 @@ $(OBJS) $(OBJASM) $(OBJSO) $(OBJCLI) $(OBJCHK): .depend
 %.o: %.S
 	$(AS) $(ASFLAGS) -o $@ $<
 	-@ $(if $(STRIP), $(STRIP) -x $@) # delete local/anonymous symbols, so they don't show up in oprofile
+
+%.dll.o: %.rc x264.h
+	$(RC) -DDLL -o $@ $<
+
+%.o: %.rc x264.h
+	$(RC) -o $@ $<
 
 .depend: config.mak
 	@rm -f .depend

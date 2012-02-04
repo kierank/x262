@@ -1,7 +1,7 @@
 /*****************************************************************************
  * encoder.c: top-level encoder functions
  *****************************************************************************
- * Copyright (C) 2003-2011 x264 project
+ * Copyright (C) 2003-2012 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -700,6 +700,8 @@ static int x264_validate_parameters( x264_t *h, int b_open )
         h->param.b_intra_refresh = 0;
         h->param.i_frame_reference = X264_MIN( h->param.i_frame_reference, 6 );
         h->param.i_dpb_size = X264_MIN( h->param.i_dpb_size, 6 );
+        /* Don't use I-frames, because Blu-ray treats them the same as IDR. */
+        h->param.i_keyint_min = 1;
         /* Due to the proliferation of broken players that don't handle dupes properly. */
         h->param.analyse.i_weighted_pred = X264_MIN( h->param.analyse.i_weighted_pred, X264_WEIGHTP_SIMPLE );
         if( h->param.b_fake_interlaced )
@@ -3160,7 +3162,10 @@ int     x264_encoder_encode( x264_t *h,
             h->fdec->i_pir_end_col = h->fdec->f_pir_position+0.5;
             /* If our intra refresh has reached the right side of the frame, we're done. */
             if( h->fdec->i_pir_end_col >= h->mb.i_mb_width - 1 )
+            {
                 h->fdec->f_pir_position = h->mb.i_mb_width;
+                h->fdec->i_pir_end_col = h->mb.i_mb_width - 1;
+            }
         }
     }
 

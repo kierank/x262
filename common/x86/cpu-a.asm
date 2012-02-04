@@ -1,7 +1,7 @@
 ;*****************************************************************************
 ;* cpu-a.asm: x86 cpu utilities
 ;*****************************************************************************
-;* Copyright (C) 2003-2011 x264 project
+;* Copyright (C) 2003-2012 x264 project
 ;*
 ;* Authors: Laurent Aimar <fenrir@via.ecp.fr>
 ;*          Loren Merritt <lorenm@u.washington.edu>
@@ -39,6 +39,7 @@ cglobal cpu_cpuid, 5,7
     push  r2
     push  r1
     mov  eax, r0d
+    xor  ecx, ecx
     cpuid
     pop  rsi
     mov [rsi], eax
@@ -65,7 +66,7 @@ cglobal cpu_xgetbv, 3,7
     mov [rsi], edx
     RET
 
-%ifndef ARCH_X86_64
+%if ARCH_X86_64 == 0
 
 ;-----------------------------------------------------------------------------
 ; int cpu_cpuid_test( void )

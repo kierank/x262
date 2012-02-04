@@ -1,7 +1,7 @@
 /*****************************************************************************
  * y4m.c: y4m input
  *****************************************************************************
- * Copyright (C) 2003-2011 x264 project
+ * Copyright (C) 2003-2012 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -173,7 +173,7 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
     if( colorspace == X264_CSP_NONE )
         colorspace = X264_CSP_I420;
 
-    FAIL_IF_ERROR( colorspace <= X264_CSP_NONE && colorspace >= X264_CSP_MAX, "colorspace unhandled\n" )
+    FAIL_IF_ERROR( colorspace <= X264_CSP_NONE || colorspace >= X264_CSP_MAX, "colorspace unhandled\n" )
 
     info->thread_safe = 1;
     info->num_frames  = 0;

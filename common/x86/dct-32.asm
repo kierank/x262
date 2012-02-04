@@ -1,7 +1,7 @@
 ;*****************************************************************************
 ;* dct-32.asm: x86_32 transform and zigzag
 ;*****************************************************************************
-;* Copyright (C) 2003-2011 x264 project
+;* Copyright (C) 2003-2012 x264 project
 ;*
 ;* Authors: Loren Merritt <lorenm@u.washington.edu>
 ;*          Holger Lubitz <holger@lubitz.org>
@@ -157,7 +157,7 @@ cextern hsub_mul
     SWAP %4, %9, %8
 %endmacro
 
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 
 %macro SUB8x8_DCT8 0
 cglobal sub8x8_dct8, 3,3,8

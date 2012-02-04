@@ -1,7 +1,7 @@
 ;*****************************************************************************
 ;* x86util.asm: x86 utility macros
 ;*****************************************************************************
-;* Copyright (C) 2008-2011 x264 project
+;* Copyright (C) 2008-2012 x264 project
 ;*
 ;* Authors: Holger Lubitz <holger@lubitz.org>
 ;*          Loren Merritt <lorenm@u.washington.edu>
@@ -30,7 +30,7 @@
 %assign SIZEOF_PIXEL 1
 %assign SIZEOF_DCTCOEF 2
 %define pixel byte
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     %assign SIZEOF_PIXEL 2
     %assign SIZEOF_DCTCOEF 4
     %define pixel word
@@ -42,7 +42,7 @@
 %assign PIXEL_MAX ((1 << BIT_DEPTH)-1)
 
 %macro FIX_STRIDES 1-*
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 %rep %0
     add %1, %1
     %rotate 1
@@ -95,7 +95,7 @@
 %endmacro
 
 %macro TRANSPOSE8x8W 9-11
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     SBUTTERFLY wd,  %1, %2, %9
     SBUTTERFLY wd,  %3, %4, %9
     SBUTTERFLY wd,  %5, %6, %9
@@ -676,7 +676,7 @@
 
 
 %macro LOAD_DIFF 5
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     mova       %1, %4
     psubw      %1, %5
 %elifidn %3, none
@@ -768,7 +768,7 @@
 ; (high depth) in: %1, %2, min to clip, max to clip, mem128
 ; in: %1, tmp, %3, mem64
 %macro STORE_DIFF 4-5
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
     psrad      %1, 6
     psrad      %2, 6
     packssdw   %1, %2
@@ -787,8 +787,12 @@
 
 %macro SHUFFLE_MASK_W 8
     %rep 8
-        db %1*2
-        db %1*2+1
+        %if %1>=0x80
+            db %1, %1
+        %else
+            db %1*2
+            db %1*2+1
+        %endif
         %rotate 1
     %endrep
 %endmacro
