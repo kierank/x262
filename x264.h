@@ -788,6 +788,8 @@ typedef struct
      *     use pic_struct_e for pic_struct inputs
      * Out: pic_struct element associated with frame */
     int     i_pic_struct;
+    /* In: MPEG-2 ONLY - top field first flag. */
+    int     b_tff;
     /* In: MPEG-2 ONLY - repeat first field flag. Only valid for progressive input.
      *     Used in combination with b_tff to signal pulldown pattern. */
     int     b_rff;

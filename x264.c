@@ -1876,6 +1876,9 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
         if( !param->b_vfr_input )
             pic.i_pts = i_frame;
 
+        if( MPEG2 && !opt->i_pulldown )
+            pic.b_tff = param->b_tff;
+
         if( opt->i_pulldown && !param->b_vfr_input )
         {
             if( MPEG2 )
@@ -1884,23 +1887,23 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
                 switch( pulldown->pattern[ i_frame % pulldown->mod ] )
                 {
                     case PIC_STRUCT_TOP_BOTTOM:
-                        p.b_tff = 1;
+                        pic.b_tff = 1 ^ !param->b_tff;
                         pic.b_rff = 0;
                         break;
                     case PIC_STRUCT_BOTTOM_TOP:
-                        p.b_tff = 0;
+                        pic.b_tff = 0 ^ !param->b_tff;
                         pic.b_rff = 0;
                         break;
                     case PIC_STRUCT_TOP_BOTTOM_TOP:
-                        p.b_tff = 1;
+                        pic.b_tff = 1 ^ !param->b_tff;
                         pic.b_rff = 1;
                         break;
                     case PIC_STRUCT_BOTTOM_TOP_BOTTOM:
-                        p.b_tff = 0;
+                        pic.b_tff = 0 ^ !param->b_tff;
                         pic.b_rff = 1;
                         break;
                     default:
-                        p.b_tff = 0;
+                        pic.b_tff = 0 ^ !param->b_tff;
                         pic.b_rff = 0;
                         assert("invalid pulldown pattern!");
                 }

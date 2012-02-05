@@ -355,6 +355,7 @@ int x264_frame_copy_picture( x264_t *h, x264_frame_t *dst, x264_picture_t *src )
     dst->extra_sei  = src->extra_sei;
     dst->opaque     = src->opaque;
 
+    dst->b_tff            = src->b_tff;
     dst->b_rff            = src->b_rff;
 
     uint8_t *pix[3];

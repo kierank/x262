@@ -1040,7 +1040,7 @@ void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s )
     }
     bs_write( s, 2, param->i_intra_dc_precision ); // intra_dc_precision
     bs_write( s, 2, 3 ); // picture_structure (support for frame pictures only)
-    bs_write1( s, ( PARAM_INTERLACED || param->b_fake_interlaced  || param->b_pulldown) ? param->b_tff : 0 ); // top_field_first
+    bs_write1( s, ( PARAM_INTERLACED || param->b_fake_interlaced  || param->b_pulldown ) ? h->fenc->b_tff : 0 ); // top_field_first
     bs_write1( s, !( PARAM_INTERLACED || param->b_fake_interlaced ) ); // frame_pred_frame_dct
     bs_write1( s, 0 ); // concealment_motion_vectors
     bs_write1( s, param->b_nonlinear_quant ); // q_scale_type
@@ -1083,11 +1083,13 @@ void x264_quant_matrix_extension_write_mpeg2( x264_t *h, bs_t *s )
 
 void x264_pic_display_extension_write_mpeg2( x264_t *h, bs_t *s )
 {
-    int offsets = !h->param.b_interlaced ? h->fenc->b_rff ? h->param.b_tff ? 3 : 2 : 1 :
-                   h->param.b_interlaced ? 1 : h->fenc->b_rff ? 3 : 2;
     bs_realign( s );
 
     bs_write( s, 4, MPEG2_PIC_DISPLAY_EXT_ID ); // extension_start_code_identifier
+
+    int progressive_sequence = !( PARAM_INTERLACED || h->param.b_fake_interlaced || h->param.b_pulldown );
+    int offsets = progressive_sequence ? h->fenc->b_rff ? h->fenc->b_tff ? 3 : 2 : 1 :
+                  h->fenc->b_rff ? 3 : 2;
 
     int cx = h->param.i_width / 2;
     int cy = h->param.i_height / 2;
