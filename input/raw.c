@@ -1,7 +1,7 @@
 /*****************************************************************************
  * raw.c: raw input
  *****************************************************************************
- * Copyright (C) 2003-2011 x264 project
+ * Copyright (C) 2003-2012 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -113,9 +113,8 @@ static int read_frame_internal( cli_pic_t *pic, raw_hnd_t *h )
             uint16_t *plane = (uint16_t*)pic->img.plane[i];
             uint64_t pixel_count = h->plane_size[i];
             int lshift = 16 - h->bit_depth;
-            int rshift = 2*h->bit_depth - 16;
             for( uint64_t j = 0; j < pixel_count; j++ )
-                plane[j] = (plane[j] << lshift) + (plane[j] >> rshift);
+                plane[j] = plane[j] << lshift;
         }
     }
     return error;

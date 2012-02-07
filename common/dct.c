@@ -1,7 +1,7 @@
 /*****************************************************************************
  * dct.c: transform and zigzag
  *****************************************************************************
- * Copyright (C) 2003-2011 x264 project
+ * Copyright (C) 2003-2012 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -608,8 +608,6 @@ void x264_dct_init( int cpu, x264_dct_function_t *dctf )
     {
         dctf->sub4x4_dct    = x264_sub4x4_dct_mmx;
         dctf->add4x4_idct   = x264_add4x4_idct_mmx;
-        dctf->add8x8_idct_dc = x264_add8x8_idct_dc_mmx;
-        dctf->add16x16_idct_dc = x264_add16x16_idct_dc_mmx;
         dctf->dct4x4dc      = x264_dct4x4dc_mmx;
         dctf->idct4x4dc     = x264_idct4x4dc_mmx;
         dctf->sub8x8_dct_dc = x264_sub8x8_dct_dc_mmx2;
@@ -625,6 +623,12 @@ void x264_dct_init( int cpu, x264_dct_function_t *dctf )
         dctf->add8x8_idct8  = x264_add8x8_idct8_mmx;
         dctf->add16x16_idct8= x264_add16x16_idct8_mmx;
 #endif
+    }
+
+    if( cpu&X264_CPU_MMX2 )
+    {
+        dctf->add8x8_idct_dc   = x264_add8x8_idct_dc_mmx2;
+        dctf->add16x16_idct_dc = x264_add16x16_idct_dc_mmx2;
     }
 
     if( cpu&X264_CPU_SSE2 )
@@ -962,7 +966,11 @@ void x264_zigzag_init( int cpu, x264_zigzag_function_t *pf_progressive, x264_zig
             pf_progressive->scan_4x4 = x264_zigzag_scan_4x4_frame_avx;
     }
     if( cpu&X264_CPU_XOP )
+    {
         pf_progressive->scan_4x4 = x264_zigzag_scan_4x4_frame_xop;
+        pf_progressive->scan_8x8 = x264_zigzag_scan_8x8_frame_xop;
+        pf_interlaced->scan_8x8 = x264_zigzag_scan_8x8_field_xop;
+    }
 #endif // HAVE_MMX
 #if HAVE_ALTIVEC
     if( cpu&X264_CPU_ALTIVEC )

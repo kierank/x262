@@ -1,7 +1,7 @@
 /*****************************************************************************
  * dct.h: x86 transform and zigzag
  *****************************************************************************
- * Copyright (C) 2003-2011 x264 project
+ * Copyright (C) 2003-2012 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -51,9 +51,9 @@ void x264_add4x4_idct_sse2     ( uint16_t *p_dst, int32_t dct    [16] );
 void x264_add4x4_idct_sse4      ( uint8_t *p_dst, int16_t dct    [16] );
 void x264_add4x4_idct_avx       ( pixel   *p_dst, dctcoef dct    [16] );
 void x264_add8x8_idct_mmx       ( uint8_t *p_dst, int16_t dct[ 4][16] );
-void x264_add8x8_idct_dc_mmx    ( uint8_t *p_dst, int16_t dct    [ 4] );
+void x264_add8x8_idct_dc_mmx2   ( uint8_t *p_dst, int16_t dct    [ 4] );
 void x264_add16x16_idct_mmx     ( uint8_t *p_dst, int16_t dct[16][16] );
-void x264_add16x16_idct_dc_mmx  ( uint8_t *p_dst, int16_t dct    [16] );
+void x264_add16x16_idct_dc_mmx2 ( uint8_t *p_dst, int16_t dct    [16] );
 void x264_add8x8_idct_sse2      ( pixel   *p_dst, dctcoef dct[ 4][16] );
 void x264_add8x8_idct_avx       ( pixel   *p_dst, dctcoef dct[ 4][16] );
 void x264_add16x16_idct_sse2    ( pixel   *p_dst, dctcoef dct[16][16] );
@@ -91,6 +91,7 @@ void x264_add16x16_idct8_sse2( pixel *dst, dctcoef dct[4][64] );
 void x264_add8x8_idct8_avx   ( pixel *dst, dctcoef dct   [64] );
 void x264_add16x16_idct8_avx ( pixel *dst, dctcoef dct[4][64] );
 
+void x264_zigzag_scan_8x8_frame_xop  ( int16_t level[64], int16_t dct[64] );
 void x264_zigzag_scan_8x8_frame_avx  ( dctcoef level[64], dctcoef dct[64] );
 void x264_zigzag_scan_8x8_frame_ssse3( int16_t level[64], int16_t dct[64] );
 void x264_zigzag_scan_8x8_frame_sse2 ( dctcoef level[64], dctcoef dct[64] );
@@ -102,6 +103,7 @@ void x264_zigzag_scan_4x4_frame_sse2 ( int32_t level[16], int32_t dct[16] );
 void x264_zigzag_scan_4x4_frame_mmx  ( int16_t level[16], int16_t dct[16] );
 void x264_zigzag_scan_4x4_field_sse2 ( int32_t level[16], int32_t dct[16] );
 void x264_zigzag_scan_4x4_field_mmx2 ( int16_t level[16], int16_t dct[16] );
+void x264_zigzag_scan_8x8_field_xop  ( int16_t level[64], int16_t dct[64] );
 void x264_zigzag_scan_8x8_field_avx  ( int32_t level[64], int32_t dct[64] );
 void x264_zigzag_scan_8x8_field_sse4 ( int32_t level[64], int32_t dct[64] );
 void x264_zigzag_scan_8x8_field_mmx2 ( int16_t level[64], int16_t dct[64] );

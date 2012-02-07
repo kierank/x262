@@ -1,7 +1,7 @@
 ;*****************************************************************************
 ;* dct-64.asm: x86_64 transform and zigzag
 ;*****************************************************************************
-;* Copyright (C) 2003-2011 x264 project
+;* Copyright (C) 2003-2012 x264 project
 ;*
 ;* Authors: Loren Merritt <lorenm@u.washington.edu>
 ;*          Holger Lubitz <holger@lubitz.org>
@@ -89,7 +89,7 @@ cextern hsub_mul
 
 %macro IDCT8_1D 11
     SUMSUB_BA %1, %6, %2, %10 ; %5=a0, %1=a2
-    
+
     psra%1   m%10, m%3, 1
     padd%1   m%10, m%3
     padd%1   m%10, m%5
@@ -137,14 +137,11 @@ cextern hsub_mul
     SWAP  %4, %9, %8
 %endmacro
 
-%ifdef HIGH_BIT_DEPTH
+%if HIGH_BIT_DEPTH
 
 %macro SUB8x8_DCT8 0
 cglobal sub8x8_dct8, 3,3,14
-%ifdef WIN64
-    call .skip_prologue
-    RET
-%endif
+    TAIL_CALL .skip_prologue, 0
 global current_function %+ .skip_prologue
 .skip_prologue:
     LOAD_DIFF8x4 0,1,2,3, none,none, r1, r2
@@ -194,10 +191,7 @@ SUB8x8_DCT8
 %macro ADD8x8_IDCT8 0
 cglobal add8x8_idct8, 2,2,16
     add r1, 128
-%ifdef WIN64
-    call .skip_prologue
-    RET
-%endif
+    TAIL_CALL .skip_prologue, 0
 global current_function %+ .skip_prologue
 .skip_prologue:
     mova     m0, [r1-128]
@@ -260,10 +254,7 @@ cglobal sub8x8_dct, 3,3,10
 %if cpuflag(ssse3)
     mova m7, [hsub_mul]
 %endif
-%ifdef WIN64
-    call .skip_prologue
-    RET
-%endif
+    TAIL_CALL .skip_prologue, 0
 global current_function %+ .skip_prologue
 .skip_prologue:
     SWAP 7, 9
@@ -287,10 +278,7 @@ cglobal sub8x8_dct8, 3,3,11
 %if cpuflag(ssse3)
     mova m7, [hsub_mul]
 %endif
-%ifdef WIN64
-    call .skip_prologue
-    RET
-%endif
+    TAIL_CALL .skip_prologue, 0
 global current_function %+ .skip_prologue
 .skip_prologue:
     SWAP 7, 10
@@ -330,10 +318,7 @@ DCT_SUB8
 cglobal add8x8_idct8, 2,2,11
     add r0, 4*FDEC_STRIDE
     pxor m7, m7
-%ifdef WIN64
-    call .skip_prologue
-    RET
-%endif
+    TAIL_CALL .skip_prologue, 0
 global current_function %+ .skip_prologue
 .skip_prologue:
     SWAP 7, 9
@@ -369,10 +354,7 @@ ADD8x8_IDCT8
 cglobal add8x8_idct, 2,2,11
     add  r0, 4*FDEC_STRIDE
     pxor m7, m7
-%ifdef WIN64
-    call .skip_prologue
-    RET
-%endif
+    TAIL_CALL .skip_prologue, 0
 global current_function %+ .skip_prologue
 .skip_prologue:
     SWAP 7, 9

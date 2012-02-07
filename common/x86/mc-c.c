@@ -1,7 +1,7 @@
 /*****************************************************************************
  * mc-c.c: x86 motion compensation
  *****************************************************************************
- * Copyright (C) 2003-2011 x264 project
+ * Copyright (C) 2003-2012 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -72,11 +72,6 @@ MC_WEIGHT( 8, ssse3 )
 MC_WEIGHT( 12, ssse3 )
 MC_WEIGHT( 16, ssse3 )
 MC_WEIGHT( 20, ssse3 )
-MC_WEIGHT( 4, avx )
-MC_WEIGHT( 8, avx )
-MC_WEIGHT( 12, avx )
-MC_WEIGHT( 16, avx )
-MC_WEIGHT( 20, avx )
 #undef MC_OFFSET
 #undef MC_WEIGHT
 
@@ -164,6 +159,8 @@ LOWRES(mmx2)
 LOWRES(cache32_mmx2)
 LOWRES(sse2)
 LOWRES(ssse3)
+LOWRES(avx)
+LOWRES(xop)
 
 #define PIXEL_AVG_W(width,cpu)\
 void x264_pixel_avg2_w##width##_##cpu( pixel *, int, pixel *, int, pixel *, int );
@@ -450,7 +447,7 @@ void x264_hpel_filter_avx( uint8_t *dsth, uint8_t *dstv, uint8_t *dstc, uint8_t 
 #else
 HPEL(16, sse2, sse2, sse2, sse2)
 HPEL(16, ssse3, ssse3, ssse3, ssse3)
-HPEL(16, avx, avx, avx, ssse3)
+HPEL(16, avx, avx, avx, avx)
 #endif
 HPEL(16, sse2_misalign, sse2, sse2_misalign, sse2)
 #endif // HIGH_BIT_DEPTH
@@ -610,6 +607,7 @@ void x264_mc_init_mmx( int cpu, x264_mc_functions_t *pf )
     if( !(cpu&X264_CPU_AVX) )
         return;
 
+    pf->frame_init_lowres_core = x264_frame_init_lowres_core_avx;
     pf->load_deinterleave_chroma_fenc = x264_load_deinterleave_chroma_fenc_avx;
     pf->load_deinterleave_chroma_fdec = x264_load_deinterleave_chroma_fdec_avx;
     pf->plane_copy_interleave        = x264_plane_copy_interleave_avx;
@@ -618,6 +616,9 @@ void x264_mc_init_mmx( int cpu, x264_mc_functions_t *pf )
 
     if( !(cpu&X264_CPU_STACK_MOD4) )
         pf->mc_chroma = x264_mc_chroma_avx;
+
+    if( cpu&X264_CPU_XOP )
+        pf->frame_init_lowres_core = x264_frame_init_lowres_core_xop;
 #else // !HIGH_BIT_DEPTH
 
 #if ARCH_X86 // all x86_64 cpus with cacheline split issues use sse2 instead
@@ -736,10 +737,18 @@ void x264_mc_init_mmx( int cpu, x264_mc_functions_t *pf )
     if( !(cpu&X264_CPU_AVX) )
         return;
 
+    pf->frame_init_lowres_core = x264_frame_init_lowres_core_avx;
     pf->integral_init8h = x264_integral_init8h_avx;
     pf->hpel_filter = x264_hpel_filter_avx;
+
+    /* ssse3 weight seems to be faster again on Sandy Bridge and Bulldozer. */
+    pf->weight_cache = x264_weight_cache_ssse3;
+    pf->weight = x264_mc_weight_wtab_ssse3;
     if( !(cpu&X264_CPU_STACK_MOD4) )
         pf->mc_chroma = x264_mc_chroma_avx;
+
+    if( cpu&X264_CPU_XOP )
+        pf->frame_init_lowres_core = x264_frame_init_lowres_core_xop;
 #endif // HIGH_BIT_DEPTH
 
     if( !(cpu&X264_CPU_AVX) )
