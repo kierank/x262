@@ -3018,9 +3018,6 @@ int     x264_encoder_encode( x264_t *h,
         overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1);
     }
 
-    if( h->fenc->b_keyframe && h->param.b_intra_refresh )
-        h->i_cpb_delay_pir_offset = h->fenc->i_cpb_delay;
-
     /* Init the speed control */
     if( h->param.sc.i_buffer_size )
         x264_speedcontrol_frame( h );
@@ -3175,6 +3172,9 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
         frame_size += total_size;
         filler -= total_size;
     }
+
+    if( h->fenc->b_keyframe && h->param.b_intra_refresh )
+        h->i_cpb_delay_pir_offset = h->fenc->i_cpb_delay;
 
     /* End bitstream, set output  */
     *pi_nal = h->out.i_nal;
