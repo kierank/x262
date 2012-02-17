@@ -913,18 +913,19 @@ static void refine_subpel( x264_t *h, x264_me_t *m, int hpel_iters, int qpel_ite
     /* Special simplified case for subme=1 */
     else if( bmy > h->mb.mv_min_spel[1] && bmy < h->mb.mv_max_spel[1] && bmx > h->mb.mv_min_spel[0] && bmx < h->mb.mv_max_spel[0] )
     {
+        int offset = MPEG2 ? 2 : 1;
         int costs[4];
         int omx = bmx, omy = bmy;
         /* We have to use mc_luma because all strides must be the same to use fpelcmp_x4 */
-        h->mc.mc_luma( pix   , 64, m->p_fref, m->i_stride[0], omx, omy-1, bw, bh, &m->weight[0] );
-        h->mc.mc_luma( pix+16, 64, m->p_fref, m->i_stride[0], omx, omy+1, bw, bh, &m->weight[0] );
-        h->mc.mc_luma( pix+32, 64, m->p_fref, m->i_stride[0], omx-1, omy, bw, bh, &m->weight[0] );
-        h->mc.mc_luma( pix+48, 64, m->p_fref, m->i_stride[0], omx+1, omy, bw, bh, &m->weight[0] );
+        h->mc.mc_luma( pix   , 64, m->p_fref, m->i_stride[0], omx, omy-offset, bw, bh, &m->weight[0] );
+        h->mc.mc_luma( pix+16, 64, m->p_fref, m->i_stride[0], omx, omy+offset, bw, bh, &m->weight[0] );
+        h->mc.mc_luma( pix+32, 64, m->p_fref, m->i_stride[0], omx-offset, omy, bw, bh, &m->weight[0] );
+        h->mc.mc_luma( pix+48, 64, m->p_fref, m->i_stride[0], omx+offset, omy, bw, bh, &m->weight[0] );
         h->pixf.fpelcmp_x4[i_pixel]( m->p_fenc[0], pix, pix+16, pix+32, pix+48, 64, costs );
-        COPY2_IF_LT( bcost, costs[0] + p_cost_mvx[omx  ] + p_cost_mvy[omy-1], bmy, omy-1 );
-        COPY2_IF_LT( bcost, costs[1] + p_cost_mvx[omx  ] + p_cost_mvy[omy+1], bmy, omy+1 );
-        COPY3_IF_LT( bcost, costs[2] + p_cost_mvx[omx-1] + p_cost_mvy[omy  ], bmx, omx-1, bmy, omy );
-        COPY3_IF_LT( bcost, costs[3] + p_cost_mvx[omx+1] + p_cost_mvy[omy  ], bmx, omx+1, bmy, omy );
+        COPY2_IF_LT( bcost, costs[0] + p_cost_mvx[omx  ] + p_cost_mvy[omy-offset], bmy, omy-offset );
+        COPY2_IF_LT( bcost, costs[1] + p_cost_mvx[omx  ] + p_cost_mvy[omy+offset], bmy, omy+offset );
+        COPY3_IF_LT( bcost, costs[2] + p_cost_mvx[omx-offset] + p_cost_mvy[omy  ], bmx, omx-offset, bmy, omy );
+        COPY3_IF_LT( bcost, costs[3] + p_cost_mvx[omx+offset] + p_cost_mvy[omy  ], bmx, omx+offset, bmy, omy );
     }
 
     m->cost = bcost;
