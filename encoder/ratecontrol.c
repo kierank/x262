@@ -1740,15 +1740,16 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
             h->fenc->hrd_timing.cpb_removal_time = rc->nrt_first_access_unit + (int64_t)(h->fenc->i_cpb_delay - h->i_cpb_delay_pir_offset) *
                                                    27000000LL * h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
 
-	    int64_t cpb_earliest_arrival_time = h->fenc->hrd_timing.cpb_removal_time - rc->initial_cpb_removal_delay * 300;
-
             if( h->fenc->b_keyframe )
             {
                 rc->nrt_first_access_unit = h->fenc->hrd_timing.cpb_removal_time;
                 rc->initial_cpb_removal_delay = h->initial_cpb_removal_delay;
                 rc->initial_cpb_removal_delay_offset = h->initial_cpb_removal_delay_offset;
             }
-            else
+
+            int64_t cpb_earliest_arrival_time = h->fenc->hrd_timing.cpb_removal_time - rc->initial_cpb_removal_delay * 300;
+
+            if( !h->fenc->b_keyframe )
                 cpb_earliest_arrival_time -= rc->initial_cpb_removal_delay_offset * 300;
 
             /* Compare the arrival times using the 27MHz clock which should be acceptable */
