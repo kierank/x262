@@ -526,7 +526,7 @@ void x264_ratecontrol_init_reconfigurable( x264_t *h, int b_init )
             #define BR_SHIFT  6
             #define CPB_SHIFT 4
 
-            if( h->param.i_nal_hrd == X264_NAL_HRD_VBR || h->param.i_nal_hrd == X264_NAL_HRD_VBR )
+            if( h->param.i_nal_hrd == X264_NAL_HRD_VBR || h->param.i_nal_hrd == X264_NAL_HRD_CBR )
             {
                 // normalize HRD size and rate to the value / scale notation
                 h->sps->vui.hrd.i_bit_rate_scale = x264_clip3( x264_ctz( vbv_max_bitrate ) - BR_SHIFT, 0, 15 );
