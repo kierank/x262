@@ -511,7 +511,7 @@ int x264_param_apply_profile( x264_param_t *param, const char *profile )
 
         return 0;
     }
-    
+
     if( p < PROFILE_HIGH444_PREDICTIVE && ((param->rc.i_rc_method == X264_RC_CQP && param->rc.i_qp_constant <= 0) ||
         (param->rc.i_rc_method == X264_RC_CRF && (int)(param->rc.f_rf_constant + QP_BD_OFFSET) <= 0)) )
     {
