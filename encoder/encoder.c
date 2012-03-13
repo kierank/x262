@@ -1276,6 +1276,11 @@ x264_t *x264_encoder_open( x264_param_t *param )
         if( i > 0 )
             *h->thread[i] = *h;
 
+        if( x264_pthread_mutex_init( &h->thread[i]->mutex, NULL ) )
+            goto fail;
+        if( x264_pthread_cond_init( &h->thread[i]->cv, NULL ) )
+            goto fail;
+
         if( allocate_threadlocal_data )
         {
             h->thread[i]->fdec = x264_frame_pop_unused( h, 1 );
