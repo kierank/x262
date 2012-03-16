@@ -467,7 +467,8 @@ typedef struct x264_param_t
         unsigned int i_bottom;
     } crop_rect;
 
-    /* frame packing arrangement flag */
+    /* frame packing arrangement flag (H.264)
+       MPEG-2: Use extra_sei to write appropriate user_data instead */
     int i_frame_packing;
 
     /* Muxing parameters */
@@ -825,7 +826,7 @@ typedef struct
     x264_image_properties_t prop;
     /* Out: HRD timing information. Output only when i_nal_hrd is set. */
     x264_hrd_t hrd_timing;
-    /* In: arbitrary user SEI (e.g subtitles, AFDs) - H.264 ONLY */
+    /* In: arbitrary user SEI (e.g subtitles, AFDs, MPEG-2 user data ) */
     x264_sei_t extra_sei;
     /* private user data. copied from input to output frames. */
     void *opaque;
