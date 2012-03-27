@@ -3137,6 +3137,9 @@ int     x264_encoder_encode( x264_t *h,
     if( h->param.sc.i_buffer_size )
         x264_speedcontrol_frame( h );
 
+    if( h->fenc->b_keyframe && h->param.b_intra_refresh )
+        h->i_cpb_delay_pir_offset_next = h->fenc->i_cpb_delay;
+
     /* Init the rate control */
     /* FIXME: Include slice header bit cost. */
     x264_ratecontrol_start( h, h->fenc->i_qpplus1, overhead*8 );
@@ -3261,9 +3264,6 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
     int filler = 0;
     if( x264_ratecontrol_end( h, frame_size * 8, &filler ) < 0 )
         return -1;
-
-    if( h->fenc->b_keyframe && h->param.b_intra_refresh )
-        h->i_cpb_delay_pir_offset_next = h->fenc->i_cpb_delay;
 
     pic_out->hrd_timing = h->fenc->hrd_timing;
 
