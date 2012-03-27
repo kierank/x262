@@ -2743,6 +2743,7 @@ int     x264_encoder_encode( x264_t *h,
     if( h->param.cpu&X264_CPU_SSE_MISALIGN )
         x264_cpu_mask_misalign_sse();
 #endif
+    h->i_cpb_delay_pir_offset = h->i_cpb_delay_pir_offset_next;
 
     /* no data out */
     *pi_nal = 0;
@@ -3260,6 +3261,9 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
     int filler = 0;
     if( x264_ratecontrol_end( h, frame_size * 8, &filler ) < 0 )
         return -1;
+
+    if( h->fenc->b_keyframe && h->param.b_intra_refresh )
+        h->i_cpb_delay_pir_offset_next = h->fenc->i_cpb_delay;
 
     pic_out->hrd_timing = h->fenc->hrd_timing;
 
