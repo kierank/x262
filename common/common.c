@@ -123,6 +123,7 @@ void x264_param_default( x264_param_t *param )
     param->sc.f_speed = 0;
     param->sc.i_buffer_size = 12;
     param->sc.f_buffer_init = 0.75;
+    param->sc.max_preset = SC_PRESETS;
 
     /* Log */
     param->pf_log = x264_log_default;

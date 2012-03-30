@@ -424,7 +424,7 @@ typedef struct x264_param_t
         int         i_buffer_size;  /* number of frames */
         float       f_buffer_init;  /* fraction of size */
         int         b_alt_timer;    /* use a different method of measuring encode time */
-        int         max_preset;     /* maximum speedcontrol preset to use */
+        int         max_preset;     /* maximum number of speedcontrol presets to use */
     } sc;
 
     /* Muxing parameters */
