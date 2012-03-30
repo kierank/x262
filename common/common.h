@@ -81,6 +81,7 @@ do {\
 #define NALU_OVERHEAD 5 // startcode + NAL type costs 5 bytes per frame
 #define FILLER_OVERHEAD (NALU_OVERHEAD+1)
 
+#define SC_PRESETS 13
 /****************************************************************************
  * Includes
  ****************************************************************************/

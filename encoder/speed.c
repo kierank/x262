@@ -21,6 +21,7 @@ struct x264_speedcontrol_t
     float dither;
 
     int first;
+    int buffer_complete;
 
     struct
     {
@@ -54,6 +55,7 @@ void x264_speedcontrol_new( x264_t *h )
     sc->stat.min_buffer = sc->buffer_size;
     sc->stat.max_buffer = 0;
     sc->first = 1;
+    sc->buffer_complete = 0;
 }
 
 void x264_speedcontrol_delete( x264_t *h )
@@ -97,8 +99,7 @@ typedef struct
     float psy_trellis;
 } sc_preset_t;
 
-#define PRESETS 10
-static const sc_preset_t presets[PRESETS] =
+static const sc_preset_t presets[SC_PRESETS] =
 {
 #define I4 X264_ANALYSE_I4x4
 #define I8 X264_ANALYSE_I8x8
@@ -122,7 +123,7 @@ static const sc_preset_t presets[PRESETS] =
 static void apply_preset( x264_t *h, int preset )
 {
     x264_speedcontrol_t *sc = h->sc;
-    preset = x264_clip3( preset, 0, PRESETS-1 );
+    preset = x264_clip3( preset, 0, h->param.sc.max_preset-1 );
     //if( preset != sc->preset )
     {
         const sc_preset_t *s = &presets[preset];
@@ -170,7 +171,8 @@ void x264_speedcontrol_frame( x264_t *h )
     delta_f = h->i_frame - sc->prev_frame;
     delta_t = t - sc->timestamp;
     delta_buffer = delta_f * sc->spf / h->param.sc.f_speed - delta_t;
-    sc->buffer_fill += delta_buffer;
+    if( !sc->buffer_complete )
+        sc->buffer_fill += delta_buffer;
     sc->prev_frame = h->i_frame;
     sc->timestamp = t;
 
@@ -225,16 +227,16 @@ void x264_speedcontrol_frame( x264_t *h )
         for( i=1;; i++ )
         {
             t1 = presets[i].time * cplx;
-            if( t1 >= target || i == PRESETS-1 )
+            if( t1 >= target || i == h->param.sc.max_preset-1 )
                 break;
             t0 = t1;
         }
         // linear interpolation between states
         set = i-1 + (target - t0) / (t1 - t0);
-        // Even if our time estimations in the PRESETS array are off
+        // Even if our time estimations in the SC_PRESETS array are off
         // this will push us towards our target fullness
         set += (20 * (filled-0.75));
-        set = x264_clip3f(set,0,PRESETS-1);
+        set = x264_clip3f( set, 0 , h->param.sc.max_preset-1 );
         apply_preset( h, dither( sc, set ) );
 
         // FIXME
@@ -254,7 +256,7 @@ void x264_speedcontrol_frame( x264_t *h )
 
 }
 
-void x264_speedcontrol_sync( x264_t *h, float f_buffer_fill, int i_buffer_size )
+void x264_speedcontrol_sync( x264_t *h, float f_buffer_fill, int i_buffer_size, int buffer_complete )
 {
     x264_speedcontrol_t *sc = h->sc;
     if( !h->param.sc.i_buffer_size )
@@ -263,4 +265,5 @@ void x264_speedcontrol_sync( x264_t *h, float f_buffer_fill, int i_buffer_size )
         h->param.sc.i_buffer_size = X264_MAX( 3, h->param.sc.i_buffer_size );
     sc->buffer_size = h->param.sc.i_buffer_size * 1e6 / sc->fps;
     sc->buffer_fill = sc->buffer_size * f_buffer_fill;
+    sc->buffer_complete = !!buffer_complete;
 }
