@@ -95,9 +95,6 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
 
 #if RDO_SKIP_BS
     s->i_bits_encoded = 0;
-#else
-    const int i_mb_pos_start = bs_pos( s );
-    int       i_mb_pos_tex = 0;
 #endif
 
     int cbp420 = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma;
@@ -148,6 +145,10 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
     if( quant )
         bs_write( s, 5, h->mb.i_qp ); // quantizer_scale_code
 
+#if !RDO_SKIP_BS
+    int i_mb_pos_mv = bs_pos( s );
+#endif
+
     // write mvs
     if( (i_mb_type == P_L0 && mcoded) || (i_mb_type != P_L0 && i_mb_type != I_16x16) )
     {
@@ -168,8 +169,8 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
     }
 
 #if !RDO_SKIP_BS
-    i_mb_pos_tex = bs_pos( s );
-    h->stat.frame.i_mv_bits += i_mb_pos_tex - i_mb_pos_start;
+    int i_mb_pos_tex = bs_pos( s );
+    h->stat.frame.i_mv_bits += i_mb_pos_tex - i_mb_pos_mv;
 #endif
 
     // block()
