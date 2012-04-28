@@ -103,6 +103,7 @@ typedef struct x264_frame
     int16_t (*mv16x16)[2];
     int16_t (*lowres_mvs[2][X264_BFRAME_MAX+1])[2];
     uint8_t *field;
+    uint8_t *effective_qp;
     int16_t mv_fcode[2][2]; /* MPEG-2 */
 
     /* Stored as (lists_used << LOWRES_COST_SHIFT) + (cost).
@@ -172,6 +173,10 @@ typedef struct x264_frame
 
     /* user data */
     void *opaque;
+
+    /* user frame properties */
+    uint8_t *mb_info;
+    void (*mb_info_free)( void* );
 } x264_frame_t;
 
 /* synchronized frame list */
