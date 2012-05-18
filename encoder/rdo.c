@@ -162,7 +162,7 @@ static int x264_rd_cost_mb( x264_t *h, int i_lambda2 )
     int i_ssd;
     int i_bits;
     int type_bak = h->mb.i_type;
-    int i_intra_dc_predictor_bak[6];
+    int i_intra_dc_predictor_bak[8];
     int16_t mvp[2][2];
 
     if( MPEG2 )
