@@ -910,7 +910,8 @@ static void x264_mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_
             i_satd += h->pixf.mbcmp[PIXEL_8x8]( p_dst, FDEC_STRIDE, p_src, FENC_STRIDE );
         }
 
-        COPY1_IF_LT( a->i_satd_i16x16, i_satd );
+        int quant = h->mb.i_last_qp != a->i_qp && h->mb.i_mb_x;
+        a->i_satd_i16x16 = i_satd + lambda * x264_i_mb_type[h->sh.i_type][quant].i_size;
         return;
     }
 
@@ -2288,9 +2289,22 @@ static void x264_mb_analyse_inter_b16x16( x264_t *h, x264_mb_analysis_t *a )
     }
 
     /* mb type cost */
-    a->i_cost16x16bi   += a->i_lambda * i_mb_b_cost_table[B_BI_BI];
-    a->l0.me16x16.cost += a->i_lambda * i_mb_b_cost_table[B_L0_L0];
-    a->l1.me16x16.cost += a->i_lambda * i_mb_b_cost_table[B_L1_L1];
+    if( MPEG2 )
+    {
+        int quant = h->mb.i_last_qp != a->i_qp && h->mb.i_mb_x;
+        int coded = !!( h->mb.i_cbp_luma | h->mb.i_cbp_chroma | h->mb.i_cbp_chroma422 );
+        if( quant && !coded )
+            quant = 0;
+        a->i_cost16x16bi   += a->i_lambda * x264_b_mb_type[2][coded][quant].i_size;
+        a->l0.me16x16.cost += a->i_lambda * x264_b_mb_type[0][coded][quant].i_size;
+        a->l1.me16x16.cost += a->i_lambda * x264_b_mb_type[1][coded][quant].i_size;
+    }
+    else
+    {
+        a->i_cost16x16bi   += a->i_lambda * i_mb_b_cost_table[B_BI_BI];
+        a->l0.me16x16.cost += a->i_lambda * i_mb_b_cost_table[B_L0_L0];
+        a->l1.me16x16.cost += a->i_lambda * i_mb_b_cost_table[B_L1_L1];
+    }
 }
 
 static inline void x264_mb_cache_mv_p8x8( x264_t *h, x264_mb_analysis_t *a, int i )
