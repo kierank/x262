@@ -1148,7 +1148,7 @@ const x264_level_mpeg2_t x264_levels_mpeg2[] =
     { 0 }
 };
 
-const x264_fps_mpeg2_t x264_allowed_fps_mpeg2[14] =
+const x264_fps_mpeg2_t x264_allowed_fps_mpeg2[] =
 {
     { 1, 24000, 1001 },
     { 2, 24, 1 },
