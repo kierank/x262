@@ -68,7 +68,7 @@ do {\
 #define LAMBDA_MAX (91 << (BIT_DEPTH-8))
 #define PIXEL_MAX ((1 << BIT_DEPTH)-1)
 // arbitrary, but low because SATD scores are 1/4 normal
-#define X264_LOOKAHEAD_QP (12+QP_BD_OFFSET)
+#define X264_LOOKAHEAD_QP (MPEG2 ? 1 : 12+QP_BD_OFFSET)
 #define SPEC_QP(x) X264_MIN((x), QP_MAX_SPEC)
 
 // number of pixels (per thread) in progress at any given time.
