@@ -38,6 +38,7 @@ const int x264_bit_depth = BIT_DEPTH;
 const int x264_chroma_format = X264_CHROMA_FORMAT;
 
 static void x264_log_default( void *, int, const char *, va_list );
+static void x264_log_mpeg2( void *, int, const char *, va_list );
 
 static void x264_param_force_mpeg2( x264_param_t *param )
 {
@@ -204,6 +205,7 @@ void x264_param_default_mpeg2( x264_param_t *param )
     x264_param_default( param );
     x264_param_force_mpeg2( param );
 
+    param->pf_log = x264_log_mpeg2;
     param->i_intra_dc_precision = X264_INTRA_DC_8_BIT;
     param->b_nonlinear_quant = 1;
     param->b_alt_intra_vlc = 1;
@@ -1202,6 +1204,31 @@ static void x264_log_default( void *p_unused, int i_level, const char *psz_fmt, 
             break;
     }
     fprintf( stderr, "x264 [%s]: ", psz_prefix );
+    vfprintf( stderr, psz_fmt, arg );
+}
+
+static void x264_log_mpeg2( void *p_unused, int i_level, const char *psz_fmt, va_list arg )
+{
+    char *psz_prefix;
+    switch( i_level )
+    {
+        case X264_LOG_ERROR:
+            psz_prefix = "error";
+            break;
+        case X264_LOG_WARNING:
+            psz_prefix = "warning";
+            break;
+        case X264_LOG_INFO:
+            psz_prefix = "info";
+            break;
+        case X264_LOG_DEBUG:
+            psz_prefix = "debug";
+            break;
+        default:
+            psz_prefix = "unknown";
+            break;
+    }
+    fprintf( stderr, "x262 [%s]: ", psz_prefix );
     vfprintf( stderr, psz_fmt, arg );
 }
 
