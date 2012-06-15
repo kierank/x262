@@ -87,25 +87,11 @@ enum nal_priority_e
 
 enum mpeg2_level_e
 {
-    MPEG2_LEVEL_LOW        = 10,
-    MPEG2_LEVEL_MAIN       =  8,
-    MPEG2_LEVEL_HIGH_1440  =  6,
-    MPEG2_LEVEL_HIGH       =  4,
-    MPEG2_LEVEL_HIGHP      =  2,
-};
-
-enum mpeg2_structure_type_e
-{
-    MPEG2_SEQ_HEADER         = 0xb0, // FIXME
-    MPEG2_USER_DATA,
-    MPEG2_SEQ_EXT,
-    MPEG2_SEQ_DISPLAY_EXT,
-    MPEG2_GOP_HEADER,
-    MPEG2_PICTURE_HEADER,
-    MPEG2_PICTURE_CODING_EXT,
-    MPEG2_PICTURE_DISPLAY_EXT,
-    MPEG2_QUANT_MATRIX_EXT,
-    MPEG2_COPYRIGHT_EXT,
+    X264_MPEG2_LEVEL_LOW        = 10,
+    X264_MPEG2_LEVEL_MAIN       =  8,
+    X264_MPEG2_LEVEL_HIGH_1440  =  6,
+    X264_MPEG2_LEVEL_HIGH       =  4,
+    X264_MPEG2_LEVEL_HIGHP      =  2,
 };
 
 /* The data within the payload is already NAL-encapsulated; the ref_idc and type
@@ -612,7 +598,7 @@ typedef struct {
 } x264_level_mpeg2_t;
 
 /* all of the levels defined in the standard, terminated by .level_idc=0 */
-extern const x264_level_mpeg2_t x264_levels_mpeg2[];
+X264_API extern const x264_level_mpeg2_t x264_levels_mpeg2[];
 
 /****************************************************************************
  * Basic parameter handling functions

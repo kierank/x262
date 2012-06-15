@@ -161,10 +161,10 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
     if( sps->i_profile_idc == MPEG2_PROFILE_422 )
     {
         // 4:2:2 Profile only has Main and High levels
-        if( sps->i_level_idc == MPEG2_LEVEL_LOW )
-            sps->i_level_idc = MPEG2_LEVEL_MAIN;
-        else if( sps->i_level_idc < MPEG2_LEVEL_MAIN )
-            sps->i_level_idc = MPEG2_LEVEL_HIGH;
+        if( sps->i_level_idc == X264_MPEG2_LEVEL_LOW )
+            sps->i_level_idc = X264_MPEG2_LEVEL_MAIN;
+        else if( sps->i_level_idc < X264_MPEG2_LEVEL_MAIN )
+            sps->i_level_idc = X264_MPEG2_LEVEL_HIGH;
     }
 
     if( param->i_level_idc == 9 && ( sps->i_profile_idc == PROFILE_BASELINE || sps->i_profile_idc == PROFILE_MAIN ) )
@@ -894,7 +894,7 @@ void x264_seq_extension_write_mpeg2( x264_t *h, bs_t *s )
 
     int level;
     if( sps->i_profile_idc == MPEG2_PROFILE_422 )
-        level = sps->i_level_idc == MPEG2_LEVEL_HIGH ? 2 : 5;
+        level = sps->i_level_idc == X264_MPEG2_LEVEL_HIGH ? 2 : 5;
     else
         level = sps->i_level_idc;
     bs_write( s, 4, level ); // level identification
@@ -1008,11 +1008,11 @@ void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s )
     int fcode_max[2];
     switch( param->i_level_idc )
     {
-    case MPEG2_LEVEL_LOW:
+    case X264_MPEG2_LEVEL_LOW:
         fcode_max[0] = 7;
         fcode_max[1] = 4;
         break;
-    case MPEG2_LEVEL_MAIN:
+    case X264_MPEG2_LEVEL_MAIN:
         fcode_max[0] = 8;
         fcode_max[1] = 5;
         break;

@@ -360,6 +360,20 @@ enum sei_payload_type_e
     SEI_FRAME_PACKING          = 45,
 };
 
+enum mpeg2_structure_type_e
+{
+    MPEG2_SEQ_HEADER           = 0xb0, // FIXME
+    MPEG2_USER_DATA,
+    MPEG2_SEQ_EXT,
+    MPEG2_SEQ_DISPLAY_EXT,
+    MPEG2_GOP_HEADER,
+    MPEG2_PICTURE_HEADER,
+    MPEG2_PICTURE_CODING_EXT,
+    MPEG2_PICTURE_DISPLAY_EXT,
+    MPEG2_QUANT_MATRIX_EXT,
+    MPEG2_COPYRIGHT_EXT,
+};
+
 enum mpeg2_start_code_e
 {
     MPEG2_PICTURE_START_CODE    = 0x00,

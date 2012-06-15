@@ -721,27 +721,27 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
             p->i_level_idc = 9;
         else if( !strcmp(value, "low") )
         {
-            p->i_level_idc = MPEG2_LEVEL_LOW;
+            p->i_level_idc = X264_MPEG2_LEVEL_LOW;
             p->b_mpeg2 = 1;
         }
         else if( !strcmp(value, "main") )
         {
-            p->i_level_idc = MPEG2_LEVEL_MAIN;
+            p->i_level_idc = X264_MPEG2_LEVEL_MAIN;
             p->b_mpeg2 = 1;
         }
         else if( !strcmp(value, "high-1440") )
         {
-            p->i_level_idc = MPEG2_LEVEL_HIGH_1440;
+            p->i_level_idc = X264_MPEG2_LEVEL_HIGH_1440;
             p->b_mpeg2 = 1;
         }
         else if( !strcmp(value, "high") )
         {
-            p->i_level_idc = MPEG2_LEVEL_HIGH;
+            p->i_level_idc = X264_MPEG2_LEVEL_HIGH;
             p->b_mpeg2 = 1;
         }
         else if( !strcmp(value, "highp") )
         {
-            p->i_level_idc = MPEG2_LEVEL_HIGHP;
+            p->i_level_idc = X264_MPEG2_LEVEL_HIGHP;
             p->b_mpeg2 = 1;
         }
         else if( atof(value) < 6 )

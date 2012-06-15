@@ -1548,10 +1548,10 @@ x264_t *x264_encoder_open( x264_param_t *param )
                           h->sps->b_constraint_set3 == 1 ? "High 4:4:4 Intra" : "High 4:4:4 Predictive";
     char level[10];
     if( MPEG2 )
-        snprintf( level, sizeof(level), "%s", h->sps->i_level_idc == MPEG2_LEVEL_LOW ? "Low" :
-                                              h->sps->i_level_idc == MPEG2_LEVEL_MAIN ? "Main" :
-                                              h->sps->i_level_idc == MPEG2_LEVEL_HIGH_1440 ? "High-1440" :
-                                              h->sps->i_level_idc == MPEG2_LEVEL_HIGH ? "High" :
+        snprintf( level, sizeof(level), "%s", h->sps->i_level_idc == X264_MPEG2_LEVEL_LOW ? "Low" :
+                                              h->sps->i_level_idc == X264_MPEG2_LEVEL_MAIN ? "Main" :
+                                              h->sps->i_level_idc == X264_MPEG2_LEVEL_HIGH_1440 ? "High-1440" :
+                                              h->sps->i_level_idc == X264_MPEG2_LEVEL_HIGH ? "High" :
                                               "HighP" );
     else
     {
