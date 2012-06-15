@@ -111,16 +111,14 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
 
     if( param->b_mpeg2 )
     {
-        if( sps->i_chroma_format_idc == CHROMA_422 )
-            sps->i_profile_idc = MPEG2_PROFILE_422;
-        else if( param->i_intra_dc_precision > X264_INTRA_DC_10_BIT )
+        if( param->i_intra_dc_precision > X264_INTRA_DC_10_BIT || param->b_high_profile )
             sps->i_profile_idc = MPEG2_PROFILE_HIGH;
-        else if( param->i_bframe > 0 || param->b_interlaced || param->b_fake_interlaced )
+        else if( sps->i_chroma_format_idc == CHROMA_422 || param->b_422_profile )
+            sps->i_profile_idc = MPEG2_PROFILE_422;
+        else if( param->i_bframe > 0 || param->b_interlaced || param->b_fake_interlaced || param->b_main_profile )
             sps->i_profile_idc = MPEG2_PROFILE_MAIN;
         else
             sps->i_profile_idc = MPEG2_PROFILE_SIMPLE;
-        if( sps->i_profile_idc == MPEG2_PROFILE_422 && param->b_high_profile )
-            sps->i_profile_idc = MPEG2_PROFILE_HIGH;
     }
     else if( sps->b_qpprime_y_zero_transform_bypass || sps->i_chroma_format_idc == CHROMA_444 )
         sps->i_profile_idc  = PROFILE_HIGH444_PREDICTIVE;
