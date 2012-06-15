@@ -300,8 +300,7 @@ typedef struct x264_param_t
     int         i_level_idc;
     int         i_frame_total; /* number of frames to encode if known, else 0 */
 
-    int         b_mpeg2;       /* encode MPEG-2 instead of H.264
-                                * requires the use of x264_param_apply_profile */
+    int         b_mpeg2;       /* encode MPEG-2 instead of H.264 */
 
     /* NAL HRD (H.264 ONLY)
      * Uses Buffering and Picture Timing SEIs to signal HRD
@@ -607,6 +606,7 @@ X264_API extern const x264_level_mpeg2_t x264_levels_mpeg2[];
 /* x264_param_default:
  *      fill x264_param_t with default values and do CPU detection */
 void    x264_param_default( x264_param_t * );
+void    x264_param_default_mpeg2( x264_param_t * );
 
 /* x264_param_parse:
  *  set one parameter by name.
@@ -662,6 +662,7 @@ static const char * const x264_tune_names[] = { "film", "animation", "grain", "s
  *
  *      returns 0 on success, negative on failure (e.g. invalid preset/tune name). */
 int     x264_param_default_preset( x264_param_t *, const char *preset, const char *tune );
+int     x264_param_default_preset_mpeg2( x264_param_t *, const char *preset, const char *tune );
 
 /* x264_param_apply_fastfirstpass:
  *      If first-pass mode is set (rc.b_stat_read == 0, rc.b_stat_write == 1),

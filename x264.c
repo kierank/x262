@@ -856,6 +856,8 @@ typedef enum
     OPT_NOPROGRESS,
     OPT_VISUALIZE,
     OPT_LONGHELP,
+    OPT_MPEG2,
+    OPT_NO_MPEG2,
     OPT_PROFILE,
     OPT_PRESET,
     OPT_TUNE,
@@ -965,8 +967,8 @@ static struct option long_options[] =
     { "deadzone-intra", required_argument, NULL, 0 },
     { "level",       required_argument, NULL, 0 },
 #if HAVE_MPEG2
-    { "mpeg2",             no_argument, NULL, 0 },
-    { "no-mpeg2",          no_argument, NULL, 0 },
+    { "mpeg2",             no_argument, NULL, OPT_MPEG2 },
+    { "no-mpeg2",          no_argument, NULL, OPT_NO_MPEG2 },
     { "dc",          required_argument, NULL, 0 },
     { "altscan",           no_argument, NULL, 0 },
     { "no-altscan",        no_argument, NULL, 0 },
@@ -1275,7 +1277,38 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
     char *preset = NULL;
     char *tune = NULL;
 
+#if HAVE_MPEG2
+    if( !cli_name )
+        return -1;
+    if( (cli_ext = strrchr( cli_name, '.' )) )
+        *cli_ext = 0;
+    /* If the binary is called as x262, default to MPEG-2 */
+    if( !strcasecmp( basename( cli_name ), "x262" ) )
+    {
+        x264_param_default_mpeg2( &defaults );
+        x264_param_default_mpeg2( param );
+    }
+    else
+        x264_param_default( &defaults );
+    free( cli_name );
+
+    /* MPEG-2 setting is applied first. */
+    for( optind = 0;; )
+    {
+        int c = getopt_long( argc, argv, short_options, long_options, NULL );
+        if( c == -1 )
+            break;
+        if( c == OPT_MPEG2 )
+            x264_param_default_mpeg2( param );
+        else if( c == OPT_NO_MPEG2 )
+            x264_param_default( param );
+        else if( c == '?' )
+            return -1;
+    }
+#else
     x264_param_default( &defaults );
+#endif
+
     cli_log_level = defaults.i_log_level;
 
     memset( &input_opt, 0, sizeof(cli_input_opt_t) );
@@ -1304,15 +1337,6 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
 
     if( x264_param_default_preset( param, preset, tune ) < 0 )
         return -1;
-
-    if( !cli_name )
-        return -1;
-    if( (cli_ext = strrchr( cli_name, '.' )) )
-        *cli_ext = 0;
-    /* If the binary is called as x262, default to mpeg2 */
-    if( !strcasecmp( basename( cli_name ), "x262" ) )
-        param->b_mpeg2 = 1;
-    free( cli_name );
 
     /* Parse command line options */
     for( optind = 0;; )
