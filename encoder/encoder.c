@@ -538,6 +538,11 @@ static int x264_validate_parameters( x264_t *h, int b_open )
             x264_log( h, X264_LOG_ERROR, "invalid intra DC precision specified\n" );
             return -1;
         }
+        if( i_csp >= X264_CSP_I444 )
+        {
+            x264_log( h, X264_LOG_ERROR, "invalid CSP (only I420/YV12/NV12/I422/YV16/NV16 supported)\n" );
+            return -1;
+        }
     }
 
     if( (h->param.crop_rect.i_left + h->param.crop_rect.i_right ) >= h->param.i_width ||
