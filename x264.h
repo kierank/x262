@@ -903,7 +903,8 @@ void    x264_encoder_parameters( x264_t *, x264_param_t * );
  *      return the SPS and PPS that will be used for the whole stream.
  *      *pi_nal is the number of NAL units outputted in pp_nal.
  *      returns negative on error.
- *      the payloads of all output NALs are guaranteed to be sequential in memory. */
+ *      the payloads of all output NALs are guaranteed to be sequential in memory.
+ *      MPEG-2: return the sequence header. */
 int     x264_encoder_headers( x264_t *, x264_nal_t **pp_nal, int *pi_nal );
 /* x264_encoder_encode:
  *      encode one picture.

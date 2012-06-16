@@ -1777,26 +1777,37 @@ int x264_encoder_headers( x264_t *h, x264_nal_t **pp_nal, int *pi_nal )
     h->out.i_nal = 0;
     bs_init( &h->out.bs, h->out.p_bitstream, h->out.i_bitstream );
 
-    /* Write SEI, SPS and PPS. */
+    if( MPEG2 )
+    {
+        /* generate sequence header */
+        x264_nal_start( h, MPEG2_SEQ_HEADER, NAL_PRIORITY_HIGHEST );
+        x264_seq_header_write_mpeg2( h, &h->out.bs );
+        if( x264_nal_end( h ) )
+            return -1;
+    }
+    else
+    {
+        /* Write SEI, SPS and PPS. */
 
-    /* generate sequence parameters */
-    x264_nal_start( h, NAL_SPS, NAL_PRIORITY_HIGHEST );
-    x264_sps_write( &h->out.bs, h->sps );
-    if( x264_nal_end( h ) )
-        return -1;
+        /* generate sequence parameters */
+        x264_nal_start( h, NAL_SPS, NAL_PRIORITY_HIGHEST );
+        x264_sps_write( &h->out.bs, h->sps );
+        if( x264_nal_end( h ) )
+            return -1;
 
-    /* generate picture parameters */
-    x264_nal_start( h, NAL_PPS, NAL_PRIORITY_HIGHEST );
-    x264_pps_write( &h->out.bs, h->sps, h->pps );
-    if( x264_nal_end( h ) )
-        return -1;
+        /* generate picture parameters */
+        x264_nal_start( h, NAL_PPS, NAL_PRIORITY_HIGHEST );
+        x264_pps_write( &h->out.bs, h->sps, h->pps );
+        if( x264_nal_end( h ) )
+            return -1;
 
-    /* identify ourselves */
-    x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
-    if( x264_sei_version_write( h, &h->out.bs ) )
-        return -1;
-    if( x264_nal_end( h ) )
-        return -1;
+        /* identify ourselves */
+        x264_nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
+        if( x264_sei_version_write( h, &h->out.bs ) )
+            return -1;
+        if( x264_nal_end( h ) )
+            return -1;
+    }
 
     frame_size = x264_encoder_encapsulate_nals( h, 0 );
     if( frame_size < 0 )
@@ -3337,7 +3348,7 @@ int     x264_encoder_encode( x264_t *h,
                 overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
             }
 
-            if( h->fenc->b_keyframe && h->param.b_repeat_headers && h->fenc->i_frame == 0 )
+            if( h->fenc->b_keyframe && h->fenc->i_frame == 0 )
             {
                 /* identify ourself */
                 x264_nal_start( h, MPEG2_USER_DATA, NAL_PRIORITY_HIGHEST );

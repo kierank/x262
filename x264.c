@@ -1917,7 +1917,7 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
 
     if( !param->b_repeat_headers )
     {
-        // Write SPS/PPS/SEI
+        // Write SPS/PPS/SEI (H.264) or sequence header (MPEG-2)
         x264_nal_t *headers;
         int i_nal;
 

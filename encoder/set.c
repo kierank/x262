@@ -787,11 +787,12 @@ void x264_sei_dec_ref_pic_marking_write( x264_t *h, bs_t *s )
 static void x264_write_cqm_mpeg2( x264_t *h, bs_t *s, int chroma )
 {
     uint8_t temp[64];
+    int b_keyframe = h->fenc ? h->fenc->b_keyframe : 1;
 
     if( chroma )
     {
         // load_chroma_intra_quantiser_matrix
-        if( h->fenc->b_keyframe &&
+        if( b_keyframe &&
             memcmp( h->pps->scaling_list[CQM_8IC],
                     h->pps->scaling_list[CQM_8IY], 64*sizeof(uint8_t) ) )
         {
@@ -819,7 +820,7 @@ static void x264_write_cqm_mpeg2( x264_t *h, bs_t *s, int chroma )
     else
     {
         // load_intra_quantiser_matrix
-        if( h->fenc->b_keyframe &&
+        if( b_keyframe &&
             memcmp( h->pps->scaling_list[CQM_8IY], x264_cqm_intra_mpeg2, 64*sizeof(uint8_t) ) )
         {
             bs_write1( s, 1 );
