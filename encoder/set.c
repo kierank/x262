@@ -1169,7 +1169,7 @@ const x264_fps_mpeg2_t x264_allowed_fps_mpeg2[] =
 
 #define CHECK( name, limit, val ) \
     if( (val) > (limit) ) \
-        ERROR( name " (%d) > level limit (%d)\n", (int)(val), (limit) );
+        ERROR( name " (%"PRId64") > level limit (%d)\n", (int64_t)(val), (limit) );
 
 int x264_validate_levels( x264_t *h, int verbose )
 {
