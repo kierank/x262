@@ -198,6 +198,7 @@ void x264_param_default( x264_param_t *param )
     param->b_pic_struct = 0;
     param->b_fake_interlaced = 0;
     param->i_frame_packing = -1;
+    param->b_mpeg2 = 0;
 }
 
 void x264_param_default_mpeg2( x264_param_t *param )

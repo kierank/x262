@@ -1276,6 +1276,7 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
     cli_output_opt_t output_opt;
     char *preset = NULL;
     char *tune = NULL;
+    defaults.b_mpeg2 = param->b_mpeg2 = 0;
 
 #if HAVE_MPEG2
     if( !cli_name )
@@ -1285,6 +1286,7 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
     /* If the binary is called as x262, default to MPEG-2 */
     if( !strcasecmp( basename( cli_name ), "x262" ) )
     {
+        defaults.b_mpeg2 = param->b_mpeg2 = 1;
         x264_param_default_mpeg2( &defaults );
         x264_param_default_mpeg2( param );
     }
