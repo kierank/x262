@@ -1,7 +1,7 @@
 /*****************************************************************************
  * mpeg2vlc.c : mpeg-2 vlc bitstream writing
  *****************************************************************************
- * Copyright (C) 2003-2010 x264 project
+ * Copyright (C) 2003-2012 x264 project
  *
  * Authors: Kieran Kunhya <kieran@kunhya.com>
  *          Phillip Blucas <pblucas@gmail.com>
