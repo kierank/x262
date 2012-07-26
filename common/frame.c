@@ -502,22 +502,22 @@ void x264_frame_expand_border( x264_t *h, x264_frame_t *frame, int mb_y )
         int v_shift = i && CHROMA_V_SHIFT;
         int stride = frame->i_stride[i];
         int width = 16*h->mb.i_mb_width;
-        int height = (pad_bot ? 16*(h->mb.i_mb_height - mb_y) >> SLICE_MBAFF : 16) >> v_shift;
+        int height = (pad_bot ? 16*(h->mb.i_mb_height - mb_y) >> PLANE_MBAFF : 16) >> v_shift;
         int padh = PADH;
         int padv = PADV >> v_shift;
         // buffer: 2 chroma, 3 luma (rounded to 4) because deblocking goes beyond the top of the mb
         if( b_end && !b_start )
-            height += 4 >> (v_shift + SLICE_MBAFF);
+            height += 4 >> (v_shift + PLANE_MBAFF);
         pixel *pix;
         int starty = 16*mb_y - 4*!b_start;
-        if( SLICE_MBAFF )
+        if( PLANE_MBAFF )
         {
             // border samples for each field are extended separately
             pix = frame->plane_fld[i] + (starty*stride >> v_shift);
             plane_expand_border( pix, stride*2, width, height, padh, padv, pad_top, pad_bot, h_shift );
             plane_expand_border( pix+stride, stride*2, width, height, padh, padv, pad_top, pad_bot, h_shift );
 
-            height = (pad_bot ? 16*(h->mb.i_mb_height - mb_y) : 32) >> v_shift;
+            height = (pad_bot ? 16*(h->mb.i_mb_height - mb_y) : MPEG2 ? 16 : 32) >> v_shift;
             if( b_end && !b_start )
                 height += 4 >> v_shift;
             pix = frame->plane[i] + (starty*stride >> v_shift);
@@ -538,7 +538,7 @@ void x264_frame_expand_border_filtered( x264_t *h, x264_frame_t *frame, int mb_y
        we want to expand border from the last filtered pixel */
     int b_start = !mb_y;
     int width = 16*h->mb.i_mb_width + 8;
-    int height = b_end ? (16*(h->mb.i_mb_height - mb_y) >> SLICE_MBAFF) + 16 : 16;
+    int height = b_end ? (16*(h->mb.i_mb_height - mb_y) >> PLANE_MBAFF) + 16 : 16;
     int padh = PADH - 4;
     int padv = PADV - 8;
     for( int p = 0; p < (CHROMA444 ? 3 : 1); p++ )
@@ -547,7 +547,7 @@ void x264_frame_expand_border_filtered( x264_t *h, x264_frame_t *frame, int mb_y
             int stride = frame->i_stride[p];
             // buffer: 8 luma, to match the hpel filter
             pixel *pix;
-            if( SLICE_MBAFF )
+            if( PLANE_MBAFF )
             {
                 pix = frame->filtered_fld[p][i] + (16*mb_y - 16) * stride - 4;
                 plane_expand_border( pix, stride*2, width, height, padh, padv, b_start, b_end, 0 );
@@ -555,7 +555,7 @@ void x264_frame_expand_border_filtered( x264_t *h, x264_frame_t *frame, int mb_y
             }
 
             pix = frame->filtered[p][i] + (16*mb_y - 8) * stride - 4;
-            plane_expand_border( pix, stride, width, height << SLICE_MBAFF, padh, padv, b_start, b_end, 0 );
+            plane_expand_border( pix, stride, width, height << PLANE_MBAFF, padh, padv, b_start, b_end, 0 );
         }
 }
 

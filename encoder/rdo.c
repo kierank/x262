@@ -163,12 +163,13 @@ static int x264_rd_cost_mb( x264_t *h, int i_lambda2 )
     int i_bits;
     int type_bak = h->mb.i_type;
     int i_intra_dc_predictor_bak[8];
-    int16_t mvp[2][2];
+    int16_t mvp[2][2][2];
 
     if( MPEG2 )
     {
         memcpy( i_intra_dc_predictor_bak, h->mb.i_intra_dc_predictor, sizeof(i_intra_dc_predictor_bak) );
-        CP64( mvp, h->mb.mvp );
+        CP64( mvp[0], h->mb.mvp[0] );
+        CP64( mvp[1], h->mb.mvp[1] );
     }
 
     x264_macroblock_encode( h );
@@ -191,7 +192,8 @@ static int x264_rd_cost_mb( x264_t *h, int i_lambda2 )
             i_bits = ( h->out.bs.i_bits_encoded * i_lambda2 + 128 ) >> 8; // FIXME
         }
         memcpy( h->mb.i_intra_dc_predictor, i_intra_dc_predictor_bak, sizeof(i_intra_dc_predictor_bak) );
-        CP64( h->mb.mvp, mvp );
+        CP64( h->mb.mvp[0], mvp[0] );
+        CP64( h->mb.mvp[1], mvp[1] );
     }
     else if( IS_SKIP( h->mb.i_type ) )
     {

@@ -127,7 +127,7 @@ static void x264_slice_header_init( x264_t *h, x264_slice_header_t *sh,
 
     sh->i_frame_num = i_frame;
 
-    sh->b_mbaff = PARAM_INTERLACED;
+    sh->b_mbaff = PARAM_INTERLACED & !MPEG2;
     sh->b_field_pic = 0;    /* no field support for now */
     sh->b_bottom_field = 0; /* not yet used */
 
@@ -503,10 +503,10 @@ static int x264_validate_parameters( x264_t *h, int b_open )
 
    if( MPEG2 )
     {
-        if( h->param.b_interlaced )
+        if( i_csp > X264_CSP_NV12 && PARAM_INTERLACED )
         {
-            x264_log( h, X264_LOG_WARNING, "interlacing disabled, interlaced MPEG-2 not implemented\n" );
-            h->param.b_interlaced = 0;
+            x264_log( h, X264_LOG_ERROR, "interlaced 4:2:2 not implemented\n" );
+            return -1;
         }
         if( h->param.b_pulldown && h->param.b_fake_interlaced )
         {
@@ -1912,7 +1912,7 @@ static void x264_weighted_pred_init( x264_t *h )
     // and duplicates of that frame.
     h->fenc->i_lines_weighted = 0;
 
-    for( int i_ref = 0; i_ref < (h->i_ref[0] << SLICE_MBAFF); i_ref++ )
+    for( int i_ref = 0; i_ref < (h->i_ref[0] << SLICE_MBAFF ); i_ref++ )
         for( int i = 0; i < 3; i++ )
             h->sh.weight[i_ref][i].weightfn = NULL;
 
@@ -2508,20 +2508,26 @@ static int x264_slice_write( x264_t *h )
         {
             if( h->mb.b_adaptive_mbaff )
             {
-                if( !(i_mb_y&1) )
+                if( !MPEG2 )
                 {
-                    /* FIXME: VSAD is fast but fairly poor at choosing the best interlace type. */
-                    h->mb.b_interlaced = x264_field_vsad( h, i_mb_x, i_mb_y );
-                    memcpy( &h->zigzagf, MB_INTERLACED ? &h->zigzagf_interlaced : &h->zigzagf_progressive, sizeof(h->zigzagf) );
-                    if( !MB_INTERLACED && (i_mb_y+2) == h->mb.i_mb_height )
-                        x264_expand_border_mbpair( h, i_mb_x, i_mb_y );
+                    if( !(i_mb_y&1) )
+                    {
+                        /* FIXME: VSAD is fast but fairly poor at choosing the best interlace type. */
+                        h->mb.b_interlaced = x264_field_vsad( h, i_mb_x, i_mb_y );
+                        memcpy( &h->zigzagf, MB_INTERLACED ? &h->zigzagf_interlaced : &h->zigzagf_progressive, sizeof(h->zigzagf) );
+                        if( !MB_INTERLACED && (i_mb_y+2) == h->mb.i_mb_height )
+                            x264_expand_border_mbpair( h, i_mb_x, i_mb_y );
+                    }
                 }
+                else
+                    /* FIXME: Try MPEG-2 mode decision in macroblock_analyse() instead of VSAD here. */
+                    h->mb.b_interlaced = x264_field_vsad( h, i_mb_x, i_mb_y );
             }
             h->mb.field[mb_xy] = MB_INTERLACED;
         }
 
         /* load cache */
-        if( SLICE_MBAFF )
+        if( PLANE_MBAFF )
             x264_macroblock_cache_load_interlaced( h, i_mb_x, i_mb_y );
         else
             x264_macroblock_cache_load_progressive( h, i_mb_x, i_mb_y );

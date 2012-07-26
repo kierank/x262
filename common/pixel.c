@@ -690,7 +690,7 @@ int x264_field_vsad( x264_t *h, int mb_x, int mb_y )
     int mb_xy = mb_x + mb_y*mb_stride;
 
     /* We don't want to analyze pixels outside the frame, as it gives inaccurate results. */
-    int mbpair_height = X264_MIN( h->param.i_height - mb_y * 16, 32 );
+    int mbpair_height = X264_MIN( h->param.i_height - mb_y * 16, MPEG2 ? 16 : 32 );
     score_frame  = h->pixf.vsad( fenc,          stride, mbpair_height );
     score_field  = h->pixf.vsad( fenc,        stride*2, mbpair_height >> 1 );
     score_field += h->pixf.vsad( fenc+stride, stride*2, mbpair_height >> 1 );

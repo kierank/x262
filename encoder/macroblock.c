@@ -722,12 +722,14 @@ static ALWAYS_INLINE void x264_macroblock_encode_internal( x264_t *h, int plane_
         /* Do motion compensation if we have a non-zero mv */
         if( h->mb.i_type == P_L0 )
         {
-            if( M32( h->mb.cache.mv[0][X264_SCAN8_0] ) )
+            if( M32( h->mb.cache.mv[0][X264_SCAN8_0] )
+                | ( MB_INTERLACED && M32( h->mb.cache.mv[0][X264_SCAN8_0+8*2] ) ) )
                 x264_mb_mc( h );
         }
         else if( h->mb.i_type != I_16x16 )
         {
-            if( M32( h->mb.cache.mv[0][X264_SCAN8_0] ) | M32( h->mb.cache.mv[1][X264_SCAN8_0] ) )
+            if( ( M32( h->mb.cache.mv[0][X264_SCAN8_0] ) | M32( h->mb.cache.mv[1][X264_SCAN8_0] ) )
+                | ( MB_INTERLACED && ( M32( h->mb.cache.mv[0][X264_SCAN8_0+8*2] ) | M32( h->mb.cache.mv[1][X264_SCAN8_0+8*2] ) ) ) )
                 x264_mb_mc( h );
         }
     }
@@ -1070,6 +1072,9 @@ static ALWAYS_INLINE void x264_macroblock_encode_internal( x264_t *h, int plane_
             |  h->mb.cache.non_zero_count[x264_scan8[CHROMA_DC+1]] << 10;
     h->mb.cbp[h->mb.i_mb_xy] = cbp;
 
+    if( MPEG2 && MB_INTERLACED )
+        return;
+
     /* Check for P_SKIP
      * XXX: in the me perhaps we should take x264_mb_predict_mv_pskip into account
      *      (if multiple mv give same result)*/
@@ -1082,20 +1087,20 @@ static ALWAYS_INLINE void x264_macroblock_encode_internal( x264_t *h, int plane_
             else if( h->mb.i_type == h->mb.i_mb_type_left[0] )
             {
                 if( h->mb.i_type == B_BI_BI &&
-                    M32( h->mb.mvp[0] ) == M32( h->mb.cache.mv[0][x264_scan8[0]] ) &&
-                    M32( h->mb.mvp[1] ) == M32( h->mb.cache.mv[1][x264_scan8[0]] ) )
+                    M32( h->mb.mvp[0][0] ) == M32( h->mb.cache.mv[0][x264_scan8[0]] ) &&
+                    M32( h->mb.mvp[0][1] ) == M32( h->mb.cache.mv[1][x264_scan8[0]] ) )
                 {
                     h->mb.i_type = B_SKIP;
                     h->mb.i_bskip_type = B_BI_BI;
                 }
                 else if( h->mb.i_type == B_L0_L0 &&
-                    M32( h->mb.mvp[0] ) == M32( h->mb.cache.mv[0][x264_scan8[0]] ) )
+                    M32( h->mb.mvp[0][0] ) == M32( h->mb.cache.mv[0][x264_scan8[0]] ) )
                 {
                     h->mb.i_type = B_SKIP;
                     h->mb.i_bskip_type = B_L0_L0;
                 }
                 else if( h->mb.i_type == B_L1_L1 &&
-                    M32( h->mb.mvp[1] ) == M32( h->mb.cache.mv[1][x264_scan8[0]] ) )
+                    M32( h->mb.mvp[0][1] ) == M32( h->mb.cache.mv[1][x264_scan8[0]] ) )
                 {
                     h->mb.i_type = B_SKIP;
                     h->mb.i_bskip_type = B_L1_L1;
@@ -1104,14 +1109,14 @@ static ALWAYS_INLINE void x264_macroblock_encode_internal( x264_t *h, int plane_
             else if( h->mb.i_mb_type_left[0] == B_SKIP )
             {
                 if( h->mb.i_type == B_BI_BI && h->mb.i_bskip_type == B_BI_BI &&
-                    M32( h->mb.mvp[0] ) == M32( h->mb.cache.mv[0][x264_scan8[0]] ) &&
-                    M32( h->mb.mvp[1] ) == M32( h->mb.cache.mv[1][x264_scan8[0]] ) )
+                    M32( h->mb.mvp[0][0] ) == M32( h->mb.cache.mv[0][x264_scan8[0]] ) &&
+                    M32( h->mb.mvp[0][1] ) == M32( h->mb.cache.mv[1][x264_scan8[0]] ) )
                     h->mb.i_type = B_SKIP;
                 else if( h->mb.i_type == B_L0_L0 && h->mb.i_bskip_type == B_L0_L0 &&
-                    M32( h->mb.mvp[0] ) == M32( h->mb.cache.mv[0][x264_scan8[0]] ) )
+                    M32( h->mb.mvp[0][0] ) == M32( h->mb.cache.mv[0][x264_scan8[0]] ) )
                     h->mb.i_type = B_SKIP;
                 else if( h->mb.i_type == B_L1_L1 && h->mb.i_bskip_type == B_L1_L1 &&
-                    M32( h->mb.mvp[1] ) == M32( h->mb.cache.mv[1][x264_scan8[0]] ) )
+                    M32( h->mb.mvp[0][1] ) == M32( h->mb.cache.mv[1][x264_scan8[0]] ) )
                     h->mb.i_type = B_SKIP;
             }
         }

@@ -102,6 +102,10 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
     int coded = !!cbp;
     int quant = h->mb.i_last_qp != h->mb.i_qp && h->mb.i_mb_x;
     int mcoded = !!M32( h->mb.cache.mv[0][X264_SCAN8_0] );
+    if( MB_INTERLACED )
+        mcoded =  mcoded || (!!M32( h->mb.cache.mv[0][X264_SCAN8_0 + 2*8] ))
+               || (h->mb.cache.ref[0][X264_SCAN8_0] != 0)
+               || (h->mb.cache.ref[0][X264_SCAN8_0 + 2*8] != 1);
     int mv_type = 0;
 
     /* must code a zero mv for macroblocks that cannot be (P|B)_SKIP */
@@ -137,7 +141,7 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
     {
         /* only frame-based prediction is supported */
         if( (i_mb_type == P_L0 && mcoded) || i_mb_type > P_L0 )
-            bs_write( s, 2, 2 );           // frame_motion_type
+            bs_write( s, 2, 2 - MB_INTERLACED ); // frame|field_motion_type
         if( coded )
             bs_write1( s, MB_INTERLACED ); // dct_type
     }
@@ -152,20 +156,53 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
     // write mvs
     if( (i_mb_type == P_L0 && mcoded) || (i_mb_type != P_L0 && i_mb_type != I_16x16) )
     {
-        int mvcount = 1;
-        if( i_mb_type == B_BI_BI )
+        if( MB_INTERLACED )
         {
-            mvcount = 2;
+            int mvcount = 2;
             mv_type = 0;
-        }
-        for( int j = 0; j < mvcount; j++, mv_type++ )
-            for( int i = 0; i < 2; i++ )
+
+            if( i_mb_type == B_BI_BI )
+                mvcount = 4;
+            else if( i_mb_type == B_L1_L1 )
+                mv_type = 1;
+
+            for( int i = 0; i < mvcount; i+=2, mv_type++)
             {
-                x264_write_mv_vlc_mpeg2( h, ( h->mb.cache.mv[mv_type][x264_scan8[0]][i] - h->mb.mvp[mv_type][i] ) >> 1,
-                                         h->fenc->mv_fcode[mv_type][i] );
-                // update predictors
-                h->mb.mvp[mv_type][i] = h->mb.cache.mv[mv_type][X264_SCAN8_0][i];
+                for( int j = 0; j < 2; j++ )
+                {
+                    bs_write(s,1,h->mb.cache.ref[mv_type][X264_SCAN8_0 + (2*8*j)]);
+
+                    x264_write_mv_vlc_mpeg2( h, (h->mb.cache.mv[mv_type][X264_SCAN8_0 + (2*8*j)][0]>>1) - (h->mb.mvp[j][mv_type][0]>>1),
+                                             h->fenc->mv_fcode[mv_type][0] );
+                    x264_write_mv_vlc_mpeg2( h, (h->mb.cache.mv[mv_type][X264_SCAN8_0 + (2*8*j)][1]>>1) - (h->mb.mvp[j][mv_type][1]>>2),
+                                             h->fenc->mv_fcode[mv_type][1] );
+                    // update predictors
+                    h->mb.mvp[j][mv_type][0] = (h->mb.cache.mv[mv_type][X264_SCAN8_0 + (2*8*j)][0]);
+                    h->mb.mvp[j][mv_type][1] = (h->mb.cache.mv[mv_type][X264_SCAN8_0 + (2*8*j)][1]>>1)<<2;
+                }
             }
+        }
+        else
+        {
+            int mvcount = 1;
+
+            mv_type = 0;
+            if( i_mb_type == B_BI_BI )
+                mvcount = 2;
+            else if( i_mb_type == B_L1_L1 )
+                mv_type = 1;
+
+            for( int j = 0; j < mvcount; j++, mv_type++ )
+            {
+                x264_write_mv_vlc_mpeg2( h, ( h->mb.cache.mv[mv_type][x264_scan8[0]][0] - h->mb.mvp[0][mv_type][0] ) >> 1,
+                                         h->fenc->mv_fcode[mv_type][0] );
+                x264_write_mv_vlc_mpeg2( h, ( h->mb.cache.mv[mv_type][x264_scan8[0]][1] - h->mb.mvp[0][mv_type][1] ) >> 1,
+                                         h->fenc->mv_fcode[mv_type][1] );
+                // update predictors
+                M32( h->mb.mvp[0][mv_type] ) = M32( h->mb.cache.mv[mv_type][X264_SCAN8_0] );
+                M32( h->mb.mvp[1][mv_type] ) = M32( h->mb.cache.mv[mv_type][X264_SCAN8_0] );
+            }
+        }
     }
 
 #if !RDO_SKIP_BS

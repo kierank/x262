@@ -130,7 +130,7 @@ void x264_mb_predict_mv_16x16( x264_t *h, int i_list, int i_ref, int16_t mvp[2] 
 {
     if( MPEG2 )
     {
-        CP32( mvp, h->mb.mvp[i_list] );
+        CP32( mvp, h->mb.mvp[0][i_list] );
         return;
     }
 
@@ -168,6 +168,12 @@ median:
         goto median;
 }
 
+void x264_mb_predict_mv_16x8_mpeg2( x264_t *h, int i_list, int i_ref, int16_t mvp[2], int field )
+{
+    CP32( mvp, h->mb.mvp[field][i_list] );
+    mvp[1] = ( mvp[1] >> 2 ) << 1;
+    return;
+}
 
 void x264_mb_predict_mv_pskip( x264_t *h, int16_t mv[2] )
 {
@@ -572,7 +578,7 @@ void x264_mb_predict_mv_ref16x16( x264_t *h, int i_list, int i_ref, int16_t mvc[
     }
 
     /* spatial predictors */
-    if( SLICE_MBAFF )
+    if( PLANE_MBAFF )
     {
         SET_IMVP( h->mb.i_mb_left_xy[0] );
         SET_IMVP( h->mb.i_mb_top_xy );
@@ -595,7 +601,7 @@ void x264_mb_predict_mv_ref16x16( x264_t *h, int i_list, int i_ref, int16_t mvc[
         x264_frame_t *l0 = h->fref[0][0];
         int field = h->mb.i_mb_y&1;
         int curpoc = h->fdec->i_poc + h->fdec->i_delta_poc[field];
-        int refpoc = h->fref[i_list][i_ref>>SLICE_MBAFF]->i_poc;
+        int refpoc = h->fref[i_list][i_ref>>PLANE_MBAFF]->i_poc;
         refpoc += l0->i_delta_poc[field^(i_ref&1)];
 
 #define SET_TMVP( dx, dy ) \

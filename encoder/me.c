@@ -809,12 +809,12 @@ if( b_refine_qpel || (dir^1) != odir ) \
                              mx, 2*(my+mvy_offset)>>chroma_v_shift, bw>>1, bh>>chroma_v_shift ); \
             if( m->weight[1].weightfn ) \
                 m->weight[1].weightfn[bw>>3]( pix, 16, pix, 16, &m->weight[1], bh>>chroma_v_shift ); \
-            cost += h->pixf.mbcmp[chromapix]( m->p_fenc[1], FENC_STRIDE, pix, 16 ); \
+            cost += h->pixf.mbcmp[chromapix]( m->p_fenc[1], FENC_STRIDE<<(MPEG2 & MB_INTERLACED), pix, 16 ); \
             if( cost < bcost ) \
             { \
                 if( m->weight[2].weightfn ) \
                     m->weight[2].weightfn[bw>>3]( pix+8, 16, pix+8, 16, &m->weight[2], bh>>chroma_v_shift ); \
-                cost += h->pixf.mbcmp[chromapix]( m->p_fenc[2], FENC_STRIDE, pix+8, 16 ); \
+                cost += h->pixf.mbcmp[chromapix]( m->p_fenc[2], FENC_STRIDE<<(MPEG2 & MB_INTERLACED), pix+8, 16 ); \
             } \
         } \
     } \
