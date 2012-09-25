@@ -1731,7 +1731,7 @@ static int x264_nal_end( x264_t *h )
      * While undefined padding wouldn't actually affect the output, it makes valgrind unhappy. */
     memset( end, 0xff, 32 );
     if( h->param.nalu_process )
-        h->param.nalu_process( h, nal );
+        h->param.nalu_process( h, nal, h->fenc->opaque );
     h->out.i_nal++;
 
     return x264_nal_check_buffer( h );
@@ -2817,6 +2817,14 @@ reencode:
                 x264_fdec_filter_row( h, h->i_threadslice_start + (1 << SLICE_MBAFF), 2 );
             }
         }
+
+        /* Free mb info after the last thread's done using it */
+        if( h->fdec->mb_info_free && (!h->param.b_sliced_threads || h->i_thread_idx == (h->param.i_threads-1)) )
+        {
+            h->fdec->mb_info_free( h->fdec->mb_info );
+            h->fdec->mb_info = NULL;
+            h->fdec->mb_info_free = NULL;
+        }
     }
 
     return 0;
@@ -3153,7 +3161,10 @@ int     x264_encoder_encode( x264_t *h,
     {
         x264_encoder_reconfig( h, h->fenc->param );
         if( h->fenc->param->param_free )
+        {
             h->fenc->param->param_free( h->fenc->param );
+            h->fenc->param = NULL;
+        }
     }
 
     // ok to call this before encoding any frames, since the initial values of fdec have b_kept_as_ref=0
@@ -3244,6 +3255,11 @@ int     x264_encoder_encode( x264_t *h,
     h->fdec->i_frame = h->fenc->i_frame;
     h->fenc->b_kept_as_ref =
     h->fdec->b_kept_as_ref = i_nal_ref_idc != NAL_PRIORITY_DISPOSABLE && h->param.i_keyint_max > 1;
+
+    h->fdec->mb_info = h->fenc->mb_info;
+    h->fdec->mb_info_free = h->fenc->mb_info_free;
+    h->fenc->mb_info = NULL;
+    h->fenc->mb_info_free = NULL;
 
     h->fdec->i_pts = h->fenc->i_pts;
     if( h->frames.i_bframe_delay )
@@ -3472,12 +3488,19 @@ int     x264_encoder_encode( x264_t *h,
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload +
                     ( MPEG2 ? STRUCTURE_OVERHEAD : NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1) );
-        if( h->fenc->extra_sei.sei_free && h->fenc->extra_sei.payloads[i].payload )
+        if( h->fenc->extra_sei.sei_free )
+        {
             h->fenc->extra_sei.sei_free( h->fenc->extra_sei.payloads[i].payload );
+            h->fenc->extra_sei.payloads[i].payload = NULL;
+        }
     }
 
-    if( h->fenc->extra_sei.sei_free && h->fenc->extra_sei.payloads )
+    if( h->fenc->extra_sei.sei_free )
+    {
         h->fenc->extra_sei.sei_free( h->fenc->extra_sei.payloads );
+        h->fenc->extra_sei.payloads = NULL;
+        h->fenc->extra_sei.sei_free = NULL;
+    }
 
     if( h->fenc->b_keyframe && !MPEG2 )
     {
@@ -3605,9 +3628,6 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
 
     x264_emms();
 
-    if( h->fenc->mb_info_free )
-        h->fenc->mb_info_free( h->fenc->mb_info );
-
     /* generate buffering period sei and insert it into place */
     if( h->i_thread_frames > 1 && h->fenc->b_keyframe && h->sps->vui.b_nal_hrd_parameters_present )
     {
@@ -3666,6 +3686,7 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
         return -1;
 
     pic_out->hrd_timing = h->fenc->hrd_timing;
+    pic_out->prop.f_crf_avg = h->fdec->f_crf_avg;
 
     while( filler > 0 )
     {
