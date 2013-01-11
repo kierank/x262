@@ -1,7 +1,7 @@
 /*****************************************************************************
  * x264: top-level x264cli functions
  *****************************************************************************
- * Copyright (C) 2003-2012 x264 project
+ * Copyright (C) 2003-2013 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -1682,11 +1682,8 @@ generic_option:
         for( int i = 0; x264_levels[i].level_idc != 0; i++ )
             if( param->i_level_idc == x264_levels[i].level_idc )
             {
-                while( mbs * 384 * param->i_frame_reference > x264_levels[i].dpb &&
-                       param->i_frame_reference > 1 )
-                {
+                while( mbs * param->i_frame_reference > x264_levels[i].dpb && param->i_frame_reference > 1 )
                     param->i_frame_reference--;
-                }
                 break;
             }
     }

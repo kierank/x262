@@ -1,7 +1,7 @@
 ;*****************************************************************************
 ;* dct-a.asm: x86 transform and zigzag
 ;*****************************************************************************
-;* Copyright (C) 2003-2012 x264 project
+;* Copyright (C) 2003-2013 x264 project
 ;*
 ;* Authors: Holger Lubitz <holger@lubitz.org>
 ;*          Loren Merritt <lorenm@u.washington.edu>
@@ -555,7 +555,7 @@ cglobal add16x16_idct_dc, 2,3,8
     add         r0, 4*FDEC_STRIDEB
     dec         r2
     jg .loop
-    REP_RET
+    RET
 %endmacro ; ADD_IDCT_DC
 
 INIT_XMM sse2
@@ -664,7 +664,7 @@ cglobal add16x16_idct_dc, 2,3
     add       r0, FDEC_STRIDE*4
     dec       r2
     jg .loop
-    REP_RET
+    RET
 
 INIT_XMM sse2
 cglobal add16x16_idct_dc, 2,2,8
@@ -1274,7 +1274,7 @@ cglobal zigzag_scan_8x8_field, 2,3,8
     mova       m1, [r1+ 4*SIZEOF_DCTCOEF]       ; 07 06 05 04
     mova       m2, [r1+ 8*SIZEOF_DCTCOEF]       ; 11 10 09 08
     pshuf%1    m3, m0, q3333                    ; 03 03 03 03
-    movd       r2, m2                           ; 09 08
+    movd      r2d, m2                           ; 09 08
     pshuf%1    m2, m2, q0321                    ; 08 11 10 09
     punpckl%2  m3, m1                           ; 05 03 04 03
     pinsr%1    m0, r2d, 3                       ; 08 02 01 00

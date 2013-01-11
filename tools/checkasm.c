@@ -1,7 +1,7 @@
 /*****************************************************************************
  * checkasm.c: assembly check tool
  *****************************************************************************
- * Copyright (C) 2003-2012 x264 project
+ * Copyright (C) 2003-2013 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -165,6 +165,7 @@ static void print_bench(void)
             if( k < j )
                 continue;
             printf( "%s_%s%s: %"PRId64"\n", benchs[i].name,
+                    b->cpu&X264_CPU_AVX2 && b->cpu&X264_CPU_FMA3 ? "avx2_fma3" :
                     b->cpu&X264_CPU_AVX2 ? "avx2" :
                     b->cpu&X264_CPU_FMA3 ? "fma3" :
                     b->cpu&X264_CPU_FMA4 ? "fma4" :
@@ -2576,11 +2577,6 @@ static int check_all_flags( void )
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_FMA4, "FMA4" );
         cpu1 &= ~X264_CPU_FMA4;
     }
-    if( x264_cpu_detect() & X264_CPU_FMA3 )
-    {
-        ret |= add_flags( &cpu0, &cpu1, X264_CPU_FMA3, "FMA3" );
-        cpu1 &= ~X264_CPU_FMA3;
-    }
     if( x264_cpu_detect() & X264_CPU_BMI1 )
     {
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_BMI1, "BMI1" );
@@ -2598,6 +2594,11 @@ static int check_all_flags( void )
     }
     if( x264_cpu_detect() & X264_CPU_AVX2 )
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_AVX2, "AVX2" );
+    if( x264_cpu_detect() & X264_CPU_FMA3 )
+    {
+        ret |= add_flags( &cpu0, &cpu1, X264_CPU_FMA3, "FMA3" );
+        cpu1 &= ~X264_CPU_FMA3;
+    }
 #elif ARCH_PPC
     if( x264_cpu_detect() & X264_CPU_ALTIVEC )
     {

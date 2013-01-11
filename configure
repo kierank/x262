@@ -453,6 +453,7 @@ else
     fi
 fi
 
+libm=""
 case $host_os in
     beos*)
         SYS="BEOS"
@@ -461,37 +462,37 @@ case $host_os in
     darwin*)
         SYS="MACOSX"
         CFLAGS="$CFLAGS -falign-loops=16"
-        LDFLAGS="$LDFLAGS -lm"
+        libm="-lm"
         if [ "$pic" = "no" ]; then
             cc_check "" -mdynamic-no-pic && CFLAGS="$CFLAGS -mdynamic-no-pic"
         fi
         ;;
     freebsd*)
         SYS="FREEBSD"
-        LDFLAGS="$LDFLAGS -lm"
+        libm="-lm"
         ;;
     kfreebsd*-gnu)
         SYS="FREEBSD"
         define HAVE_MALLOC_H
-        LDFLAGS="$LDFLAGS -lm"
+        libm="-lm"
         ;;
     netbsd*)
         SYS="NETBSD"
-        LDFLAGS="$LDFLAGS -lm"
+        libm="-lm"
         ;;
     openbsd*)
         SYS="OPENBSD"
-        LDFLAGS="$LDFLAGS -lm"
+        libm="-lm"
         ;;
     *linux*)
         SYS="LINUX"
         define HAVE_MALLOC_H
-        LDFLAGS="$LDFLAGS -lm"
+        libm="-lm"
         ;;
     gnu*)
         SYS="HURD"
         define HAVE_MALLOC_H
-        LDFLAGS="$LDFLAGS -lm"
+        libm="-lm"
         ;;
     cygwin*)
         EXE=".exe"
@@ -517,7 +518,7 @@ case $host_os in
     sunos*|solaris*)
         SYS="SunOS"
         define HAVE_MALLOC_H
-        LDFLAGS="$LDFLAGS -lm"
+        libm="-lm"
         if cc_check "" /usr/lib/64/values-xpg6.o; then
             LDFLAGS="$LDFLAGS /usr/lib/64/values-xpg6.o"
         else
@@ -530,6 +531,9 @@ case $host_os in
         ;;
 esac
 
+LDFLAGS="$LDFLAGS $libm"
+
+aligned_stack=1
 case $host_cpu in
     i*86)
         ARCH="X86"
@@ -550,6 +554,7 @@ case $host_cpu in
                 # < 11 is completely incapable of keeping a mod16 stack
                 if cpp_check "" "" "__INTEL_COMPILER < 1100" ; then
                     define BROKEN_STACK_ALIGNMENT
+                    aligned_stack=0
                 # 11 <= x < 12 is capable of keeping a mod16 stack, but defaults to not doing so.
                 elif cpp_check "" "" "__INTEL_COMPILER < 1200" ; then
                     CFLAGS="$CFLAGS -falign-stack=assume-16-byte"
@@ -557,7 +562,7 @@ case $host_cpu in
                 # >= 12 defaults to a mod16 stack
             fi
             # icl on windows has no mod16 stack support
-            [ $SYS = WINDOWS ] && define BROKEN_STACK_ALIGNMENT
+            [ $SYS = WINDOWS ] && define BROKEN_STACK_ALIGNMENT && aligned_stack=0
         fi
         if [ "$SYS" = MACOSX ]; then
             ASFLAGS="$ASFLAGS -f macho -DPREFIX"
@@ -650,6 +655,7 @@ case $host_cpu in
         ARCH="$(echo $host_cpu | tr a-z A-Z)"
         ;;
 esac
+ASFLAGS="$ASFLAGS -DHAVE_ALIGNED_STACK=${aligned_stack}"
 
 if [ $SYS = WINDOWS ]; then
     if ! rc_check "0 RCDATA {0}" ; then
@@ -686,10 +692,10 @@ if [ $shared = yes -a \( $ARCH = "X86_64" -o $ARCH = "PPC" -o $ARCH = "ALPHA" -o
 fi
 
 if [ $asm = auto -a \( $ARCH = X86 -o $ARCH = X86_64 \) ] ; then
-    if ! as_check "vpperm xmm0, xmm0, xmm0, xmm0" ; then
+    if ! as_check "vpmovzxwd ymm0, xmm0" ; then
         VER=`($AS --version || echo no assembler) 2>/dev/null | head -n 1`
         echo "Found $VER"
-        echo "Minimum version is yasm-1.0.0"
+        echo "Minimum version is yasm-1.2.0"
         echo "If you really want to compile without asm, configure with --disable-asm."
         exit 1
     fi
@@ -839,7 +845,7 @@ if [ "$lavf" = "auto" ] ; then
         done
     fi
     LAVF_LIBS="-L. $LAVF_LIBS"
-    if cc_check libavformat/avformat.h "$LAVF_CFLAGS $LAVF_LIBS" "avformat_find_stream_info(0,0); avcodec_open2(0,0,0);" ; then
+    if cc_check libavformat/avformat.h "$LAVF_CFLAGS $LAVF_LIBS" "avformat_close_input(0);" ; then
         if [ "$swscale" = "yes" ]; then
             lavf="yes"
         else
@@ -908,7 +914,7 @@ if [ "$gpac" = "auto" ] ; then
 fi
 if [ "$gpac" = "yes" ] ; then
     define HAVE_GPAC
-    if cc_check gpac/isomedia.h "-Werror $GPAC_LIBS" "gf_malloc(1); gf_free(NULL);" ; then
+    if cc_check gpac/isomedia.h "-Werror $GPAC_LIBS" "void *p; p = gf_malloc(1); gf_free(p);" ; then
         define HAVE_GF_MALLOC
     fi
     LDFLAGSCLI="$GPAC_LIBS $LDFLAGSCLI"
@@ -1162,8 +1168,6 @@ echo "CLI_LIBX264 = $CLI_LIBX264" >> config.mak
 
 ${SRCPATH}/version.sh "${SRCPATH}" >> x264_config.h
 
-pclibs="-L$libdir -lx264 $libpthread"
-
 cat > x264.pc << EOF
 prefix=$prefix
 exec_prefix=$exec_prefix
@@ -1173,7 +1177,8 @@ includedir=$includedir
 Name: x264
 Description: H.264 (MPEG4 AVC) encoder library
 Version: $(grep POINTVER < x264_config.h | sed -e 's/.* "//; s/".*//')
-Libs: $pclibs
+Libs: -L$libdir -lx264
+Libs.private: $libpthread $libm
 Cflags: -I$includedir
 EOF
 

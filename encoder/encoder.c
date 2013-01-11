@@ -1,7 +1,7 @@
 /*****************************************************************************
  * encoder.c: top-level encoder functions
  *****************************************************************************
- * Copyright (C) 2003-2012 x264 project
+ * Copyright (C) 2003-2013 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -629,7 +629,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
         h->param.rc.i_qp_constant = h->param.rc.f_rf_constant + QP_BD_OFFSET;
         h->param.rc.i_bitrate = 0;
     }
-    if( (h->param.rc.i_rc_method == X264_RC_CQP || h->param.rc.i_rc_method == X264_RC_CRF)
+    if( b_open && (h->param.rc.i_rc_method == X264_RC_CQP || h->param.rc.i_rc_method == X264_RC_CRF)
         && h->param.rc.i_qp_constant == 0 && !MPEG2 )
     {
         h->mb.b_lossless = 1;
@@ -2446,14 +2446,11 @@ static int x264_slice_write( x264_t *h )
     /* Slice header */
     x264_macroblock_thread_init( h );
 
-    /* If this isn't the first slice in the threadslice, set the slice QP
-     * equal to the last QP in the previous slice for more accurate
-     * CABAC initialization. */
-    if( h->sh.i_first_mb != h->i_threadslice_start * h->mb.i_mb_width )
-    {
-        h->sh.i_qp = h->mb.i_last_qp;
-        h->sh.i_qp_delta = h->sh.i_qp - h->pps->i_pic_init_qp;
-    }
+    /* Set the QP equal to the first QP in the slice for more accurate CABAC initialization. */
+    h->mb.i_mb_xy = h->sh.i_first_mb;
+    h->sh.i_qp = x264_ratecontrol_mb_qp( h );
+    h->sh.i_qp = SPEC_QP( h->sh.i_qp );
+    h->sh.i_qp_delta = h->sh.i_qp - h->pps->i_pic_init_qp;
 
     if( !MPEG2 )
         x264_slice_header_write( &h->out.bs, &h->sh, h->i_nal_ref_idc );
@@ -3462,7 +3459,7 @@ int     x264_encoder_encode( x264_t *h,
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD;
         }
-        
+
         /* when frame threading is used, buffering period sei is written in x264_encoder_frame_end */
         if( h->i_thread_frames == 1 && h->sps->vui.b_nal_hrd_parameters_present )
         {

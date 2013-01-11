@@ -1,7 +1,7 @@
 ;*****************************************************************************
 ;* mc-a2.asm: x86 motion compensation
 ;*****************************************************************************
-;* Copyright (C) 2005-2012 x264 project
+;* Copyright (C) 2005-2013 x264 project
 ;*
 ;* Authors: Loren Merritt <lorenm@u.washington.edu>
 ;*          Jason Garrett-Glaser <darkshikari@gmail.com>
@@ -210,7 +210,7 @@ cglobal hpel_filter_v, 5,6,11
     mova      [r0+r4+mmsize], m4
     add        r4, 2*mmsize
     jl .loop
-    REP_RET
+    RET
 
 ;-----------------------------------------------------------------------------
 ; void hpel_filter_c( uint16_t *dst, int16_t *buf, intptr_t width );
@@ -259,7 +259,7 @@ cglobal hpel_filter_c, 3,3,10
     mova  [r0+r2], m1
     add        r2, mmsize
     jl .loop
-    REP_RET
+    RET
 
 ;-----------------------------------------------------------------------------
 ; void hpel_filter_h( uint16_t *dst, uint16_t *src, intptr_t width );
@@ -302,7 +302,7 @@ cglobal hpel_filter_h, 3,4,8
     mova      [r0+r2+mmsize], m4
     add        r2, mmsize*2
     jl .loop
-    REP_RET
+    RET
 %endmacro ; HPEL_FILTER
 
 INIT_MMX mmx2
@@ -365,7 +365,7 @@ cglobal hpel_filter_v, 5,6,%1
     add r5, mmsize
     add r4, mmsize
     jl .loop
-    REP_RET
+    RET
 %endmacro
 
 ;-----------------------------------------------------------------------------
@@ -396,7 +396,7 @@ cglobal hpel_filter_c_mmx2, 3,3
     movntq [r0+r2], m1
     add r2, 8
     jl .loop
-    REP_RET
+    RET
 
 ;-----------------------------------------------------------------------------
 ; void hpel_filter_h( uint8_t *dst, uint8_t *src, intptr_t width );
@@ -440,7 +440,7 @@ cglobal hpel_filter_h_mmx2, 3,3
     movntq     [r0+r2], m1
     add r2, 8
     jl .loop
-    REP_RET
+    RET
 
 INIT_XMM
 
@@ -510,7 +510,7 @@ cglobal hpel_filter_c, 3,3,9
     movntps [r0+r2], m4
     add r2, 16
     jl .loop
-    REP_RET
+    RET
 %endmacro
 
 ;-----------------------------------------------------------------------------
@@ -559,7 +559,7 @@ cglobal hpel_filter_h_sse2, 3,3,8
     movntps    [r0+r2], m1
     add r2, 16
     jl .loop
-    REP_RET
+    RET
 
 ;-----------------------------------------------------------------------------
 ; void hpel_filter_h( uint8_t *dst, uint8_t *src, intptr_t width );
@@ -600,7 +600,7 @@ cglobal hpel_filter_h, 3,3
     movntps [r0+r2], m3
     add r2, 16
     jl .loop
-    REP_RET
+    RET
 %endmacro
 
 INIT_MMX mmx2
@@ -1026,7 +1026,7 @@ cglobal store_interleave_chroma, 5,5
     lea    r0, [r0+r1*2]
     sub   r4d, 2
     jg .loop
-    REP_RET
+    RET
 %endmacro ; PLANE_INTERLEAVE
 
 %macro DEINTERLEAVE_START 0
@@ -1068,7 +1068,7 @@ cglobal plane_copy_deinterleave, 6,7
     add    r4, r5
     dec dword r7m
     jg .loopy
-    REP_RET
+    RET
 
 ;-----------------------------------------------------------------------------
 ; void load_deinterleave_chroma_fenc( pixel *dst, pixel *src, intptr_t i_src, int height )
@@ -1083,7 +1083,7 @@ cglobal load_deinterleave_chroma_fenc, 4,4
     lea    r1, [r1+r2*2]
     sub   r3d, 2
     jg .loop
-    REP_RET
+    RET
 
 ;-----------------------------------------------------------------------------
 ; void load_deinterleave_chroma_fdec( pixel *dst, pixel *src, intptr_t i_src, int height )
@@ -1098,7 +1098,7 @@ cglobal load_deinterleave_chroma_fdec, 4,4
     lea    r1, [r1+r2*2]
     sub   r3d, 2
     jg .loop
-    REP_RET
+    RET
 %endmacro ; PLANE_DEINTERLEAVE
 
 %if HIGH_BIT_DEPTH
@@ -1155,7 +1155,7 @@ cglobal memcpy_aligned_mmx, 3,3
     sub  r2d, 32
     jg .copy32
 .ret
-    REP_RET
+    RET
 
 ;-----------------------------------------------------------------------------
 ; void *memcpy_aligned( void *dst, const void *src, size_t n );
@@ -1207,7 +1207,7 @@ cglobal memzero_aligned, 2,2
 %endrep
     add r1, mmsize*8
     jl .loop
-    REP_RET
+    RET
 %endmacro
 
 INIT_MMX mmx
@@ -1239,7 +1239,7 @@ cglobal integral_init4h_sse4, 3,4
     movdqa  [r3+r2*2+16], m1
     add     r2, 16
     jl .loop
-    REP_RET
+    RET
 
 %macro INTEGRAL_INIT8H 0
 cglobal integral_init8h, 3,4
@@ -1263,7 +1263,7 @@ cglobal integral_init8h, 3,4
     movdqa  [r3+r2*2+16], m1
     add     r2, 16
     jl .loop
-    REP_RET
+    RET
 %endmacro
 
 INIT_XMM sse4
@@ -1290,7 +1290,7 @@ cglobal integral_init8v, 3,3
     mova  [r0+r1+mmsize], m1
     add   r1, 2*mmsize
     jl .loop
-    REP_RET
+    RET
 %endmacro
 
 INIT_MMX mmx
@@ -1321,7 +1321,7 @@ cglobal integral_init4v_mmx, 3,5
     mova  [r1+r2-8], m3
     sub   r2, 8
     jge .loop
-    REP_RET
+    RET
 
 INIT_XMM
 cglobal integral_init4v_sse2, 3,5
@@ -1347,7 +1347,7 @@ cglobal integral_init4v_sse2, 3,5
     mova  [r1+r2], m3
     add     r2, 16
     jl .loop
-    REP_RET
+    RET
 
 cglobal integral_init4v_ssse3, 3,5
     shl     r2, 1
@@ -1372,7 +1372,7 @@ cglobal integral_init4v_ssse3, 3,5
     mova  [r1+r2], m3
     add     r2, 16
     jl .loop
-    REP_RET
+    RET
 
 %macro FILT8x4 7
     mova      %3, [r0+%7]
@@ -1702,7 +1702,7 @@ cglobal mbtree_propagate_cost, 7,7,7
 %if cpuflag(fma4)
     cvtdq2ps  xmm0, xmm0
     cvtdq2ps  xmm1, xmm1
-    vfmaddps  xmm0, xmm0, xmm6, xmm1
+    fmaddps   xmm0, xmm0, xmm6, xmm1
     cvtdq2ps  xmm1, xmm2
     psubd     xmm2, xmm3
     cvtdq2ps  xmm2, xmm2
@@ -1710,7 +1710,7 @@ cglobal mbtree_propagate_cost, 7,7,7
     mulps     xmm1, xmm3
     mulps     xmm0, xmm2
     addps     xmm2, xmm3, xmm3
-    vfnmaddps xmm3, xmm1, xmm3, xmm2
+    fnmaddps  xmm3, xmm1, xmm3, xmm2
     mulps     xmm0, xmm3
 %else
     cvtdq2ps  xmm0, xmm0
@@ -1732,7 +1732,7 @@ cglobal mbtree_propagate_cost, 7,7,7
     movdqa [r0+r6*2], xmm0
     add         r6, 8
     jl .loop
-    REP_RET
+    RET
 %endmacro
 
 INIT_XMM sse2
@@ -1742,14 +1742,18 @@ INIT_XMM fma4
 MBTREE
 
 %macro INT16_TO_FLOAT 1
+%if cpuflag(avx2)
+    vpmovzxwd   ymm%1, xmm%1
+%else
     vpunpckhwd   xmm4, xmm%1, xmm7
     vpunpcklwd  xmm%1, xmm7
     vinsertf128 ymm%1, ymm%1, xmm4, 1
+%endif
     vcvtdq2ps   ymm%1, ymm%1
 %endmacro
 
 ; FIXME: align loads/stores to 16 bytes
-INIT_YMM avx
+%macro MBTREE_AVX 0
 cglobal mbtree_propagate_cost, 7,7,8
     add           r6d, r6d
     lea            r0, [r0+r6*2]
@@ -1761,7 +1765,9 @@ cglobal mbtree_propagate_cost, 7,7,8
     vmovdqa      xmm5, [pw_3fff]
     vbroadcastss ymm6, [r5]
     vmulps       ymm6, ymm6, [pf_inv256]
+%if notcpuflag(avx2)
     vpxor        xmm7, xmm7
+%endif
 .loop:
     vmovdqu      xmm0, [r2+r6]       ; intra
     vmovdqu      xmm1, [r4+r6]       ; invq
@@ -1771,6 +1777,17 @@ cglobal mbtree_propagate_cost, 7,7,8
     INT16_TO_FLOAT 1
     INT16_TO_FLOAT 2
     INT16_TO_FLOAT 3
+%if cpuflag(fma3)
+    vmulps       ymm1, ymm1, ymm0
+    vsubps       ymm4, ymm0, ymm3
+    fmaddps      ymm1, ymm1, ymm6, ymm2
+    vrcpps       ymm3, ymm0
+    vmulps       ymm2, ymm0, ymm3
+    vmulps       ymm1, ymm1, ymm4
+    vaddps       ymm4, ymm3, ymm3
+    fnmaddps     ymm4, ymm2, ymm3, ymm4
+    vmulps       ymm1, ymm1, ymm4
+%else
     vmulps       ymm1, ymm1, ymm0
     vsubps       ymm4, ymm0, ymm3
     vmulps       ymm1, ymm1, ymm6    ; intra*invq*fps_factor>>8
@@ -1782,8 +1799,15 @@ cglobal mbtree_propagate_cost, 7,7,8
     vaddps       ymm3, ymm3, ymm3    ; 2 * (1/intra 1st approx)
     vsubps       ymm3, ymm3, ymm2    ; 2nd approximation for 1/intra
     vmulps       ymm1, ymm1, ymm3    ; / intra
+%endif
     vcvtps2dq    ymm1, ymm1
     vmovdqu [r0+r6*2], ymm1
     add            r6, 16
     jl .loop
-    REP_RET
+    RET
+%endmacro
+
+INIT_YMM avx
+MBTREE_AVX
+INIT_YMM avx2,fma3
+MBTREE_AVX
