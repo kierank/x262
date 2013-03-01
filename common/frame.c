@@ -1,7 +1,7 @@
 /*****************************************************************************
  * frame.c: frame handling
  *****************************************************************************
- * Copyright (C) 2003-2012 x264 project
+ * Copyright (C) 2003-2013 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -73,7 +73,11 @@ static x264_frame_t *x264_frame_new( x264_t *h, int b_fdec )
     int i_stride, i_width, i_lines, luma_plane_count;
     int i_padv = PADV << PARAM_INTERLACED;
     int align = h->param.cpu&X264_CPU_CACHELINE_64 ? 64 : h->param.cpu&X264_CPU_CACHELINE_32 ? 32 : 16;
-    int disalign = h->param.cpu&X264_CPU_ALTIVEC ? 1<<9 : 1<<10;
+#if ARCH_PPC
+    int disalign = 1<<9;
+#else
+    int disalign = 1<<10;
+#endif
 
     CHECKED_MALLOCZERO( frame, sizeof(x264_frame_t) );
 
@@ -210,6 +214,8 @@ static x264_frame_t *x264_frame_new( x264_t *h, int b_fdec )
         }
         if( PARAM_INTERLACED )
             CHECKED_MALLOC( frame->field, i_mb_count * sizeof(uint8_t) );
+        if( h->param.analyse.b_mb_info )
+            CHECKED_MALLOC( frame->effective_qp, i_mb_count * sizeof(uint8_t) );
     }
     else /* fenc frame */
     {
@@ -289,6 +295,7 @@ void x264_frame_delete( x264_frame_t *frame )
         x264_free( frame->f_row_qp );
         x264_free( frame->f_row_qscale );
         x264_free( frame->field );
+        x264_free( frame->effective_qp );
         x264_free( frame->mb_type );
         x264_free( frame->mb_partition );
         x264_free( frame->mv[0] );
@@ -297,6 +304,16 @@ void x264_frame_delete( x264_frame_t *frame )
             x264_free( frame->mv16x16-1 );
         x264_free( frame->ref[0] );
         x264_free( frame->ref[1] );
+        if( frame->param && frame->param->param_free )
+            frame->param->param_free( frame->param );
+        if( frame->mb_info_free )
+            frame->mb_info_free( frame->mb_info );
+        if( frame->extra_sei.sei_free )
+        {
+            for( int i = 0; i < frame->extra_sei.num_payloads; i++ )
+                frame->extra_sei.sei_free( frame->extra_sei.payloads[i].payload );
+            frame->extra_sei.sei_free( frame->extra_sei.payloads );
+        }
         x264_pthread_mutex_destroy( &frame->mutex );
         x264_pthread_cond_destroy( &frame->cv );
     }
@@ -354,6 +371,8 @@ int x264_frame_copy_picture( x264_t *h, x264_frame_t *dst, x264_picture_t *src )
     dst->i_pic_struct = src->i_pic_struct;
     dst->extra_sei  = src->extra_sei;
     dst->opaque     = src->opaque;
+    dst->mb_info    = h->param.analyse.b_mb_info ? src->prop.mb_info : NULL;
+    dst->mb_info_free = h->param.analyse.b_mb_info ? src->prop.mb_info_free : NULL;
 
     uint8_t *pix[3];
     int stride[3];

@@ -1,7 +1,7 @@
 /*****************************************************************************
  * common.c: misc common functions
  *****************************************************************************
- * Copyright (C) 2003-2012 x264 project
+ * Copyright (C) 2003-2013 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -50,6 +50,7 @@ void x264_param_default( x264_param_t *param )
     /* CPU autodetect */
     param->cpu = x264_cpu_detect();
     param->i_threads = X264_THREADS_AUTO;
+    param->i_lookahead_threads = X264_THREADS_AUTO;
     param->b_deterministic = 1;
     param->i_sync_lookahead = X264_SYNC_LOOKAHEAD_AUTO;
 
@@ -568,6 +569,8 @@ static double x264_atof( const char *str, int *b_error )
 }
 
 #define atobool(str) ( name_was_bool = 1, x264_atobool( str, &b_error ) )
+#undef atoi
+#undef atof
 #define atoi(str) x264_atoi( str, &b_error )
 #define atof(str) x264_atof( str, &b_error )
 
@@ -625,10 +628,8 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
                     b_error = 1;
             }
             free( buf );
-            if( p->cpu & X264_CPU_SSSE3 )
+            if( (p->cpu&X264_CPU_SSSE3) && !(p->cpu&X264_CPU_SSE2_IS_SLOW) )
                 p->cpu |= X264_CPU_SSE2_IS_FAST;
-            if( p->cpu & X264_CPU_SSE4 )
-                p->cpu |= X264_CPU_SHUFFLE_IS_FAST;
         }
     }
     OPT("threads")
@@ -637,6 +638,13 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
             p->i_threads = X264_THREADS_AUTO;
         else
             p->i_threads = atoi(value);
+    }
+    OPT("lookahead-threads")
+    {
+        if( !strcmp(value, "auto") )
+            p->i_lookahead_threads = X264_THREADS_AUTO;
+        else
+            p->i_lookahead_threads = atoi(value);
     }
     OPT("sliced-threads")
         p->b_sliced_threads = atobool(value);
@@ -691,8 +699,16 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         else
         {
             float fps = atof(value);
-            p->i_fps_num = (int)(fps * 1000 + .5);
-            p->i_fps_den = 1000;
+            if( fps > 0 && fps <= INT_MAX/1000 )
+            {
+                p->i_fps_num = (int)(fps * 1000 + .5);
+                p->i_fps_den = 1000;
+            }
+            else
+            {
+                p->i_fps_num = atoi(value);
+                p->i_fps_den = 1;
+            }
         }
     }
     OPT2("ref", "frameref")
@@ -1301,6 +1317,7 @@ char *x264_param2string( x264_param_t *p, int b_res )
     s += sprintf( s, " fast_pskip=%d", p->analyse.b_fast_pskip );
     s += sprintf( s, " chroma_qp_offset=%d", p->analyse.i_chroma_qp_offset );
     s += sprintf( s, " threads=%d", p->i_threads );
+    s += sprintf( s, " lookahead_threads=%d", p->i_lookahead_threads );
     s += sprintf( s, " sliced_threads=%d", p->b_sliced_threads );
     if( p->i_slice_count )
         s += sprintf( s, " slices=%d", p->i_slice_count );

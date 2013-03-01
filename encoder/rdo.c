@@ -1,7 +1,7 @@
 /*****************************************************************************
  * rdo.c: rate-distortion optimization
  *****************************************************************************
- * Copyright (C) 2005-2012 x264 project
+ * Copyright (C) 2005-2013 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Jason Garrett-Glaser <darkshikari@gmail.com>
@@ -1161,5 +1161,6 @@ int x264_quant_8x8_trellis( x264_t *h, dctcoef *dct, int i_quant_cat,
         h->mb.cache.non_zero_count[x264_scan8[idx*4+i]] = nz;
         nzaccum |= nz;
     }
+    STORE_8x8_NNZ( 0, idx, 0 );
     return nzaccum;
 }

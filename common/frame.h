@@ -1,7 +1,7 @@
 /*****************************************************************************
  * frame.h: frame handling
  *****************************************************************************
- * Copyright (C) 2003-2012 x264 project
+ * Copyright (C) 2003-2013 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -61,6 +61,7 @@ typedef struct x264_frame
     uint8_t i_bframes;   /* number of bframes following this nonb in coded order */
     float   f_qp_avg_rc; /* QPs as decided by ratecontrol */
     float   f_qp_avg_aq; /* QPs as decided by AQ in addition to ratecontrol */
+    float   f_crf_avg;   /* Average effective CRF for this frame */
     int     i_poc_l0ref0; /* poc of first refframe in L0, used to check if direct temporal is possible */
 
     /* YUV buffer */
@@ -97,6 +98,7 @@ typedef struct x264_frame
     int16_t (*mv16x16)[2];
     int16_t (*lowres_mvs[2][X264_BFRAME_MAX+1])[2];
     uint8_t *field;
+    uint8_t *effective_qp;
 
     /* Stored as (lists_used << LOWRES_COST_SHIFT) + (cost).
      * Doesn't need special addressing for intra cost because
@@ -165,6 +167,10 @@ typedef struct x264_frame
 
     /* user data */
     void *opaque;
+
+    /* user frame properties */
+    uint8_t *mb_info;
+    void (*mb_info_free)( void* );
 } x264_frame_t;
 
 /* synchronized frame list */

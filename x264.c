@@ -1,7 +1,7 @@
 /*****************************************************************************
  * x264: top-level x264cli functions
  *****************************************************************************
- * Copyright (C) 2003-2012 x264 project
+ * Copyright (C) 2003-2013 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -225,7 +225,7 @@ void x264_cli_printf( int i_level, const char *fmt, ... )
     va_end( arg );
 }
 
-static void print_version_info()
+static void print_version_info( void )
 {
 #ifdef X264_POINTVER
     printf( "x264 "X264_POINTVER"\n" );
@@ -805,6 +805,7 @@ static void help( x264_param_t *defaults, int longhelp )
     H1( "      --psnr                  Enable PSNR computation\n" );
     H1( "      --ssim                  Enable SSIM computation\n" );
     H1( "      --threads <integer>     Force a specific number of threads\n" );
+    H2( "      --lookahead-threads <integer> Force a specific number of lookahead threads\n" );
     H2( "      --sliced-threads        Low-latency but lower-efficiency threading\n" );
     H2( "      --thread-input          Run Avisynth in its own thread\n" );
     H2( "      --sync-lookahead <integer> Number of buffer frames for threaded lookahead\n" );
@@ -975,6 +976,7 @@ static struct option long_options[] =
     { "speed",   required_argument, NULL, 0 },
     { "speed-bufsize", required_argument, NULL, 0 },
     { "threads",     required_argument, NULL, 0 },
+    { "lookahead-threads", required_argument, NULL, 0 },
     { "sliced-threads",    no_argument, NULL, 0 },
     { "no-sliced-threads", no_argument, NULL, 0 },
     { "slice-max-size",    required_argument, NULL, 0 },
@@ -1507,7 +1509,7 @@ generic_option:
 
     x264_reduce_fraction( &info.sar_width, &info.sar_height );
     x264_reduce_fraction( &info.fps_num, &info.fps_den );
-    x264_cli_log( demuxername, X264_LOG_INFO, "%dx%d%c %d:%d @ %d/%d fps (%cfr)\n", info.width,
+    x264_cli_log( demuxername, X264_LOG_INFO, "%dx%d%c %u:%u @ %u/%u fps (%cfr)\n", info.width,
                   info.height, info.interlaced ? 'i' : 'p', info.sar_width, info.sar_height,
                   info.fps_num, info.fps_den, info.vfr ? 'v' : 'c' );
 
@@ -1624,11 +1626,8 @@ generic_option:
         for( int i = 0; x264_levels[i].level_idc != 0; i++ )
             if( param->i_level_idc == x264_levels[i].level_idc )
             {
-                while( mbs * 384 * param->i_frame_reference > x264_levels[i].dpb &&
-                       param->i_frame_reference > 1 )
-                {
+                while( mbs * param->i_frame_reference > x264_levels[i].dpb && param->i_frame_reference > 1 )
                     param->i_frame_reference--;
-                }
                 break;
             }
     }

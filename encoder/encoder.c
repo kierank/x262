@@ -1,7 +1,7 @@
 /*****************************************************************************
  * encoder.c: top-level encoder functions
  *****************************************************************************
- * Copyright (C) 2003-2012 x264 project
+ * Copyright (C) 2003-2013 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -280,8 +280,10 @@ static void x264_slice_header_write( bs_t *s, x264_slice_header_t *sh, int i_nal
         }
     }
 
+    sh->b_weighted_pred = 0;
     if( sh->pps->b_weighted_pred && sh->i_type == SLICE_TYPE_P )
     {
+        sh->b_weighted_pred = sh->weight[0][0].weightfn || sh->weight[0][1].weightfn || sh->weight[0][2].weightfn;
         /* pred_weight_table() */
         bs_write_ue( s, sh->weight[0][0].i_denom );
         bs_write_ue( s, sh->weight[0][1].i_denom );
@@ -393,6 +395,15 @@ static void x264_encoder_thread_init( x264_t *h )
         x264_cpu_mask_misalign_sse();
 #endif
 }
+
+static void x264_lookahead_thread_init( x264_t *h )
+{
+#if HAVE_MMX
+    /* Misalign mask has to be set separately for each thread. */
+    if( h->param.cpu&X264_CPU_SSE_MISALIGN )
+        x264_cpu_mask_misalign_sse();
+#endif
+}
 #endif
 
 /****************************************************************************
@@ -406,17 +417,33 @@ static void x264_encoder_thread_init( x264_t *h )
 static int x264_validate_parameters( x264_t *h, int b_open )
 {
 #if HAVE_MMX
+    if( b_open )
+    {
+        int cpuflags = x264_cpu_detect();
+        int fail = 0;
 #ifdef __SSE__
-    if( b_open && !(x264_cpu_detect() & X264_CPU_SSE) )
-    {
-        x264_log( h, X264_LOG_ERROR, "your cpu does not support SSE1, but x264 was compiled with asm support\n");
+        if( !(cpuflags & X264_CPU_SSE) )
+        {
+            x264_log( h, X264_LOG_ERROR, "your cpu does not support SSE1, but x264 was compiled with asm\n");
+            fail = 1;
+        }
 #else
-    if( b_open && !(x264_cpu_detect() & X264_CPU_MMX2) )
-    {
-        x264_log( h, X264_LOG_ERROR, "your cpu does not support MMXEXT, but x264 was compiled with asm support\n");
+        if( !(cpuflags & X264_CPU_MMX2) )
+        {
+            x264_log( h, X264_LOG_ERROR, "your cpu does not support MMXEXT, but x264 was compiled with asm\n");
+            fail = 1;
+        }
 #endif
-        x264_log( h, X264_LOG_ERROR, "to run x264, recompile without asm support (configure --disable-asm)\n");
-        return -1;
+        if( !fail && !(cpuflags & X264_CPU_CMOV) )
+        {
+            x264_log( h, X264_LOG_ERROR, "your cpu does not support CMOV, but x264 was compiled with asm\n");
+            fail = 1;
+        }
+        if( fail )
+        {
+            x264_log( h, X264_LOG_ERROR, "to run x264, recompile without asm (configure --disable-asm)\n");
+            return -1;
+        }
     }
 #endif
 
@@ -492,6 +519,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
 
     if( h->param.i_threads == X264_THREADS_AUTO )
         h->param.i_threads = x264_cpu_num_processors() * (h->param.b_sliced_threads?2:3)/2;
+    int max_sliced_threads = X264_MAX( 1, (h->param.i_height+15)/16 / 4 );
     if( h->param.i_threads > 1 )
     {
 #if !HAVE_THREAD
@@ -501,14 +529,14 @@ static int x264_validate_parameters( x264_t *h, int b_open )
         /* Avoid absurdly small thread slices as they can reduce performance
          * and VBV compliance.  Capped at an arbitrary 4 rows per thread. */
         if( h->param.b_sliced_threads )
-        {
-            int max_threads = (h->param.i_height+15)/16 / 4;
-            h->param.i_threads = X264_MIN( h->param.i_threads, max_threads );
-        }
+            h->param.i_threads = X264_MIN( h->param.i_threads, max_sliced_threads );
     }
     h->param.i_threads = x264_clip3( h->param.i_threads, 1, X264_THREAD_MAX );
     if( h->param.i_threads == 1 )
+    {
         h->param.b_sliced_threads = 0;
+        h->param.i_lookahead_threads = 1;
+    }
     h->i_thread_frames = h->param.b_sliced_threads ? 1 : h->param.i_threads;
     if( h->i_thread_frames > 1 )
         h->param.nalu_process = NULL;
@@ -562,7 +590,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
         h->param.rc.i_qp_constant = h->param.rc.f_rf_constant + QP_BD_OFFSET;
         h->param.rc.i_bitrate = 0;
     }
-    if( (h->param.rc.i_rc_method == X264_RC_CQP || h->param.rc.i_rc_method == X264_RC_CRF)
+    if( b_open && (h->param.rc.i_rc_method == X264_RC_CQP || h->param.rc.i_rc_method == X264_RC_CRF)
         && h->param.rc.i_qp_constant == 0 )
     {
         h->mb.b_lossless = 1;
@@ -598,6 +626,11 @@ static int x264_validate_parameters( x264_t *h, int b_open )
     h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min, 0, h->param.rc.i_qp_max );
     h->param.rc.i_qp_step = x264_clip3( h->param.rc.i_qp_step, 2, QP_MAX );
     h->param.rc.i_bitrate = x264_clip3( h->param.rc.i_bitrate, 0, 2000000 );
+    if( h->param.rc.i_rc_method == X264_RC_ABR && !h->param.rc.i_bitrate )
+    {
+        x264_log( h, X264_LOG_ERROR, "bitrate not specified\n" );
+        return -1;
+    }
     h->param.rc.i_vbv_buffer_size = x264_clip3( h->param.rc.i_vbv_buffer_size, 0, 2000000 );
     h->param.rc.i_vbv_max_bitrate = x264_clip3( h->param.rc.i_vbv_max_bitrate, 0, 2000000 );
     h->param.rc.f_vbv_buffer_init = x264_clip3f( h->param.rc.f_vbv_buffer_init, 0, 2000000 );
@@ -706,7 +739,12 @@ static int x264_validate_parameters( x264_t *h, int b_open )
         x264_log( h, X264_LOG_WARNING, "intra-refresh is not compatible with open-gop\n" );
         h->param.b_open_gop = 0;
     }
-    float fps = h->param.i_fps_num > 0 && h->param.i_fps_den > 0 ? (float) h->param.i_fps_num / h->param.i_fps_den : 25.0;
+    if( !h->param.i_fps_num || !h->param.i_fps_den )
+    {
+        h->param.i_fps_num = 25;
+        h->param.i_fps_den = 1;
+    }
+    float fps = (float) h->param.i_fps_num / h->param.i_fps_den;
     if( h->param.i_keyint_min == X264_KEYINT_MIN_AUTO )
         h->param.i_keyint_min = X264_MIN( h->param.i_keyint_max / 10, fps );
     h->param.i_keyint_min = x264_clip3( h->param.i_keyint_min, 1, h->param.i_keyint_max/2+1 );
@@ -732,7 +770,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
         x264_log( h, X264_LOG_WARNING, "lookaheadless mb-tree requires intra refresh or infinite keyint\n" );
         h->param.rc.b_mb_tree = 0;
     }
-    if( h->param.rc.b_stat_read )
+    if( b_open && h->param.rc.b_stat_read )
         h->param.rc.i_lookahead = 0;
 #if HAVE_THREAD
     if( h->param.i_sync_lookahead < 0 )
@@ -869,6 +907,35 @@ static int x264_validate_parameters( x264_t *h, int b_open )
     }
 
     h->param.analyse.i_weighted_pred = x264_clip3( h->param.analyse.i_weighted_pred, X264_WEIGHTP_NONE, X264_WEIGHTP_SMART );
+
+    if( h->param.i_lookahead_threads == X264_THREADS_AUTO )
+    {
+        if( h->param.b_sliced_threads )
+            h->param.i_lookahead_threads = h->param.i_threads;
+        else
+        {
+            /* If we're using much slower lookahead settings than encoding settings, it helps a lot to use
+             * more lookahead threads.  This typically happens in the first pass of a two-pass encode, so
+             * try to guess at this sort of case.
+             *
+             * Tuned by a little bit of real encoding with the various presets. */
+            int badapt = h->param.i_bframe_adaptive == X264_B_ADAPT_TRELLIS;
+            int subme = X264_MIN( h->param.analyse.i_subpel_refine / 3, 3 ) + (h->param.analyse.i_subpel_refine > 1);
+            int bframes = X264_MIN( (h->param.i_bframe - 1) / 3, 3 );
+
+            /* [b-adapt 0/1 vs 2][quantized subme][quantized bframes] */
+            static const uint8_t lookahead_thread_div[2][5][4] =
+            {{{6,6,6,6}, {3,3,3,3}, {4,4,4,4}, {6,6,6,6}, {12,12,12,12}},
+             {{3,2,1,1}, {2,1,1,1}, {4,3,2,1}, {6,4,3,2}, {12, 9, 6, 4}}};
+
+            h->param.i_lookahead_threads = h->param.i_threads / lookahead_thread_div[badapt][subme][bframes];
+            /* Since too many lookahead threads significantly degrades lookahead accuracy, limit auto
+             * lookahead threads to about 8 macroblock rows high each at worst.  This number is chosen
+             * pretty much arbitrarily. */
+            h->param.i_lookahead_threads = X264_MIN( h->param.i_lookahead_threads, h->param.i_height / 128 );
+        }
+    }
+    h->param.i_lookahead_threads = x264_clip3( h->param.i_lookahead_threads, 1, X264_MIN( max_sliced_threads, X264_LOOKAHEAD_THREAD_MAX ) );
 
     if( PARAM_INTERLACED )
     {
@@ -1221,6 +1288,9 @@ x264_t *x264_encoder_open( x264_param_t *param )
     p = buf + sprintf( buf, "using cpu capabilities:" );
     for( int i = 0; x264_cpu_names[i].flags; i++ )
     {
+        if( !strcmp(x264_cpu_names[i].name, "SSE")
+            && h->param.cpu & (X264_CPU_SSE2) )
+            continue;
         if( !strcmp(x264_cpu_names[i].name, "SSE2")
             && h->param.cpu & (X264_CPU_SSE2_IS_FAST|X264_CPU_SSE2_IS_SLOW) )
             continue;
@@ -1262,7 +1332,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
     {
         x264_log( h, X264_LOG_ERROR, "CLZ test failed: x264 has been miscompiled!\n" );
 #if ARCH_X86 || ARCH_X86_64
-        x264_log( h, X264_LOG_ERROR, "Are you attempting to run an SSE4a-targeted build on a CPU that\n" );
+        x264_log( h, X264_LOG_ERROR, "Are you attempting to run an SSE4a/LZCNT-targeted build on a CPU that\n" );
         x264_log( h, X264_LOG_ERROR, "doesn't support it?\n" );
 #endif
         goto fail;
@@ -1279,10 +1349,19 @@ x264_t *x264_encoder_open( x264_param_t *param )
     if( h->param.i_threads > 1 &&
         x264_threadpool_init( &h->threadpool, h->param.i_threads, (void*)x264_encoder_thread_init, h ) )
         goto fail;
+    if( h->param.i_lookahead_threads > 1 &&
+        x264_threadpool_init( &h->lookaheadpool, h->param.i_lookahead_threads, (void*)x264_lookahead_thread_init, h ) )
+        goto fail;
 
     h->thread[0] = h;
     for( int i = 1; i < h->param.i_threads + !!h->param.i_sync_lookahead; i++ )
         CHECKED_MALLOC( h->thread[i], sizeof(x264_t) );
+    if( h->param.i_lookahead_threads > 1 )
+        for( int i = 0; i < h->param.i_lookahead_threads; i++ )
+        {
+            CHECKED_MALLOC( h->lookahead_thread[i], sizeof(x264_t) );
+            *h->lookahead_thread[i] = *h;
+        }
 
     for( int i = 0; i < h->param.i_threads; i++ )
     {
@@ -1356,7 +1435,7 @@ x264_t *x264_encoder_open( x264_param_t *param )
     char level[4];
     snprintf( level, sizeof(level), "%d.%d", h->sps->i_level_idc/10, h->sps->i_level_idc%10 );
     if( h->sps->i_level_idc == 9 || ( h->sps->i_level_idc == 11 && h->sps->b_constraint_set3 &&
-        (h->sps->i_profile_idc >= PROFILE_BASELINE && h->sps->i_profile_idc <= PROFILE_EXTENDED) ) )
+        (h->sps->i_profile_idc == PROFILE_BASELINE || h->sps->i_profile_idc == PROFILE_MAIN) ) )
         strcpy( level, "1b" );
 
     if( h->sps->i_profile_idc < PROFILE_HIGH10 )
@@ -1509,7 +1588,7 @@ static int x264_nal_end( x264_t *h )
      * While undefined padding wouldn't actually affect the output, it makes valgrind unhappy. */
     memset( end, 0xff, 32 );
     if( h->param.nalu_process )
-        h->param.nalu_process( h, nal );
+        h->param.nalu_process( h, nal, h->fenc->opaque );
     h->out.i_nal++;
 
     return x264_nal_check_buffer( h );
@@ -2212,14 +2291,11 @@ static int x264_slice_write( x264_t *h )
     /* Slice header */
     x264_macroblock_thread_init( h );
 
-    /* If this isn't the first slice in the threadslice, set the slice QP
-     * equal to the last QP in the previous slice for more accurate
-     * CABAC initialization. */
-    if( h->sh.i_first_mb != h->i_threadslice_start * h->mb.i_mb_width )
-    {
-        h->sh.i_qp = h->mb.i_last_qp;
-        h->sh.i_qp_delta = h->sh.i_qp - h->pps->i_pic_init_qp;
-    }
+    /* Set the QP equal to the first QP in the slice for more accurate CABAC initialization. */
+    h->mb.i_mb_xy = h->sh.i_first_mb;
+    h->sh.i_qp = x264_ratecontrol_mb_qp( h );
+    h->sh.i_qp = SPEC_QP( h->sh.i_qp );
+    h->sh.i_qp_delta = h->sh.i_qp - h->pps->i_pic_init_qp;
 
     x264_slice_header_write( &h->out.bs, &h->sh, h->i_nal_ref_idc );
     if( h->param.b_cabac )
@@ -2517,6 +2593,14 @@ reencode:
                 x264_threadslice_cond_wait( h->thread[h->i_thread_idx-1], 2 );
                 x264_fdec_filter_row( h, h->i_threadslice_start + (1 << SLICE_MBAFF), 2 );
             }
+        }
+
+        /* Free mb info after the last thread's done using it */
+        if( h->fdec->mb_info_free && (!h->param.b_sliced_threads || h->i_thread_idx == (h->param.i_threads-1)) )
+        {
+            h->fdec->mb_info_free( h->fdec->mb_info );
+            h->fdec->mb_info = NULL;
+            h->fdec->mb_info_free = NULL;
         }
     }
 
@@ -2854,7 +2938,10 @@ int     x264_encoder_encode( x264_t *h,
     {
         x264_encoder_reconfig( h, h->fenc->param );
         if( h->fenc->param->param_free )
+        {
             h->fenc->param->param_free( h->fenc->param );
+            h->fenc->param = NULL;
+        }
     }
 
     // ok to call this before encoding any frames, since the initial values of fdec have b_kept_as_ref=0
@@ -2938,6 +3025,11 @@ int     x264_encoder_encode( x264_t *h,
     h->fdec->i_frame = h->fenc->i_frame;
     h->fenc->b_kept_as_ref =
     h->fdec->b_kept_as_ref = i_nal_ref_idc != NAL_PRIORITY_DISPOSABLE && h->param.i_keyint_max > 1;
+
+    h->fdec->mb_info = h->fenc->mb_info;
+    h->fdec->mb_info_free = h->fenc->mb_info_free;
+    h->fenc->mb_info = NULL;
+    h->fenc->mb_info_free = NULL;
 
     h->fdec->i_pts = h->fenc->i_pts;
     if( h->frames.i_bframe_delay )
@@ -3074,12 +3166,19 @@ int     x264_encoder_encode( x264_t *h,
         if( x264_nal_end( h ) )
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal-1);
-        if( h->fenc->extra_sei.sei_free && h->fenc->extra_sei.payloads[i].payload )
+        if( h->fenc->extra_sei.sei_free )
+        {
             h->fenc->extra_sei.sei_free( h->fenc->extra_sei.payloads[i].payload );
+            h->fenc->extra_sei.payloads[i].payload = NULL;
+        }
     }
 
-    if( h->fenc->extra_sei.sei_free && h->fenc->extra_sei.payloads )
+    if( h->fenc->extra_sei.sei_free )
+    {
         h->fenc->extra_sei.sei_free( h->fenc->extra_sei.payloads );
+        h->fenc->extra_sei.payloads = NULL;
+        h->fenc->extra_sei.sei_free = NULL;
+    }
 
     if( h->fenc->b_keyframe )
     {
@@ -3268,6 +3367,7 @@ static int x264_encoder_frame_end( x264_t *h, x264_t *thread_current,
         return -1;
 
     pic_out->hrd_timing = h->fenc->hrd_timing;
+    pic_out->prop.f_crf_avg = h->fdec->f_crf_avg;
 
     while( filler > 0 )
     {
@@ -3471,6 +3571,8 @@ void    x264_encoder_close  ( x264_t *h )
         x264_threadpool_wait_all( h );
     if( h->param.i_threads > 1 )
         x264_threadpool_delete( h->threadpool );
+    if( h->param.i_lookahead_threads > 1 )
+        x264_threadpool_delete( h->lookaheadpool );
     if( h->i_thread_frames > 1 )
     {
         for( int i = 0; i < h->i_thread_frames; i++ )
@@ -3780,6 +3882,10 @@ void    x264_encoder_close  ( x264_t *h )
             for( int j = 0; j < h->thread[i]->i_ref[0]; j++ )
                 if( h->thread[i]->fref[0][j] && h->thread[i]->fref[0][j]->b_duplicate )
                     x264_frame_delete( h->thread[i]->fref[0][j] );
+
+    if( h->param.i_lookahead_threads > 1 )
+        for( int i = 0; i < h->param.i_lookahead_threads; i++ )
+            x264_free( h->lookahead_thread[i] );
 
     for( int i = h->param.i_threads - 1; i >= 0; i-- )
     {

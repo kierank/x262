@@ -1,7 +1,7 @@
 /*****************************************************************************
  * slicetype.c: lookahead analysis
  *****************************************************************************
- * Copyright (C) 2005-2012 x264 project
+ * Copyright (C) 2005-2013 x264 project
  *
  * Authors: Jason Garrett-Glaser <darkshikari@gmail.com>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -220,15 +220,12 @@ static NOINLINE unsigned int x264_weight_cost_chroma( x264_t *h, x264_frame_t *f
 {
     unsigned int cost = 0;
     int i_stride = fenc->i_stride[1];
-    int i_offset = i_stride / 2;
     int i_lines = fenc->i_lines[1];
     int i_width = fenc->i_width[1];
-    pixel *src = ref + i_offset;
+    pixel *src = ref + (i_stride >> 1);
     ALIGNED_ARRAY_16( pixel, buf, [8*16] );
     int pixoff = 0;
-    int chromapix = h->luma2chroma_pixel[PIXEL_16x16];
     int height = 16 >> CHROMA_V_SHIFT;
-    ALIGNED_16( static pixel flat[8] ) = {0};
     if( w )
     {
         for( int y = 0; y < i_lines; y += height, pixoff = y*i_stride )
@@ -239,19 +236,15 @@ static NOINLINE unsigned int x264_weight_cost_chroma( x264_t *h, x264_frame_t *f
                  * But testing shows that for chroma the DC coefficient is by far the most
                  * important part of the coding cost.  Thus a more useful chroma weight is
                  * obtained by comparing each block's DC coefficient instead of the actual
-                 * pixels.
-                 *
-                 * FIXME: add a (faster) asm sum function to replace sad. */
-                cost += abs( h->pixf.sad_aligned[chromapix](          buf,        8, flat, 0 ) -
-                             h->pixf.sad_aligned[chromapix]( &src[pixoff], i_stride, flat, 0 ) );
+                 * pixels. */
+                cost += h->pixf.asd8( buf, 8, &src[pixoff], i_stride, height );
             }
         cost += x264_weight_slice_header_cost( h, w, 1 );
     }
     else
         for( int y = 0; y < i_lines; y += height, pixoff = y*i_stride )
             for( int x = 0; x < i_width; x += 8, pixoff += 8 )
-                cost += abs( h->pixf.sad_aligned[chromapix]( &ref[pixoff], i_stride, flat, 0 ) -
-                             h->pixf.sad_aligned[chromapix]( &src[pixoff], i_stride, flat, 0 ) );
+                cost += h->pixf.asd8( &ref[pixoff], i_stride, &src[pixoff], i_stride, height );
     x264_emms();
     return cost;
 }
@@ -431,9 +424,21 @@ static void x264_weights_analyse( x264_t *h, x264_frame_t *fenc, x264_frame_t *r
     }
 }
 
+/* Output buffers are separated by 128 bytes to avoid false sharing of cachelines
+ * in multithreaded lookahead. */
+#define PAD_SIZE 32
+/* cost_est, cost_est_aq, intra_mbs, num rows */
+#define NUM_INTS 4
+#define COST_EST 0
+#define COST_EST_AQ 1
+#define INTRA_MBS 2
+#define NUM_ROWS 3
+#define ROW_SATD (NUM_INTS + (h->mb.i_mb_y - h->i_threadslice_start))
+
 static void x264_slicetype_mb_cost( x264_t *h, x264_mb_analysis_t *a,
                                     x264_frame_t **frames, int p0, int p1, int b,
-                                    int dist_scale_factor, int do_search[2], const x264_weight_t *w )
+                                    int dist_scale_factor, int do_search[2], const x264_weight_t *w,
+                                    int *output_inter, int *output_intra )
 {
     x264_frame_t *fref0 = frames[p0];
     x264_frame_t *fref1 = frames[p1];
@@ -467,16 +472,16 @@ static void x264_slicetype_mb_cost( x264_t *h, x264_mb_analysis_t *a,
         goto lowres_intra_mb;
 
     // no need for h->mb.mv_min[]
-    h->mb.mv_min_fpel[0] = -8*h->mb.i_mb_x - 4;
-    h->mb.mv_max_fpel[0] = 8*( h->mb.i_mb_width - h->mb.i_mb_x - 1 ) + 4;
-    h->mb.mv_min_spel[0] = 4*( h->mb.mv_min_fpel[0] - 8 );
-    h->mb.mv_max_spel[0] = 4*( h->mb.mv_max_fpel[0] + 8 );
+    h->mb.mv_limit_fpel[0][0] = -8*h->mb.i_mb_x - 4;
+    h->mb.mv_limit_fpel[1][0] = 8*( h->mb.i_mb_width - h->mb.i_mb_x - 1 ) + 4;
+    h->mb.mv_min_spel[0] = 4*( h->mb.mv_limit_fpel[0][0] - 8 );
+    h->mb.mv_max_spel[0] = 4*( h->mb.mv_limit_fpel[1][0] + 8 );
     if( h->mb.i_mb_x >= h->mb.i_mb_width - 2 )
     {
-        h->mb.mv_min_fpel[1] = -8*h->mb.i_mb_y - 4;
-        h->mb.mv_max_fpel[1] = 8*( h->mb.i_mb_height - h->mb.i_mb_y - 1 ) + 4;
-        h->mb.mv_min_spel[1] = 4*( h->mb.mv_min_fpel[1] - 8 );
-        h->mb.mv_max_spel[1] = 4*( h->mb.mv_max_fpel[1] + 8 );
+        h->mb.mv_limit_fpel[0][1] = -8*h->mb.i_mb_y - 4;
+        h->mb.mv_limit_fpel[1][1] = 8*( h->mb.i_mb_height - h->mb.i_mb_y - 1 ) + 4;
+        h->mb.mv_min_spel[1] = 4*( h->mb.mv_limit_fpel[0][1] - 8 );
+        h->mb.mv_max_spel[1] = 4*( h->mb.mv_limit_fpel[1][1] + 8 );
     }
 
 #define LOAD_HPELS_LUMA(dst, src) \
@@ -578,7 +583,7 @@ static void x264_slicetype_mb_cost( x264_t *h, x264_mb_analysis_t *a,
 #define MVC(mv) { CP32( mvc[i_mvc], mv ); i_mvc++; }
             if( i_mb_x < h->mb.i_mb_width - 1 )
                 MVC( fenc_mv[1] );
-            if( i_mb_y < h->mb.i_mb_height - 1 )
+            if( i_mb_y < h->i_threadslice_end - 1 )
             {
                 MVC( fenc_mv[i_mb_stride] );
                 if( i_mb_x > 0 )
@@ -628,15 +633,16 @@ lowres_intra_mb:
     if( !fenc->b_intra_calculated )
     {
         ALIGNED_ARRAY_16( pixel, edge,[36] );
-        pixel *pix = &pix1[8+FDEC_STRIDE - 1];
-        pixel *src = &fenc->lowres[0][i_pel_offset - 1];
+        pixel *pix = &pix1[8+FDEC_STRIDE];
+        pixel *src = &fenc->lowres[0][i_pel_offset];
         const int intra_penalty = 5 * a->i_lambda;
         int satds[3];
+        int pixoff = 4 / sizeof(pixel);
 
-        memcpy( pix-FDEC_STRIDE, src-i_stride, 17 * sizeof(pixel) );
-        for( int i = 0; i < 8; i++ )
-            pix[i*FDEC_STRIDE] = src[i*i_stride];
-        pix++;
+        /* Avoid store forwarding stalls by writing larger chunks */
+        memcpy( pix-FDEC_STRIDE, src-i_stride, 16 * sizeof(pixel) );
+        for( int i = -1; i < 8; i++ )
+            M32( &pix[i*FDEC_STRIDE-pixoff] ) = M32( &src[i*i_stride-pixoff] );
 
         h->pixf.intra_mbcmp_x3_8x8c( h->mb.pic.p_fenc[0], pix, satds );
         int i_icost = X264_MIN3( satds[0], satds[1], satds[2] );
@@ -660,11 +666,11 @@ lowres_intra_mb:
         int i_icost_aq = i_icost;
         if( h->param.rc.i_aq_mode )
             i_icost_aq = (i_icost_aq * fenc->i_inv_qscale_factor[i_mb_xy] + 128) >> 8;
-        fenc->i_row_satds[0][0][h->mb.i_mb_y] += i_icost_aq;
+        output_intra[ROW_SATD] += i_icost_aq;
         if( b_frame_score_mb )
         {
-            fenc->i_cost_est[0][0] += i_icost;
-            fenc->i_cost_est_aq[0][0] += i_icost_aq;
+            output_intra[COST_EST] += i_icost;
+            output_intra[COST_EST_AQ] += i_icost_aq;
         }
     }
     i_bcost += lowres_penalty;
@@ -681,7 +687,7 @@ lowres_intra_mb:
             list_used = 0;
         }
         if( b_frame_score_mb )
-            fenc->i_intra_mbs[b-p0] += b_intra;
+            output_inter[INTRA_MBS] += b_intra;
     }
 
     /* In an I-frame, we've already added the results above in the intra section. */
@@ -690,12 +696,12 @@ lowres_intra_mb:
         int i_bcost_aq = i_bcost;
         if( h->param.rc.i_aq_mode )
             i_bcost_aq = (i_bcost_aq * fenc->i_inv_qscale_factor[i_mb_xy] + 128) >> 8;
-        fenc->i_row_satds[b-p0][p1-b][h->mb.i_mb_y] += i_bcost_aq;
+        output_inter[ROW_SATD] += i_bcost_aq;
         if( b_frame_score_mb )
         {
             /* Don't use AQ-weighted costs for slicetype decision, only for ratecontrol. */
-            fenc->i_cost_est[b-p0][p1-b] += i_bcost;
-            fenc->i_cost_est_aq[b-p0][p1-b] += i_bcost_aq;
+            output_inter[COST_EST] += i_bcost;
+            output_inter[COST_EST_AQ] += i_bcost_aq;
         }
     }
 
@@ -708,6 +714,43 @@ lowres_intra_mb:
    (h->mb.i_mb_width - 2) * (h->mb.i_mb_height - 2) :\
     h->mb.i_mb_width * h->mb.i_mb_height)
 
+typedef struct
+{
+    x264_t *h;
+    x264_mb_analysis_t *a;
+    x264_frame_t **frames;
+    int p0;
+    int p1;
+    int b;
+    int dist_scale_factor;
+    int *do_search;
+    const x264_weight_t *w;
+    int *output_inter;
+    int *output_intra;
+} x264_slicetype_slice_t;
+
+static void x264_slicetype_slice_cost( x264_slicetype_slice_t *s )
+{
+    x264_t *h = s->h;
+
+    /* Lowres lookahead goes backwards because the MVs are used as predictors in the main encode.
+     * This considerably improves MV prediction overall. */
+
+    /* The edge mbs seem to reduce the predictive quality of the
+     * whole frame's score, but are needed for a spatial distribution. */
+    int do_edges = h->param.rc.b_mb_tree || h->param.rc.i_vbv_buffer_size || h->mb.i_mb_width <= 2 || h->mb.i_mb_height <= 2;
+
+    int start_y = X264_MIN( h->i_threadslice_end - 1, h->mb.i_mb_height - 2 + do_edges );
+    int end_y = X264_MAX( h->i_threadslice_start, 1 - do_edges );
+    int start_x = h->mb.i_mb_width - 2 + do_edges;
+    int end_x = 1 - do_edges;
+
+    for( h->mb.i_mb_y = start_y; h->mb.i_mb_y >= end_y; h->mb.i_mb_y-- )
+        for( h->mb.i_mb_x = start_x; h->mb.i_mb_x >= end_x; h->mb.i_mb_x-- )
+            x264_slicetype_mb_cost( h, s->a, s->frames, s->p0, s->p1, s->b, s->dist_scale_factor,
+                                    s->do_search, s->w, s->output_inter, s->output_intra );
+}
+
 static int x264_slicetype_frame_cost( x264_t *h, x264_mb_analysis_t *a,
                                       x264_frame_t **frames, int p0, int p1, int b,
                                       int b_intra_penalty )
@@ -715,77 +758,131 @@ static int x264_slicetype_frame_cost( x264_t *h, x264_mb_analysis_t *a,
     int i_score = 0;
     int do_search[2];
     const x264_weight_t *w = x264_weight_none;
+    x264_frame_t *fenc = frames[b];
+
     /* Check whether we already evaluated this frame
      * If we have tried this frame as P, then we have also tried
      * the preceding frames as B. (is this still true?) */
     /* Also check that we already calculated the row SATDs for the current frame. */
-    if( frames[b]->i_cost_est[b-p0][p1-b] >= 0 && (!h->param.rc.i_vbv_buffer_size || frames[b]->i_row_satds[b-p0][p1-b][0] != -1) )
-        i_score = frames[b]->i_cost_est[b-p0][p1-b];
+    if( fenc->i_cost_est[b-p0][p1-b] >= 0 && (!h->param.rc.i_vbv_buffer_size || fenc->i_row_satds[b-p0][p1-b][0] != -1) )
+        i_score = fenc->i_cost_est[b-p0][p1-b];
     else
     {
         int dist_scale_factor = 128;
-        int *row_satd = frames[b]->i_row_satds[b-p0][p1-b];
-        int *row_satd_intra = frames[b]->i_row_satds[0][0];
 
         /* For each list, check to see whether we have lowres motion-searched this reference frame before. */
-        do_search[0] = b != p0 && frames[b]->lowres_mvs[0][b-p0-1][0][0] == 0x7FFF;
-        do_search[1] = b != p1 && frames[b]->lowres_mvs[1][p1-b-1][0][0] == 0x7FFF;
+        do_search[0] = b != p0 && fenc->lowres_mvs[0][b-p0-1][0][0] == 0x7FFF;
+        do_search[1] = b != p1 && fenc->lowres_mvs[1][p1-b-1][0][0] == 0x7FFF;
         if( do_search[0] )
         {
             if( h->param.analyse.i_weighted_pred && b == p1 )
             {
                 x264_emms();
-                x264_weights_analyse( h, frames[b], frames[p0], 1 );
-                w = frames[b]->weight[0];
+                x264_weights_analyse( h, fenc, frames[p0], 1 );
+                w = fenc->weight[0];
             }
-            frames[b]->lowres_mvs[0][b-p0-1][0][0] = 0;
+            fenc->lowres_mvs[0][b-p0-1][0][0] = 0;
         }
-        if( do_search[1] ) frames[b]->lowres_mvs[1][p1-b-1][0][0] = 0;
+        if( do_search[1] ) fenc->lowres_mvs[1][p1-b-1][0][0] = 0;
 
-        if( b == p1 )
-            frames[b]->i_intra_mbs[b-p0] = 0;
-        if( !frames[b]->b_intra_calculated )
-        {
-            frames[b]->i_cost_est[0][0] = 0;
-            frames[b]->i_cost_est_aq[0][0] = 0;
-        }
         if( p1 != p0 )
             dist_scale_factor = ( ((b-p0) << 8) + ((p1-p0) >> 1) ) / (p1-p0);
 
-        frames[b]->i_cost_est[b-p0][p1-b] = 0;
-        frames[b]->i_cost_est_aq[b-p0][p1-b] = 0;
+        int output_buf_size = h->mb.i_mb_height + (NUM_INTS + PAD_SIZE) * h->param.i_lookahead_threads;
+        int *output_inter[X264_LOOKAHEAD_THREAD_MAX+1];
+        int *output_intra[X264_LOOKAHEAD_THREAD_MAX+1];
+        output_inter[0] = h->scratch_buffer2;
+        output_intra[0] = output_inter[0] + output_buf_size;
 
-        /* Lowres lookahead goes backwards because the MVs are used as predictors in the main encode.
-         * This considerably improves MV prediction overall. */
-
-        /* The edge mbs seem to reduce the predictive quality of the
-         * whole frame's score, but are needed for a spatial distribution. */
-        if( h->param.rc.b_mb_tree || h->param.rc.i_vbv_buffer_size ||
-            h->mb.i_mb_width <= 2 || h->mb.i_mb_height <= 2 )
+        if( h->param.i_lookahead_threads > 1 )
         {
-            for( h->mb.i_mb_y = h->mb.i_mb_height - 1; h->mb.i_mb_y >= 0; h->mb.i_mb_y-- )
+            x264_slicetype_slice_t s[X264_LOOKAHEAD_THREAD_MAX];
+
+            for( int i = 0; i < h->param.i_lookahead_threads; i++ )
             {
-                row_satd[h->mb.i_mb_y] = 0;
-                if( !frames[b]->b_intra_calculated )
-                    row_satd_intra[h->mb.i_mb_y] = 0;
-                for( h->mb.i_mb_x = h->mb.i_mb_width - 1; h->mb.i_mb_x >= 0; h->mb.i_mb_x-- )
-                    x264_slicetype_mb_cost( h, a, frames, p0, p1, b, dist_scale_factor, do_search, w );
+                x264_t *t = h->lookahead_thread[i];
+
+                /* FIXME move this somewhere else */
+                t->mb.i_me_method = h->mb.i_me_method;
+                t->mb.i_subpel_refine = h->mb.i_subpel_refine;
+                t->mb.b_chroma_me = h->mb.b_chroma_me;
+
+                s[i] = (x264_slicetype_slice_t){ t, a, frames, p0, p1, b, dist_scale_factor, do_search, w,
+                                                 output_inter[i], output_intra[i] };
+
+                t->i_threadslice_start = ((h->mb.i_mb_height *  i    + h->param.i_lookahead_threads/2) / h->param.i_lookahead_threads);
+                t->i_threadslice_end   = ((h->mb.i_mb_height * (i+1) + h->param.i_lookahead_threads/2) / h->param.i_lookahead_threads);
+
+                int thread_height = t->i_threadslice_end - t->i_threadslice_start;
+                int thread_output_size = thread_height + NUM_INTS;
+                memset( output_inter[i], 0, thread_output_size * sizeof(int) );
+                memset( output_intra[i], 0, thread_output_size * sizeof(int) );
+                output_inter[i][NUM_ROWS] = output_intra[i][NUM_ROWS] = thread_height;
+
+                output_inter[i+1] = output_inter[i] + thread_output_size + PAD_SIZE;
+                output_intra[i+1] = output_intra[i] + thread_output_size + PAD_SIZE;
+
+                x264_threadpool_run( h->lookaheadpool, (void*)x264_slicetype_slice_cost, &s[i] );
             }
+            for( int i = 0; i < h->param.i_lookahead_threads; i++ )
+                x264_threadpool_wait( h->lookaheadpool, &s[i] );
         }
         else
         {
-            for( h->mb.i_mb_y = h->mb.i_mb_height - 2; h->mb.i_mb_y >= 1; h->mb.i_mb_y-- )
-                for( h->mb.i_mb_x = h->mb.i_mb_width - 2; h->mb.i_mb_x >= 1; h->mb.i_mb_x-- )
-                    x264_slicetype_mb_cost( h, a, frames, p0, p1, b, dist_scale_factor, do_search, w );
+            h->i_threadslice_start = 0;
+            h->i_threadslice_end = h->mb.i_mb_height;
+            memset( output_inter[0], 0, (output_buf_size - PAD_SIZE) * sizeof(int) );
+            memset( output_intra[0], 0, (output_buf_size - PAD_SIZE) * sizeof(int) );
+            output_inter[0][NUM_ROWS] = output_intra[0][NUM_ROWS] = h->mb.i_mb_height;
+            x264_slicetype_slice_t s = (x264_slicetype_slice_t){ h, a, frames, p0, p1, b, dist_scale_factor, do_search, w,
+                                                                 output_inter[0], output_intra[0] };
+            x264_slicetype_slice_cost( &s );
         }
 
-        i_score = frames[b]->i_cost_est[b-p0][p1-b];
+        /* Sum up accumulators */
+        if( b == p1 )
+            fenc->i_intra_mbs[b-p0] = 0;
+        if( !fenc->b_intra_calculated )
+        {
+            fenc->i_cost_est[0][0] = 0;
+            fenc->i_cost_est_aq[0][0] = 0;
+        }
+        fenc->i_cost_est[b-p0][p1-b] = 0;
+        fenc->i_cost_est_aq[b-p0][p1-b] = 0;
+
+        int *row_satd_inter = fenc->i_row_satds[b-p0][p1-b];
+        int *row_satd_intra = fenc->i_row_satds[0][0];
+        for( int i = 0; i < h->param.i_lookahead_threads; i++ )
+        {
+            if( b == p1 )
+                fenc->i_intra_mbs[b-p0] += output_inter[i][INTRA_MBS];
+            if( !fenc->b_intra_calculated )
+            {
+                fenc->i_cost_est[0][0] += output_intra[i][COST_EST];
+                fenc->i_cost_est_aq[0][0] += output_intra[i][COST_EST_AQ];
+            }
+
+            fenc->i_cost_est[b-p0][p1-b] += output_inter[i][COST_EST];
+            fenc->i_cost_est_aq[b-p0][p1-b] += output_inter[i][COST_EST_AQ];
+
+            if( h->param.rc.i_vbv_buffer_size )
+            {
+                int row_count = output_inter[i][NUM_ROWS];
+                memcpy( row_satd_inter, output_inter[i] + NUM_INTS, row_count * sizeof(int) );
+                if( !fenc->b_intra_calculated )
+                    memcpy( row_satd_intra, output_intra[i] + NUM_INTS, row_count * sizeof(int) );
+                row_satd_inter += row_count;
+                row_satd_intra += row_count;
+            }
+        }
+
+        i_score = fenc->i_cost_est[b-p0][p1-b];
         if( b != p1 )
             i_score = (uint64_t)i_score * 100 / (120 + h->param.i_bframe_bias);
         else
-            frames[b]->b_intra_calculated = 1;
+            fenc->b_intra_calculated = 1;
 
-        frames[b]->i_cost_est[b-p0][p1-b] = i_score;
+        fenc->i_cost_est[b-p0][p1-b] = i_score;
         x264_emms();
     }
 
@@ -793,7 +890,7 @@ static int x264_slicetype_frame_cost( x264_t *h, x264_mb_analysis_t *a,
     {
         // arbitrary penalty for I-blocks after B-frames
         int nmb = NUM_MBS;
-        i_score += (uint64_t)i_score * frames[b]->i_intra_mbs[b-p0] / (nmb * 8);
+        i_score += (uint64_t)i_score * fenc->i_intra_mbs[b-p0] / (nmb * 8);
     }
     return i_score;
 }
@@ -1028,6 +1125,7 @@ static void x264_macroblock_tree( x264_t *h, x264_mb_analysis_t *a, x264_frame_t
 
     if( !h->param.rc.i_lookahead )
     {
+        x264_slicetype_frame_cost( h, a, frames, 0, last_nonb, last_nonb, 0 );
         x264_macroblock_tree_propagate( h, frames, average_duration, 0, last_nonb, last_nonb, 1 );
         XCHG( uint16_t*, frames[last_nonb]->i_propagate_cost, frames[0]->i_propagate_cost );
     }
@@ -1296,7 +1394,7 @@ static int scenecut( x264_t *h, x264_mb_analysis_t *a, x264_frame_t **frames, in
     return scenecut_internal( h, a, frames, p0, p1, real_scenecut );
 }
 
-void x264_slicetype_analyse( x264_t *h, int keyframe )
+void x264_slicetype_analyse( x264_t *h, int intra_minigop )
 {
     x264_mb_analysis_t a;
     x264_frame_t *frames[X264_LOOKAHEAD_MAX+3] = { NULL, };
@@ -1305,8 +1403,13 @@ void x264_slicetype_analyse( x264_t *h, int keyframe )
     int cost1p0, cost2p0, cost1b1, cost2p1;
     int i_max_search = X264_MIN( h->lookahead->next.i_size, X264_LOOKAHEAD_MAX );
     int vbv_lookahead = h->param.rc.i_vbv_buffer_size && h->param.rc.i_lookahead;
+    /* For determinism we should limit the search to the number of frames lookahead has for sure
+     * in h->lookahead->next.list buffer, except at the end of stream.
+     * For normal calls with (intra_minigop == 0) that is h->lookahead->i_slicetype_length + 1 frames.
+     * And for I-frame calls (intra_minigop != 0) we already removed intra_minigop frames from there. */
     if( h->param.b_deterministic )
-        i_max_search = X264_MIN( i_max_search, h->lookahead->i_slicetype_length + !keyframe );
+        i_max_search = X264_MIN( i_max_search, h->lookahead->i_slicetype_length + 1 - intra_minigop );
+    int keyframe = !!intra_minigop;
 
     assert( h->frames.b_have_lowres );
 
@@ -1554,7 +1657,10 @@ void x264_slicetype_decide( x264_t *h )
             if( warn && h->param.b_open_gop )
                 warn &= frm->i_type != X264_TYPE_I;
             if( warn )
+            {
                 x264_log( h, X264_LOG_WARNING, "specified frame type (%d) at %d is not compatible with keyframe interval\n", frm->i_type, frm->i_frame );
+                frm->i_type = h->param.b_open_gop && h->lookahead->i_last_keyframe >= 0 ? X264_TYPE_I : X264_TYPE_IDR;
+            }
         }
         if( frm->i_type == X264_TYPE_I && frm->i_frame - h->lookahead->i_last_keyframe >= h->param.i_keyint_min )
         {

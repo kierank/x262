@@ -1,7 +1,7 @@
 /*****************************************************************************
  * cpu.h: cpu detection
  *****************************************************************************
- * Copyright (C) 2004-2012 x264 project
+ * Copyright (C) 2004-2013 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *
@@ -46,6 +46,7 @@ void     x264_cpu_sfence( void );
 #endif
 #define x264_sfence x264_cpu_sfence
 void     x264_cpu_mask_misalign_sse( void );
+void     x264_safe_intel_cpu_indicator_init( void );
 
 /* kluge:
  * gcc can't give variables any greater alignment than the stack frame has.
