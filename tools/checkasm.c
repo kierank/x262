@@ -165,6 +165,7 @@ static void print_bench(void)
             if( k < j )
                 continue;
             printf( "%s_%s%s: %"PRId64"\n", benchs[i].name,
+#if HAVE_MMX
                     b->cpu&X264_CPU_AVX2 && b->cpu&X264_CPU_FMA3 ? "avx2_fma3" :
                     b->cpu&X264_CPU_AVX2 ? "avx2" :
                     b->cpu&X264_CPU_FMA3 ? "fma3" :
@@ -177,21 +178,30 @@ static void print_bench(void)
                     /* print sse2slow only if there's also a sse2fast version of the same func */
                     b->cpu&X264_CPU_SSE2_IS_SLOW && j<MAX_CPUS-1 && b[1].cpu&X264_CPU_SSE2_IS_FAST && !(b[1].cpu&X264_CPU_SSE3) ? "sse2slow" :
                     b->cpu&X264_CPU_SSE2 ? "sse2" :
+                    b->cpu&X264_CPU_SSE ? "sse" :
                     b->cpu&X264_CPU_MMX ? "mmx" :
+#elif ARCH_PPC
                     b->cpu&X264_CPU_ALTIVEC ? "altivec" :
+#elif ARCH_ARM
                     b->cpu&X264_CPU_NEON ? "neon" :
-                    b->cpu&X264_CPU_ARMV6 ? "armv6" : "c",
+                    b->cpu&X264_CPU_ARMV6 ? "armv6" :
+#endif
+                    "c",
+#if HAVE_MMX
                     b->cpu&X264_CPU_CACHELINE_32 ? "_c32" :
+                    b->cpu&X264_CPU_SLOW_ATOM && b->cpu&X264_CPU_CACHELINE_64 ? "_c64_atom" :
                     b->cpu&X264_CPU_CACHELINE_64 ? "_c64" :
-                    b->cpu&X264_CPU_SHUFFLE_IS_FAST && !(b->cpu&X264_CPU_SSE4) ? "_fastshuffle" :
+                    b->cpu&X264_CPU_SLOW_SHUFFLE ? "_slowshuffle" :
                     b->cpu&X264_CPU_SSE_MISALIGN ? "_misalign" :
                     b->cpu&X264_CPU_LZCNT ? "_lzcnt" :
                     b->cpu&X264_CPU_BMI2 ? "_bmi2" :
-                    b->cpu&X264_CPU_TBM ? "_tbm" :
                     b->cpu&X264_CPU_BMI1 ? "_bmi1" :
-                    b->cpu&X264_CPU_FAST_NEON_MRC ? "_fast_mrc" :
                     b->cpu&X264_CPU_SLOW_CTZ ? "_slow_ctz" :
-                    b->cpu&X264_CPU_SLOW_ATOM ? "_slow_atom" : "",
+                    b->cpu&X264_CPU_SLOW_ATOM ? "_atom" :
+#elif ARCH_ARM
+                    b->cpu&X264_CPU_FAST_NEON_MRC ? "_fast_mrc" :
+#endif
+                    "",
                     ((int64_t)10*b->cycles/b->den - nop_time)/4 );
         }
 }
@@ -337,6 +347,43 @@ static int check_pixel( int cpu_ref, int cpu_new )
     TEST_PIXEL( ssd, 1 );
     TEST_PIXEL( satd, 0 );
     TEST_PIXEL( sa8d, 1 );
+
+    ok = 1, used_asm = 0;
+    if( pixel_asm.sa8d_satd[PIXEL_16x16] != pixel_ref.sa8d_satd[PIXEL_16x16] )
+    {
+        set_func_name( "sa8d_satd_%s", pixel_names[PIXEL_16x16] );
+        used_asm = 1;
+        for( int j = 0; j < 64; j++ )
+        {
+            uint32_t cost8_c = pixel_c.sa8d[PIXEL_16x16]( pbuf1, 16, pbuf2, 64 );
+            uint32_t cost4_c = pixel_c.satd[PIXEL_16x16]( pbuf1, 16, pbuf2, 64 );
+            uint64_t res_a = call_a( pixel_asm.sa8d_satd[PIXEL_16x16], pbuf1, (intptr_t)16, pbuf2, (intptr_t)64 );
+            uint32_t cost8_a = res_a;
+            uint32_t cost4_a = res_a >> 32;
+            if( cost8_a != cost8_c || cost4_a != cost4_c )
+            {
+                ok = 0;
+                fprintf( stderr, "sa8d_satd [%d]: (%d,%d) != (%d,%d) [FAILED]\n", PIXEL_16x16,
+                         cost8_c, cost4_c, cost8_a, cost4_a );
+                break;
+            }
+        }
+        for( int j = 0; j < 0x1000 && ok; j += 256 ) \
+        {
+            uint32_t cost8_c = pixel_c.sa8d[PIXEL_16x16]( pbuf3+j, 16, pbuf4+j, 16 );
+            uint32_t cost4_c = pixel_c.satd[PIXEL_16x16]( pbuf3+j, 16, pbuf4+j, 16 );
+            uint64_t res_a = pixel_asm.sa8d_satd[PIXEL_16x16]( pbuf3+j, 16, pbuf4+j, 16 );
+            uint32_t cost8_a = res_a;
+            uint32_t cost4_a = res_a >> 32;
+            if( cost8_a != cost8_c || cost4_a != cost4_c )
+            {
+                ok = 0;
+                fprintf( stderr, "sa8d_satd [%d]: overflow (%d,%d) != (%d,%d) [FAILED]\n", PIXEL_16x16,
+                         cost8_c, cost4_c, cost8_a, cost4_a );
+            }
+        }
+    }
+    report( "pixel sa8d_satd :" );
 
 #define TEST_PIXEL_X( N ) \
     ok = 1; used_asm = 0; \
@@ -1732,23 +1779,23 @@ static int check_quant( int cpu_ref, int cpu_new )
         x264_quant_init( h, cpu_ref, &qf_ref );
         x264_quant_init( h, cpu_new, &qf_a );
 
-#define INIT_QUANT8(j) \
+#define INIT_QUANT8(j,max) \
         { \
             static const int scale1d[8] = {32,31,24,31,32,31,24,31}; \
-            for( int i = 0; i < 64; i++ ) \
+            for( int i = 0; i < max; i++ ) \
             { \
-                unsigned int scale = (255*scale1d[i>>3]*scale1d[i&7])/16; \
-                dct1[i] = dct2[i] = j ? (rand()%(2*scale+1))-scale : 0; \
+                unsigned int scale = (255*scale1d[(i>>3)&7]*scale1d[i&7])/16; \
+                dct1[i] = dct2[i] = (j>>(i>>6))&1 ? (rand()%(2*scale+1))-scale : 0; \
             } \
         }
 
-#define INIT_QUANT4(j) \
+#define INIT_QUANT4(j,max) \
         { \
             static const int scale1d[4] = {4,6,4,6}; \
-            for( int i = 0; i < 16; i++ ) \
+            for( int i = 0; i < max; i++ ) \
             { \
-                unsigned int scale = 255*scale1d[i>>2]*scale1d[i&3]; \
-                dct1[i] = dct2[i] = j ? (rand()%(2*scale+1))-scale : 0; \
+                unsigned int scale = 255*scale1d[(i>>2)&3]*scale1d[i&3]; \
+                dct1[i] = dct2[i] = (j>>(i>>4))&1 ? (rand()%(2*scale+1))-scale : 0; \
             } \
         }
 
@@ -1778,34 +1825,36 @@ static int check_quant( int cpu_ref, int cpu_new )
             } \
         }
 
-#define TEST_QUANT( qname, block, w ) \
+#define TEST_QUANT( qname, block, type, w, maxj ) \
         if( qf_a.qname != qf_ref.qname ) \
         { \
             set_func_name( #qname ); \
             used_asms[0] = 1; \
             for( int qp = h->param.rc.i_qp_max; qp >= h->param.rc.i_qp_min; qp-- ) \
             { \
-                for( int j = 0; j < 2; j++ ) \
+                for( int j = 0; j < maxj; j++ ) \
                 { \
-                    INIT_QUANT##w(j) \
-                    int result_c = call_c1( qf_c.qname, dct1, h->quant##w##_mf[block][qp], h->quant##w##_bias[block][qp] ); \
-                    int result_a = call_a1( qf_a.qname, dct2, h->quant##w##_mf[block][qp], h->quant##w##_bias[block][qp] ); \
+                    INIT_QUANT##type(j, w*w) \
+                    int result_c = call_c1( qf_c.qname, (void*)dct1, h->quant##type##_mf[block][qp], h->quant##type##_bias[block][qp] ); \
+                    int result_a = call_a1( qf_a.qname, (void*)dct2, h->quant##type##_mf[block][qp], h->quant##type##_bias[block][qp] ); \
                     if( memcmp( dct1, dct2, w*w*sizeof(dctcoef) ) || result_c != result_a ) \
                     { \
                         oks[0] = 0; \
                         fprintf( stderr, #qname "(qp=%d, cqm=%d, block="#block"): [FAILED]\n", qp, i_cqm ); \
                         break; \
                     } \
-                    call_c2( qf_c.qname, dct1, h->quant##w##_mf[block][qp], h->quant##w##_bias[block][qp] ); \
-                    call_a2( qf_a.qname, dct2, h->quant##w##_mf[block][qp], h->quant##w##_bias[block][qp] ); \
+                    call_c2( qf_c.qname, (void*)dct1, h->quant##type##_mf[block][qp], h->quant##type##_bias[block][qp] ); \
+                    call_a2( qf_a.qname, (void*)dct2, h->quant##type##_mf[block][qp], h->quant##type##_bias[block][qp] ); \
                 } \
             } \
         }
 
-        TEST_QUANT( quant_8x8, CQM_8IY, 8 );
-        TEST_QUANT( quant_8x8, CQM_8PY, 8 );
-        TEST_QUANT( quant_4x4, CQM_4IY, 4 );
-        TEST_QUANT( quant_4x4, CQM_4PY, 4 );
+        TEST_QUANT( quant_8x8, CQM_8IY, 8, 8, 2 );
+        TEST_QUANT( quant_8x8, CQM_8PY, 8, 8, 2 );
+        TEST_QUANT( quant_4x4, CQM_4IY, 4, 4, 2 );
+        TEST_QUANT( quant_4x4, CQM_4PY, 4, 4, 2 );
+        TEST_QUANT( quant_4x4x4, CQM_4IY, 4, 8, 16 );
+        TEST_QUANT( quant_4x4x4, CQM_4PY, 4, 8, 16 );
         TEST_QUANT_DC( quant_4x4_dc, **h->quant4_mf[CQM_4IY] );
         TEST_QUANT_DC( quant_2x2_dc, **h->quant4_mf[CQM_4IC] );
 
@@ -1816,7 +1865,7 @@ static int check_quant( int cpu_ref, int cpu_new )
             used_asms[1] = 1; \
             for( int qp = h->param.rc.i_qp_max; qp >= h->param.rc.i_qp_min; qp-- ) \
             { \
-                INIT_QUANT##w(1) \
+                INIT_QUANT##w(1, w*w) \
                 qf_c.qname( dct1, h->quant##w##_mf[block][qp], h->quant##w##_bias[block][qp] ); \
                 memcpy( dct2, dct1, w*w*sizeof(dctcoef) ); \
                 call_c1( qf_c.dqname, dct1, h->dequant##w##_mf[block], qp ); \
@@ -2526,18 +2575,18 @@ static int check_all_flags( void )
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_SLOW_CTZ, "MMX SlowCTZ" );
         cpu1 &= ~X264_CPU_SLOW_CTZ;
     }
+    if( x264_cpu_detect() & X264_CPU_SSE )
+        ret |= add_flags( &cpu0, &cpu1, X264_CPU_SSE, "SSE" );
     if( x264_cpu_detect() & X264_CPU_SSE2 )
     {
-        ret |= add_flags( &cpu0, &cpu1, X264_CPU_SSE | X264_CPU_SSE2 | X264_CPU_SSE2_IS_SLOW, "SSE2Slow" );
+        ret |= add_flags( &cpu0, &cpu1, X264_CPU_SSE2 | X264_CPU_SSE2_IS_SLOW, "SSE2Slow" );
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_SSE2_IS_FAST, "SSE2Fast" );
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_CACHELINE_64, "SSE2Fast Cache64" );
         cpu1 &= ~X264_CPU_CACHELINE_64;
-        ret |= add_flags( &cpu0, &cpu1, X264_CPU_SHUFFLE_IS_FAST, "SSE2 FastShuffle" );
-        cpu1 &= ~X264_CPU_SHUFFLE_IS_FAST;
+        ret |= add_flags( &cpu0, &cpu1, X264_CPU_SLOW_SHUFFLE, "SSE2 SlowShuffle" );
+        cpu1 &= ~X264_CPU_SLOW_SHUFFLE;
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_SLOW_CTZ, "SSE2 SlowCTZ" );
         cpu1 &= ~X264_CPU_SLOW_CTZ;
-        ret |= add_flags( &cpu0, &cpu1, X264_CPU_SLOW_ATOM, "SSE2 SlowAtom" );
-        cpu1 &= ~X264_CPU_SLOW_ATOM;
     }
     if( x264_cpu_detect() & X264_CPU_SSE_MISALIGN )
     {
@@ -2559,15 +2608,17 @@ static int check_all_flags( void )
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_SSSE3, "SSSE3" );
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_CACHELINE_64, "SSSE3 Cache64" );
         cpu1 &= ~X264_CPU_CACHELINE_64;
-        ret |= add_flags( &cpu0, &cpu1, X264_CPU_SHUFFLE_IS_FAST, "SSSE3 FastShuffle" );
-        cpu1 &= ~X264_CPU_SHUFFLE_IS_FAST;
+        ret |= add_flags( &cpu0, &cpu1, X264_CPU_SLOW_SHUFFLE, "SSSE3 SlowShuffle" );
+        cpu1 &= ~X264_CPU_SLOW_SHUFFLE;
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_SLOW_CTZ, "SSSE3 SlowCTZ" );
         cpu1 &= ~X264_CPU_SLOW_CTZ;
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_SLOW_ATOM, "SSSE3 SlowAtom" );
+        ret |= add_flags( &cpu0, &cpu1, X264_CPU_CACHELINE_64, "SSSE3 Cache64 SlowAtom" );
+        cpu1 &= ~X264_CPU_CACHELINE_64;
         cpu1 &= ~X264_CPU_SLOW_ATOM;
     }
     if( x264_cpu_detect() & X264_CPU_SSE4 )
-        ret |= add_flags( &cpu0, &cpu1, X264_CPU_SSE4 | X264_CPU_SHUFFLE_IS_FAST, "SSE4" );
+        ret |= add_flags( &cpu0, &cpu1, X264_CPU_SSE4, "SSE4" );
     if( x264_cpu_detect() & X264_CPU_AVX )
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_AVX, "AVX" );
     if( x264_cpu_detect() & X264_CPU_XOP )
@@ -2580,11 +2631,6 @@ static int check_all_flags( void )
     if( x264_cpu_detect() & X264_CPU_BMI1 )
     {
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_BMI1, "BMI1" );
-        if( x264_cpu_detect() & X264_CPU_TBM )
-        {
-            ret |= add_flags( &cpu0, &cpu1, X264_CPU_TBM, "TBM" );
-            cpu1 &= ~X264_CPU_TBM;
-        }
         if( x264_cpu_detect() & X264_CPU_BMI2 )
         {
             ret |= add_flags( &cpu0, &cpu1, X264_CPU_BMI2, "BMI2" );

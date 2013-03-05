@@ -478,16 +478,16 @@ static void x264_slicetype_mb_cost( x264_t *h, x264_mb_analysis_t *a,
         goto lowres_intra_mb;
 
     // no need for h->mb.mv_min[]
-    h->mb.mv_min_fpel[0] = -8*h->mb.i_mb_x - 4;
-    h->mb.mv_max_fpel[0] = 8*( h->mb.i_mb_width - h->mb.i_mb_x - 1 ) + 4;
-    h->mb.mv_min_spel[0] = 4*( h->mb.mv_min_fpel[0] - 8 );
-    h->mb.mv_max_spel[0] = 4*( h->mb.mv_max_fpel[0] + 8 );
+    h->mb.mv_limit_fpel[0][0] = -8*h->mb.i_mb_x - 4;
+    h->mb.mv_limit_fpel[1][0] = 8*( h->mb.i_mb_width - h->mb.i_mb_x - 1 ) + 4;
+    h->mb.mv_min_spel[0] = 4*( h->mb.mv_limit_fpel[0][0] - 8 );
+    h->mb.mv_max_spel[0] = 4*( h->mb.mv_limit_fpel[1][0] + 8 );
     if( h->mb.i_mb_x >= h->mb.i_mb_width - 2 )
     {
-        h->mb.mv_min_fpel[1] = -8*h->mb.i_mb_y - 4;
-        h->mb.mv_max_fpel[1] = 8*( h->mb.i_mb_height - h->mb.i_mb_y - 1 ) + 4;
-        h->mb.mv_min_spel[1] = 4*( h->mb.mv_min_fpel[1] - 8 );
-        h->mb.mv_max_spel[1] = 4*( h->mb.mv_max_fpel[1] + 8 );
+        h->mb.mv_limit_fpel[0][1] = -8*h->mb.i_mb_y - 4;
+        h->mb.mv_limit_fpel[1][1] = 8*( h->mb.i_mb_height - h->mb.i_mb_y - 1 ) + 4;
+        h->mb.mv_min_spel[1] = 4*( h->mb.mv_limit_fpel[0][1] - 8 );
+        h->mb.mv_max_spel[1] = 4*( h->mb.mv_limit_fpel[1][1] + 8 );
     }
 
 #define LOAD_HPELS_LUMA(dst, src) \
@@ -639,15 +639,16 @@ lowres_intra_mb:
     if( !fenc->b_intra_calculated )
     {
         ALIGNED_ARRAY_16( pixel, edge,[36] );
-        pixel *pix = &pix1[8+FDEC_STRIDE - 1];
-        pixel *src = &fenc->lowres[0][i_pel_offset - 1];
+        pixel *pix = &pix1[8+FDEC_STRIDE];
+        pixel *src = &fenc->lowres[0][i_pel_offset];
         const int intra_penalty = 5 * a->i_lambda;
         int satds[3];
+        int pixoff = 4 / sizeof(pixel);
 
-        memcpy( pix-FDEC_STRIDE, src-i_stride, 17 * sizeof(pixel) );
-        for( int i = 0; i < 8; i++ )
-            pix[i*FDEC_STRIDE] = src[i*i_stride];
-        pix++;
+        /* Avoid store forwarding stalls by writing larger chunks */
+        memcpy( pix-FDEC_STRIDE, src-i_stride, 16 * sizeof(pixel) );
+        for( int i = -1; i < 8; i++ )
+            M32( &pix[i*FDEC_STRIDE-pixoff] ) = M32( &src[i*i_stride-pixoff] );
 
         h->pixf.intra_mbcmp_x3_8x8c( h->mb.pic.p_fenc[0], pix, satds );
         int i_icost = X264_MIN3( satds[0], satds[1], satds[2] );
@@ -1399,7 +1400,7 @@ static int scenecut( x264_t *h, x264_mb_analysis_t *a, x264_frame_t **frames, in
     return scenecut_internal( h, a, frames, p0, p1, real_scenecut );
 }
 
-void x264_slicetype_analyse( x264_t *h, int keyframe )
+void x264_slicetype_analyse( x264_t *h, int intra_minigop )
 {
     x264_mb_analysis_t a;
     x264_frame_t *frames[X264_LOOKAHEAD_MAX+3] = { NULL, };
@@ -1408,8 +1409,13 @@ void x264_slicetype_analyse( x264_t *h, int keyframe )
     int cost1p0, cost2p0, cost1b1, cost2p1;
     int i_max_search = X264_MIN( h->lookahead->next.i_size, X264_LOOKAHEAD_MAX );
     int vbv_lookahead = h->param.rc.i_vbv_buffer_size && h->param.rc.i_lookahead;
+    /* For determinism we should limit the search to the number of frames lookahead has for sure
+     * in h->lookahead->next.list buffer, except at the end of stream.
+     * For normal calls with (intra_minigop == 0) that is h->lookahead->i_slicetype_length + 1 frames.
+     * And for I-frame calls (intra_minigop != 0) we already removed intra_minigop frames from there. */
     if( h->param.b_deterministic )
-        i_max_search = X264_MIN( i_max_search, h->lookahead->i_slicetype_length + !keyframe );
+        i_max_search = X264_MIN( i_max_search, h->lookahead->i_slicetype_length + 1 - intra_minigop );
+    int keyframe = !!intra_minigop;
 
     assert( h->frames.b_have_lowres );
 

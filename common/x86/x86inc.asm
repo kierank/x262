@@ -34,8 +34,12 @@
 ; as this feature might be useful for others as well.  Send patches or ideas
 ; to x264-devel@videolan.org .
 
-%ifndef program_name
-    %define program_name x264
+%ifndef private_prefix
+    %define private_prefix x264
+%endif
+
+%ifndef public_prefix
+    %define public_prefix private_prefix
 %endif
 
 %define WIN64  0
@@ -425,7 +429,7 @@ DECLARE_REG 14, R15, 120
     %assign %%i xmm_regs_used
     %rep (xmm_regs_used-6)
         %assign %%i %%i-1
-        movdqa [rsp + (%%i-6)*16 + stack_size + (~stack_offset&8)], xmm %+ %%i
+        movaps [rsp + (%%i-6)*16 + stack_size + (~stack_offset&8)], xmm %+ %%i
     %endrep
 %endmacro
 
@@ -443,7 +447,7 @@ DECLARE_REG 14, R15, 120
         %assign %%i xmm_regs_used
         %rep (xmm_regs_used-6)
             %assign %%i %%i-1
-            movdqa xmm %+ %%i, [%1 + (%%i-6)*16+stack_size+(~stack_offset&8)]
+            movaps xmm %+ %%i, [%1 + (%%i-6)*16+stack_size+(~stack_offset&8)]
         %endrep
         %if stack_size_padded == 0
             add %1, (xmm_regs_used-6)*16+16
@@ -643,38 +647,48 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
 ; Applies any symbol mangling needed for C linkage, and sets up a define such that
 ; subsequent uses of the function name automatically refer to the mangled version.
 ; Appends cpuflags to the function name if cpuflags has been specified.
+; The "" empty default parameter is a workaround for nasm, which fails if SUFFIX
+; is empty and we call cglobal_internal with just %1 %+ SUFFIX (without %2).
 %macro cglobal 1-2+ "" ; name, [PROLOGUE args]
-    ; the "" is a workaround for nasm, which fails if SUFFIX is empty
-    ; and we call cglobal_internal with just %1 %+ SUFFIX (without %2)
-    cglobal_internal %1 %+ SUFFIX, %2
+    cglobal_internal 1, %1 %+ SUFFIX, %2
 %endmacro
-%macro cglobal_internal 1-2+
-    %ifndef cglobaled_%1
-        %xdefine %1 mangle(program_name %+ _ %+ %1)
-        %xdefine %1.skip_prologue %1 %+ .skip_prologue
-        CAT_XDEFINE cglobaled_, %1, 1
-    %endif
-    %xdefine current_function %1
-    %ifidn __OUTPUT_FORMAT__,elf
-        global %1:function hidden
+%macro cvisible 1-2+ "" ; name, [PROLOGUE args]
+    cglobal_internal 0, %1 %+ SUFFIX, %2
+%endmacro
+%macro cglobal_internal 2-3+
+    %if %1
+        %xdefine %%FUNCTION_PREFIX private_prefix
+        %xdefine %%VISIBILITY hidden
     %else
-        global %1
+        %xdefine %%FUNCTION_PREFIX public_prefix
+        %xdefine %%VISIBILITY
+    %endif
+    %ifndef cglobaled_%2
+        %xdefine %2 mangle(%%FUNCTION_PREFIX %+ _ %+ %2)
+        %xdefine %2.skip_prologue %2 %+ .skip_prologue
+        CAT_XDEFINE cglobaled_, %2, 1
+    %endif
+    %xdefine current_function %2
+    %ifidn __OUTPUT_FORMAT__,elf
+        global %2:function %%VISIBILITY
+    %else
+        global %2
     %endif
     align function_align
-    %1:
+    %2:
     RESET_MM_PERMUTATION ; not really needed, but makes disassembly somewhat nicer
     %xdefine rstk rsp
     %assign stack_offset 0
     %assign stack_size 0
     %assign stack_size_padded 0
     %assign xmm_regs_used 0
-    %ifnidn %2, ""
-        PROLOGUE %2
+    %ifnidn %3, ""
+        PROLOGUE %3
     %endif
 %endmacro
 
 %macro cextern 1
-    %xdefine %1 mangle(program_name %+ _ %+ %1)
+    %xdefine %1 mangle(private_prefix %+ _ %+ %1)
     CAT_XDEFINE cglobaled_, %1, 1
     extern %1
 %endmacro
@@ -687,8 +701,12 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
 %endmacro
 
 %macro const 2+
-    %xdefine %1 mangle(program_name %+ _ %+ %1)
-    global %1
+    %xdefine %1 mangle(private_prefix %+ _ %+ %1)
+    %ifidn __OUTPUT_FORMAT__,elf
+        global %1:data hidden
+    %else
+        global %1
+    %endif
     %1: %2
 %endmacro
 
@@ -735,6 +753,7 @@ SECTION .note.GNU-stack noalloc noexec nowrite progbits
 ; All subsequent functions (up to the next INIT_CPUFLAGS) is built for the specified cpu.
 ; You shouldn't need to invoke this macro directly, it's a subroutine for INIT_MMX &co.
 %macro INIT_CPUFLAGS 0-2
+    CPU amdnop
     %if %0 >= 1
         %xdefine cpuname %1
         %assign cpuflags cpuflags_%1
@@ -755,6 +774,9 @@ SECTION .note.GNU-stack noalloc noexec nowrite progbits
             %define movu mova
         %elifidn %1, sse3
             %define movu lddqu
+        %endif
+        %if ARCH_X86_64 == 0 && notcpuflag(sse2)
+            CPU basicnop
         %endif
     %else
         %xdefine SUFFIX

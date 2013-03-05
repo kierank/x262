@@ -294,16 +294,24 @@
 %endif
 %endmacro
 
+%macro HADDUWD 2
+%if cpuflag(xop)
+    vphadduwd %1, %1
+%else
+    psrld %2, %1, 16
+    pslld %1, 16
+    psrld %1, 16
+    paddd %1, %2
+%endif
+%endmacro
+
 %macro HADDUW 2
 %if cpuflag(xop) && mmsize == 16
     vphadduwq %1, %1
     movhlps   %2, %1
     paddd     %1, %2
 %else
-    psrld %2, %1, 16
-    pslld %1, 16
-    psrld %1, 16
-    paddd %1, %2
+    HADDUWD %1, %2
     HADDD %1, %2
 %endif
 %endmacro
@@ -675,11 +683,18 @@
 %endmacro
 
 
-%macro LOAD_DIFF 5
+%macro LOAD_DIFF 5-6 1
 %if HIGH_BIT_DEPTH
+%if %6 ; %5 aligned?
     mova       %1, %4
     psubw      %1, %5
-%elifidn %3, none
+%else
+    movu       %1, %4
+    movu       %2, %5
+    psubw      %1, %2
+%endif
+%else ; !HIGH_BIT_DEPTH
+%ifidn %3, none
     movh       %1, %4
     movh       %2, %5
     punpcklbw  %1, %2
@@ -692,6 +707,7 @@
     punpcklbw  %2, %3
     psubw      %1, %2
 %endif
+%endif ; HIGH_BIT_DEPTH
 %endmacro
 
 %macro LOAD_DIFF8x4 8 ; 4x dst, 1x tmp, 1x mul, 2x ptr
@@ -742,11 +758,11 @@
     movh   [r0+3*FDEC_STRIDE], %4
 %endmacro
 
-%macro LOAD_DIFF_8x4P 7-10 r0,r2,0 ; 4x dest, 2x temp, 2x pointer, increment?
-    LOAD_DIFF m%1, m%5, m%7, [%8],      [%9]
-    LOAD_DIFF m%2, m%6, m%7, [%8+r1],   [%9+r3]
-    LOAD_DIFF m%3, m%5, m%7, [%8+2*r1], [%9+2*r3]
-    LOAD_DIFF m%4, m%6, m%7, [%8+r4],   [%9+r5]
+%macro LOAD_DIFF_8x4P 7-11 r0,r2,0,1 ; 4x dest, 2x temp, 2x pointer, increment, aligned?
+    LOAD_DIFF m%1, m%5, m%7, [%8],      [%9],      %11
+    LOAD_DIFF m%2, m%6, m%7, [%8+r1],   [%9+r3],   %11
+    LOAD_DIFF m%3, m%5, m%7, [%8+2*r1], [%9+2*r3], %11
+    LOAD_DIFF m%4, m%6, m%7, [%8+r4],   [%9+r5],   %11
 %if %10
     lea %8, [%8+4*r1]
     lea %9, [%9+4*r3]

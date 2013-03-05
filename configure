@@ -47,7 +47,7 @@ Cross-compilation:
   --sysroot=SYSROOT        root of cross-build tree
 
 External library support:
-  --disable-avs            disable avisynth support (windows only)
+  --disable-avs            disable avisynth support
   --disable-swscale        disable swscale support
   --disable-lavf           disable libavformat support
   --disable-ffms           disable ffmpegsource support
@@ -526,6 +526,13 @@ case $host_os in
         fi
         HAVE_GETOPT_LONG=0
         ;;
+    *qnx*)
+        SYS="QNX"
+        define HAVE_MALLOC_H
+        libm="-lm"
+        HAVE_GETOPT_LONG=0
+        CFLAGS="$CFLAGS -I\$(SRCPATH)/extras"
+        ;;
     *)
         die "Unknown system $host, edit the configure"
         ;;
@@ -569,6 +576,7 @@ case $host_cpu in
         elif [ "$SYS" = WINDOWS -o "$SYS" = CYGWIN ]; then
             ASFLAGS="$ASFLAGS -f win32 -DPREFIX"
             LDFLAGS="$LDFLAGS -Wl,--large-address-aware"
+            [ $compiler = GNU ] && LDFLAGS="$LDFLAGS -Wl,--nxcompat -Wl,--dynamicbase"
             [ $compiler = GNU ] && RCFLAGS="--target=pe-i386 $RCFLAGS"
         else
             ASFLAGS="$ASFLAGS -f elf"
@@ -588,6 +596,7 @@ case $host_cpu in
             ASFLAGS="$ASFLAGS -f win32 -m amd64"
             # only the GNU toolchain is inconsistent in prefixing function names with _
             [ $compiler = GNU ] && cc_check "" "-S" && grep -q "_main:" conftest && ASFLAGS="$ASFLAGS -DPREFIX"
+            [ $compiler = GNU ] && LDFLAGS="$LDFLAGS -Wl,--nxcompat -Wl,--dynamicbase"
             [ $compiler = GNU ] && RCFLAGS="--target=pe-x86-64 $RCFLAGS"
         else
             ASFLAGS="$ASFLAGS -f elf -m amd64"
@@ -775,6 +784,9 @@ if [ "$thread" = "auto" ]; then
                 thread="win32"
             fi
             ;;
+        QNX)
+            cc_check pthread.h -lc && thread="posix" && libpthread="-lc"
+            ;;
         *)
             cc_check pthread.h -lpthread && thread="posix" && libpthread="-lpthread"
             ;;
@@ -925,7 +937,17 @@ if [ "$avs" = "auto" ] ; then
     # cygwin can use avisynth if it can use LoadLibrary
     if [ $SYS = WINDOWS ] || ([ $SYS = CYGWIN ] && cc_check windows.h "" "LoadLibrary(0);") ; then
         avs="yes"
+        avstype="avisynth"
         define HAVE_AVS
+        define USE_AVXSYNTH 0
+    elif [ "$SYS" = "LINUX" -o "$SYS" = "MACOSX" ] ; then
+    # AvxSynth currently only supports Linux and OSX
+        avs="yes"
+        avstype="avxsynth"
+        define HAVE_AVS
+        define USE_AVXSYNTH 1
+        AVS_LIBS="-ldl"
+        LDFLAGSCLI="$AVS_LIBS $LDFLAGSCLI"
     fi
 fi
 
@@ -1197,7 +1219,7 @@ static:        $static
 asm:           $asm
 interlaced:    $interlaced
 mpeg2:         $mpeg2
-avs:           $avs
+avs:           $avstype
 lavf:          $lavf
 ffms:          $ffms
 gpac:          $gpac

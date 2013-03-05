@@ -659,11 +659,12 @@ static const uint16_t coeff_abs_level_m1_offset[14] =
     227+0, 227+10, 227+20, 227+30, 227+39, 426, 952+0, 952+10, 952+20, 708, 982+0, 982+10, 982+20, 766
 };
 #if RDO_SKIP_BS
-extern const uint8_t x264_significant_coeff_flag_offset_8x8[2][63];
+extern const uint8_t x264_significant_coeff_flag_offset_8x8[2][64];
 extern const uint8_t x264_last_coeff_flag_offset_8x8[63];
 extern const uint8_t x264_coeff_flag_offset_chroma_422_dc[7];
 #else
-const uint8_t x264_significant_coeff_flag_offset_8x8[2][63] =
+/* Padded to [64] for easier addressing */
+const uint8_t x264_significant_coeff_flag_offset_8x8[2][64] =
 {{
     0, 1, 2, 3, 4, 5, 5, 4, 4, 3, 3, 4, 4, 4, 5, 5,
     4, 4, 4, 4, 3, 3, 6, 7, 7, 7, 8, 9,10, 9, 8, 7,
@@ -1051,25 +1052,23 @@ if( (h->mb.i_neighbour & MB_TOP) && !h->mb.mb_transform_size[h->mb.i_mb_top_xy] 
                 MUNGE_8x8_NNZ( BACKUP )
 
                 for( int p = 0; p < 3; p++ )
-                    for( int i = 0; i < 4; i++ )
-                        if( h->mb.i_cbp_luma & ( 1 << i ) )
-                            x264_cabac_block_residual_8x8_cbf( h, cb, ctx_cat_plane[DCT_LUMA_8x8][p], i*4+p*16, h->dct.luma8x8[i+p*4], b_intra );
+                    FOREACH_BIT( i, 0, h->mb.i_cbp_luma )
+                        x264_cabac_block_residual_8x8_cbf( h, cb, ctx_cat_plane[DCT_LUMA_8x8][p], i*4+p*16, h->dct.luma8x8[i+p*4], b_intra );
 
                 MUNGE_8x8_NNZ( RESTORE )
             }
             else
             {
-                for( int i = 0; i < 4; i++ )
-                    if( h->mb.i_cbp_luma & ( 1 << i ) )
-                        x264_cabac_block_residual_8x8( h, cb, DCT_LUMA_8x8, h->dct.luma8x8[i] );
+                FOREACH_BIT( i, 0, h->mb.i_cbp_luma )
+                    x264_cabac_block_residual_8x8( h, cb, DCT_LUMA_8x8, h->dct.luma8x8[i] );
             }
         }
         else
         {
             for( int p = 0; p < plane_count; p++ )
-                for( int i = 0; i < 16; i++ )
-                    if( h->mb.i_cbp_luma & ( 1 << ( i >> 2 ) ) )
-                        x264_cabac_block_residual_cbf( h, cb, ctx_cat_plane[DCT_LUMA_4x4][p], i+p*16, h->dct.luma4x4[i+p*16], b_intra );
+                FOREACH_BIT( i8x8, 0, h->mb.i_cbp_luma )
+                    for( int i = 0; i < 4; i++ )
+                        x264_cabac_block_residual_cbf( h, cb, ctx_cat_plane[DCT_LUMA_4x4][p], i+i8x8*4+p*16, h->dct.luma4x4[i+i8x8*4+p*16], b_intra );
         }
 
         if( chroma && h->mb.i_cbp_chroma ) /* Chroma DC residual present */

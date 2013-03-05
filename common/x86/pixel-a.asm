@@ -136,6 +136,7 @@ cextern pw_ppppmmmm
 cextern pw_ppmmppmm
 cextern pw_pmpmpmpm
 cextern pw_pmmpzzzz
+cextern pd_1
 cextern hsub_mul
 
 ;=============================================================================
@@ -147,65 +148,63 @@ cextern hsub_mul
 ; int pixel_ssd_MxN( uint16_t *, intptr_t, uint16_t *, intptr_t )
 ;-----------------------------------------------------------------------------
 %macro SSD_ONE 2
-cglobal pixel_ssd_%1x%2, 4,5,6
-    mov     r4, %1*%2/mmsize
+cglobal pixel_ssd_%1x%2, 4,7,6
+    FIX_STRIDES r1, r3
+%if mmsize == %1*2
+    %define offset0_1 r1
+    %define offset0_2 r1*2
+    %define offset0_3 r5
+    %define offset1_1 r3
+    %define offset1_2 r3*2
+    %define offset1_3 r6
+    lea     r5, [3*r1]
+    lea     r6, [3*r3]
+%elif mmsize == %1
+    %define offset0_1 mmsize
+    %define offset0_2 r1
+    %define offset0_3 r1+mmsize
+    %define offset1_1 mmsize
+    %define offset1_2 r3
+    %define offset1_3 r3+mmsize
+%elif mmsize == %1/2
+    %define offset0_1 mmsize
+    %define offset0_2 mmsize*2
+    %define offset0_3 mmsize*3
+    %define offset1_1 mmsize
+    %define offset1_2 mmsize*2
+    %define offset1_3 mmsize*3
+%endif
+    %assign %%n %2/(2*mmsize/%1)
+%if %%n > 1
+    mov    r4d, %%n
+%endif
     pxor    m0, m0
 .loop
     mova    m1, [r0]
-%if %1 <= mmsize/2
-    mova    m3, [r0+r1*2]
-    %define offset r3*2
-    %define num_rows 2
-%else
-    mova    m3, [r0+mmsize]
-    %define offset mmsize
-    %define num_rows 1
-%endif
-    lea     r0, [r0+r1*2*num_rows]
+    mova    m2, [r0+offset0_1]
+    mova    m3, [r0+offset0_2]
+    mova    m4, [r0+offset0_3]
     psubw   m1, [r2]
-    psubw   m3, [r2+offset]
-    lea     r2, [r2+r3*2*num_rows]
+    psubw   m2, [r2+offset1_1]
+    psubw   m3, [r2+offset1_2]
+    psubw   m4, [r2+offset1_3]
+%if %%n > 1
+    lea     r0, [r0+r1*(%2/%%n)]
+    lea     r2, [r2+r3*(%2/%%n)]
+%endif
     pmaddwd m1, m1
+    pmaddwd m2, m2
     pmaddwd m3, m3
+    pmaddwd m4, m4
+    paddd   m1, m2
+    paddd   m3, m4
     paddd   m0, m1
     paddd   m0, m3
-    dec     r4
+%if %%n > 1
+    dec    r4d
     jg .loop
+%endif
     HADDD   m0, m5
-    movd   eax, m0
-    RET
-%endmacro
-
-%macro SSD_16_MMX 2
-cglobal pixel_ssd_%1x%2, 4,5
-    mov     r4, %1*%2/mmsize/2
-    pxor    m0, m0
-.loop
-    mova    m1, [r0]
-    mova    m2, [r2]
-    mova    m3, [r0+mmsize]
-    mova    m4, [r2+mmsize]
-    mova    m5, [r0+mmsize*2]
-    mova    m6, [r2+mmsize*2]
-    mova    m7, [r0+mmsize*3]
-    psubw   m1, m2
-    psubw   m3, m4
-    mova    m2, [r2+mmsize*3]
-    psubw   m5, m6
-    pmaddwd m1, m1
-    psubw   m7, m2
-    pmaddwd m3, m3
-    pmaddwd m5, m5
-    lea     r0, [r0+r1*2]
-    lea     r2, [r2+r3*2]
-    pmaddwd m7, m7
-    paddd   m1, m3
-    paddd   m5, m7
-    paddd   m0, m1
-    paddd   m0, m5
-    dec     r4
-    jg .loop
-    HADDD   m0, m7
     movd   eax, m0
     RET
 %endmacro
@@ -217,8 +216,8 @@ SSD_ONE     4, 16
 SSD_ONE     8,  4
 SSD_ONE     8,  8
 SSD_ONE     8, 16
-SSD_16_MMX 16,  8
-SSD_16_MMX 16, 16
+SSD_ONE    16,  8
+SSD_ONE    16, 16
 INIT_XMM sse2
 SSD_ONE     8,  4
 SSD_ONE     8,  8
@@ -962,7 +961,7 @@ VAR2_8x8_SSSE3 16, 7
 %if cpuflag(sse4)
     ; just use shufps on anything post conroe
     shufps %1, %2, 0
-%elif cpuflag(ssse3)
+%elif cpuflag(ssse3) && notcpuflag(atom)
     ; join 2x 32 bit and duplicate them
     ; emulating shufps is faster on conroe
     punpcklqdq %1, %2
@@ -1023,7 +1022,7 @@ VAR2_8x8_SSSE3 16, 7
     DIFF_SUMSUB_SSSE3 %1, %3, %2, %4, %5
 %endmacro
 
-%macro LOAD_SUMSUB_8x4P_SSSE3 7-10 r0, r2, 0
+%macro LOAD_SUMSUB_8x4P_SSSE3 7-11 r0, r2, 0, 0
 ; 4x dest, 2x tmp, 1x mul, [2* ptr], [increment?]
     LOAD_SUMSUB_8x2P %1, %2, %5, %6, %7, [%8], [%9], [%8+r1], [%9+r3]
     LOAD_SUMSUB_8x2P %3, %4, %5, %6, %7, [%8+2*r1], [%9+2*r3], [%8+r4], [%9+r5]
@@ -1080,8 +1079,9 @@ VAR2_8x8_SSSE3 16, 7
     SWAP %%n, 4
 %endmacro
 
+; in: %1 = horizontal if 0, vertical if 1
 %macro SATD_8x4_SSE 8-9
-%ifidn %1, sse2
+%if %1
     HADAMARD4_2D_SSE %2, %3, %4, %5, %6, amax
 %else
     HADAMARD4_V %2, %3, %4, %5, %6
@@ -1095,7 +1095,7 @@ VAR2_8x8_SSSE3 16, 7
 %else
     SWAP %8, %2
 %endif
-%ifidn %1, sse2
+%if %1
     paddw m%8, m%4
 %else
     HADAMARD 1, max, %3, %5, %6, %7
@@ -1250,8 +1250,11 @@ cglobal pixel_satd_4x4, 4,6
     SATD_4x4_MMX m0, 0, 0
     SATD_END_MMX
 
-%macro SATD_START_SSE2 2
-%if cpuflag(ssse3)
+%macro SATD_START_SSE2 2-3 0
+    FIX_STRIDES r1, r3
+%if HIGH_BIT_DEPTH && %3
+    pxor    %2, %2
+%elif cpuflag(ssse3) && notcpuflag(atom)
     mova    %2, [hmul_8p]
 %endif
     lea     r4, [3*r1]
@@ -1259,10 +1262,25 @@ cglobal pixel_satd_4x4, 4,6
     pxor    %1, %1
 %endmacro
 
-%macro SATD_END_SSE2 1
+%macro SATD_END_SSE2 1-2
+%if HIGH_BIT_DEPTH
+    HADDUW  %1, m0
+%if %0 == 2
+    paddd   %1, %2
+%endif
+%else
     HADDW   %1, m7
+%endif
     movd   eax, %1
     RET
+%endmacro
+
+%macro SATD_ACCUM 3
+%if HIGH_BIT_DEPTH
+    HADDUW %1, %2
+    paddd  %3, %1
+    pxor   %1, %1
+%endif
 %endmacro
 
 %macro BACKUP_POINTERS 0
@@ -1277,20 +1295,44 @@ cglobal pixel_satd_4x4, 4,6
 
 %macro RESTORE_AND_INC_POINTERS 0
 %if ARCH_X86_64
-    lea     r0, [r6+8]
-    lea     r2, [r7+8]
+    lea     r0, [r6+8*SIZEOF_PIXEL]
+    lea     r2, [r7+8*SIZEOF_PIXEL]
 %if WIN64
     POP r7
 %endif
 %else
     mov     r0, r0mp
     mov     r2, r2mp
-    add     r0, 8
-    add     r2, 8
+    add     r0, 8*SIZEOF_PIXEL
+    add     r2, 8*SIZEOF_PIXEL
 %endif
 %endmacro
 
-%macro SATD_4x8_SSE 2
+%macro SATD_4x8_SSE 3
+%if HIGH_BIT_DEPTH
+    movh    m0, [r0+0*r1]
+    movh    m4, [r2+0*r3]
+    movh    m1, [r0+1*r1]
+    movh    m5, [r2+1*r3]
+    movhps  m0, [r0+4*r1]
+    movhps  m4, [r2+4*r3]
+    movh    m2, [r0+2*r1]
+    movh    m6, [r2+2*r3]
+    psubw   m0, m4
+    movh    m3, [r0+r4]
+    movh    m4, [r2+r5]
+    lea     r0, [r0+4*r1]
+    lea     r2, [r2+4*r3]
+    movhps  m1, [r0+1*r1]
+    movhps  m5, [r2+1*r3]
+    movhps  m2, [r0+2*r1]
+    movhps  m6, [r2+2*r3]
+    psubw   m1, m5
+    movhps  m3, [r0+r4]
+    movhps  m4, [r2+r5]
+    psubw   m2, m6
+    psubw   m3, m4
+%else ; !HIGH_BIT_DEPTH
     movd m4, [r2]
     movd m5, [r2+r3]
     movd m6, [r2+2*r3]
@@ -1307,7 +1349,7 @@ cglobal pixel_satd_4x4, 4,6
     JDUP m5, m3
     movd m3, [r0+2*r1]
     JDUP m1, m3
-%if cpuflag(ssse3) && %1==1
+%if %1==0 && %2==1
     mova m3, [hmul_4p]
     DIFFOP 0, 4, 1, 5, 3
 %else
@@ -1325,20 +1367,23 @@ cglobal pixel_satd_4x4, 4,6
     JDUP m5, m4
     movd m4, [r0+r1]
     JDUP m3, m4
-%if cpuflag(ssse3) && %1==1
+%if %1==0 && %2==1
     mova m4, [hmul_4p]
     DIFFOP 2, 6, 3, 5, 4
 %else
     DIFFOP 2, 6, 3, 5, 7
 %endif
-    SATD_8x4_SSE cpuname, 0, 1, 2, 3, 4, 5, 7, %2
+%endif ; HIGH_BIT_DEPTH
+    SATD_8x4_SSE %1, 0, 1, 2, 3, 4, 5, 7, %3
 %endmacro
 
 ;-----------------------------------------------------------------------------
 ; int pixel_satd_8x4( uint8_t *, intptr_t, uint8_t *, intptr_t )
 ;-----------------------------------------------------------------------------
 %macro SATDS_SSE2 0
-%if cpuflag(ssse3)
+%define vertical ((notcpuflag(ssse3) || cpuflag(atom)) || HIGH_BIT_DEPTH)
+
+%if vertical==0 || HIGH_BIT_DEPTH
 cglobal pixel_satd_4x4, 4, 6, 6
     SATD_START_MMX
     mova m4, [hmul_4p]
@@ -1357,55 +1402,57 @@ cglobal pixel_satd_4x4, 4, 6, 6
 
 cglobal pixel_satd_4x8, 4, 6, 8
     SATD_START_MMX
-%if cpuflag(ssse3)
+%if vertical==0
     mova m7, [hmul_4p]
 %endif
-    SATD_4x8_SSE 0, swap
+    SATD_4x8_SSE vertical, 0, swap
     HADDW m7, m1
     movd eax, m7
     RET
 
 cglobal pixel_satd_4x16, 4, 6, 8
     SATD_START_MMX
-%if cpuflag(ssse3)
+%if vertical==0
     mova m7, [hmul_4p]
 %endif
-    SATD_4x8_SSE 0, swap
-    lea r0, [r0+r1*2]
-    lea r2, [r2+r3*2]
-    SATD_4x8_SSE 1, add
+    SATD_4x8_SSE vertical, 0, swap
+    lea r0, [r0+r1*2*SIZEOF_PIXEL]
+    lea r2, [r2+r3*2*SIZEOF_PIXEL]
+    SATD_4x8_SSE vertical, 1, add
     HADDW m7, m1
     movd eax, m7
     RET
 
 cglobal pixel_satd_8x8_internal
-    LOAD_SUMSUB_8x4P 0, 1, 2, 3, 4, 5, 7, r0, r2, 1
-    SATD_8x4_SSE cpuname, 0, 1, 2, 3, 4, 5, 6
+    LOAD_SUMSUB_8x4P 0, 1, 2, 3, 4, 5, 7, r0, r2, 1, 0
+    SATD_8x4_SSE vertical, 0, 1, 2, 3, 4, 5, 6
 %%pixel_satd_8x4_internal:
-    LOAD_SUMSUB_8x4P 0, 1, 2, 3, 4, 5, 7, r0, r2, 1
-    SATD_8x4_SSE cpuname, 0, 1, 2, 3, 4, 5, 6
+    LOAD_SUMSUB_8x4P 0, 1, 2, 3, 4, 5, 7, r0, r2, 1, 0
+    SATD_8x4_SSE vertical, 0, 1, 2, 3, 4, 5, 6
     ret
 
-%if UNIX64 ; 16x8 regresses on phenom win64, 16x16 is almost the same
+; 16x8 regresses on phenom win64, 16x16 is almost the same (too many spilled registers)
+; These aren't any faster on AVX systems with fast movddup (Bulldozer, Sandy Bridge)
+%if HIGH_BIT_DEPTH == 0 && UNIX64 && notcpuflag(avx)
 cglobal pixel_satd_16x4_internal
     LOAD_SUMSUB_16x4P 0, 1, 2, 3, 4, 8, 5, 9, 6, 7, r0, r2, 11
     lea  r2, [r2+4*r3]
     lea  r0, [r0+4*r1]
-    ; FIXME: this doesn't really mean ssse3, but rather selects between two different behaviors implemented with sse2?
-    SATD_8x4_SSE ssse3, 0, 1, 2, 3, 6, 11, 10
-    SATD_8x4_SSE ssse3, 4, 8, 5, 9, 6, 3, 10
+    ; always use horizontal mode here
+    SATD_8x4_SSE 0, 0, 1, 2, 3, 6, 11, 10
+    SATD_8x4_SSE 0, 4, 8, 5, 9, 6, 3, 10
     ret
 
 cglobal pixel_satd_16x8, 4,6,12
     SATD_START_SSE2 m10, m7
-%if notcpuflag(ssse3)
+%if vertical
     mova m7, [pw_00ff]
 %endif
     jmp %%pixel_satd_16x8_internal
 
 cglobal pixel_satd_16x16, 4,6,12
     SATD_START_SSE2 m10, m7
-%if notcpuflag(ssse3)
+%if vertical
     mova m7, [pw_00ff]
 %endif
     call pixel_satd_16x4_internal
@@ -1424,14 +1471,15 @@ cglobal pixel_satd_16x8, 4,6,8
     SATD_END_SSE2 m6
 
 cglobal pixel_satd_16x16, 4,6,8
-    SATD_START_SSE2 m6, m7
+    SATD_START_SSE2 m6, m7, 1
     BACKUP_POINTERS
     call pixel_satd_8x8_internal
     call pixel_satd_8x8_internal
+    SATD_ACCUM m6, m0, m7
     RESTORE_AND_INC_POINTERS
     call pixel_satd_8x8_internal
     call pixel_satd_8x8_internal
-    SATD_END_SSE2 m6
+    SATD_END_SSE2 m6, m7
 %endif
 
 cglobal pixel_satd_8x16, 4,6,8
@@ -1468,11 +1516,8 @@ cglobal pixel_satd_8x4, 4,6,8
 %endmacro
 
 %macro SA8D 0
-%if HIGH_BIT_DEPTH
-    %define vertical 1
-%else ; sse2 doesn't seem to like the horizontal way of doing things
-    %define vertical (cpuflags == cpuflags_sse2)
-%endif
+; sse2 doesn't seem to like the horizontal way of doing things
+%define vertical ((notcpuflag(ssse3) || cpuflag(atom)) || HIGH_BIT_DEPTH)
 
 %if ARCH_X86_64
 ;-----------------------------------------------------------------------------
@@ -1677,6 +1722,158 @@ cglobal pixel_sa8d_16x16, 4,7
     RET
 %endif ; !ARCH_X86_64
 %endmacro ; SA8D
+
+;=============================================================================
+; SA8D_SATD
+;=============================================================================
+
+; %1: vertical/horizontal mode
+; %2-%5: sa8d output regs (m0,m1,m2,m3,m4,m5,m8,m9)
+; m10: satd result
+; m6, m11-15: tmp regs
+%macro SA8D_SATD_8x4 5
+%if %1
+    LOAD_DIFF_8x4P %2, %3, %4, %5, 6, 11, 7, r0, r2, 1
+    HADAMARD   0, sumsub, %2, %3, 6
+    HADAMARD   0, sumsub, %4, %5, 6
+    SBUTTERFLY        wd, %2, %3, 6
+    SBUTTERFLY        wd, %4, %5, 6
+    HADAMARD2_2D  %2, %4, %3, %5, 6, dq
+
+    mova   m12, m%2
+    mova   m13, m%3
+    mova   m14, m%4
+    mova   m15, m%5
+    HADAMARD 0, sumsub, %2, %3, 6
+    HADAMARD 0, sumsub, %4, %5, 6
+    SBUTTERFLY     qdq, 12, 13, 6
+    HADAMARD   0, amax, 12, 13, 6
+    SBUTTERFLY     qdq, 14, 15, 6
+    paddw m10, m12
+    HADAMARD   0, amax, 14, 15, 6
+    paddw m10, m14
+%else
+    LOAD_SUMSUB_8x4P_SSSE3 %2, %3, %4, %5, 6, 11, 7, r0, r2, 1
+    HADAMARD4_V %2, %3, %4, %5, 6
+
+    pabsw    m12, m%2 ; doing the abs first is a slight advantage
+    pabsw    m14, m%4
+    pabsw    m13, m%3
+    pabsw    m15, m%5
+    HADAMARD 1, max, 12, 14, 6, 11
+    paddw    m10, m12
+    HADAMARD 1, max, 13, 15, 6, 11
+    paddw    m10, m13
+%endif
+%endmacro ; SA8D_SATD_8x4
+
+; %1: add spilled regs?
+; %2: spill regs?
+%macro SA8D_SATD_ACCUM 2
+%if HIGH_BIT_DEPTH
+    pmaddwd m10, [pw_1]
+    HADDUWD  m0, m1
+%if %1
+    paddd   m10, temp1
+    paddd    m0, temp0
+%endif
+%if %2
+    mova  temp1, m10
+    pxor    m10, m10
+%endif
+%elif %1
+    paddw    m0, temp0
+%endif
+%if %2
+    mova  temp0, m0
+%endif
+%endmacro
+
+%macro SA8D_SATD 0
+%define vertical ((notcpuflag(ssse3) || cpuflag(atom)) || HIGH_BIT_DEPTH)
+cglobal pixel_sa8d_satd_8x8_internal
+    SA8D_SATD_8x4 vertical, 0, 1, 2, 3
+    SA8D_SATD_8x4 vertical, 4, 5, 8, 9
+
+%if vertical ; sse2-style
+    HADAMARD2_2D 0, 4, 2, 8, 6, qdq, amax
+    HADAMARD2_2D 1, 5, 3, 9, 6, qdq, amax
+%else        ; complete sa8d
+    SUMSUB_BADC w, 0, 4, 1, 5, 12
+    HADAMARD 2, sumsub, 0, 4, 12, 11
+    HADAMARD 2, sumsub, 1, 5, 12, 11
+    SUMSUB_BADC w, 2, 8, 3, 9, 12
+    HADAMARD 2, sumsub, 2, 8, 12, 11
+    HADAMARD 2, sumsub, 3, 9, 12, 11
+    HADAMARD 1, amax, 0, 4, 12, 11
+    HADAMARD 1, amax, 1, 5, 12, 4
+    HADAMARD 1, amax, 2, 8, 12, 4
+    HADAMARD 1, amax, 3, 9, 12, 4
+%endif
+
+    ; create sa8d sub results
+    paddw    m1, m2
+    paddw    m0, m3
+    paddw    m0, m1
+
+    SAVE_MM_PERMUTATION
+    ret
+
+;-------------------------------------------------------------------------------
+; uint64_t pixel_sa8d_satd_16x16( pixel *, intptr_t, pixel *, intptr_t )
+;-------------------------------------------------------------------------------
+cglobal pixel_sa8d_satd_16x16, 4,8,16,SIZEOF_PIXEL*mmsize
+    %define temp0 [rsp+0*mmsize]
+    %define temp1 [rsp+1*mmsize]
+    FIX_STRIDES r1, r3
+%if vertical==0
+    mova     m7, [hmul_8p]
+%endif
+    lea      r4, [3*r1]
+    lea      r5, [3*r3]
+    lea      r6, [r2+8*SIZEOF_PIXEL]
+    lea      r7, [r0+8*SIZEOF_PIXEL]
+    pxor    m10, m10
+
+    call pixel_sa8d_satd_8x8_internal
+    SA8D_SATD_ACCUM 0, 1
+    call pixel_sa8d_satd_8x8_internal
+    SA8D_SATD_ACCUM 1, 1
+
+    mov      r0, r7
+    mov      r2, r6
+
+    call pixel_sa8d_satd_8x8_internal
+    SA8D_SATD_ACCUM 1, 1
+    call pixel_sa8d_satd_8x8_internal
+    SA8D_SATD_ACCUM 1, 0
+
+; xop already has fast horizontal sums
+%if cpuflag(sse4) && notcpuflag(xop) && HIGH_BIT_DEPTH==0
+    pmaddwd m10, [pw_1]
+    HADDUWD  m0, m1
+    phaddd   m0, m10       ;  sa8d1  sa8d2  satd1  satd2
+    pshufd   m1, m0, q2301 ;  sa8d2  sa8d1  satd2  satd1
+    paddd    m0, m1        ;   sa8d   sa8d   satd   satd
+    movd    r0d, m0
+    pextrd  eax, m0, 2
+%else
+%if HIGH_BIT_DEPTH
+    HADDD    m0, m1
+    HADDD   m10, m2
+%else
+    HADDUW   m0, m1
+    HADDW   m10, m2
+%endif
+    movd    r0d, m0
+    movd    eax, m10
+%endif
+    add     r0d, 1
+    shl     rax, 32
+    shr     r0d, 1
+    or      rax, r0
+    RET
+%endmacro ; SA8D_SATD
 
 ;=============================================================================
 ; INTRA SATD
@@ -1913,15 +2110,16 @@ cglobal hadamard_load
 ; void intra_satd_x3_4x4( uint8_t *fenc, uint8_t *fdec, int *res )
 ;-----------------------------------------------------------------------------
 cglobal intra_satd_x3_4x4, 3,3
-%if ARCH_X86_64
+%if UNIX64
     ; stack is 16 byte aligned because abi says so
     %define  top_1d  rsp-8  ; size 8
     %define  left_1d rsp-16 ; size 8
 %else
-    ; stack is 16 byte aligned at least in gcc, and we've pushed 3 regs + return address, so it's still aligned
-    SUB         esp, 16
-    %define  top_1d  esp+8
-    %define  left_1d esp
+    ; WIN64:  stack is 16 byte aligned because abi says so
+    ; X86_32: stack is 16 byte aligned at least in gcc, and we've pushed 3 regs + return address, so it's still aligned
+    SUB         rsp, 16
+    %define  top_1d  rsp+8
+    %define  left_1d rsp
 %endif
 
     call hadamard_load
@@ -1943,8 +2141,8 @@ cglobal intra_satd_x3_4x4, 3,3
     movd        [r2+0], m0 ; i4x4_v satd
     movd        [r2+4], m4 ; i4x4_h satd
     movd        [r2+8], m5 ; i4x4_dc satd
-%if ARCH_X86_64 == 0
-    ADD         esp, 16
+%if UNIX64 == 0
+    ADD         rsp, 16
 %endif
     RET
 
@@ -2526,7 +2724,7 @@ ALIGN 16
     psubw      m1, m9
     psubw      m2, m10
     psubw      m3, m11
-    SATD_8x4_SSE cpuname, 0, 1, 2, 3, 13, 14, 0, swap
+    SATD_8x4_SSE 0, 0, 1, 2, 3, 13, 14, 0, swap
     pmaddwd    m0, [pw_1]
 %if cpuflag(sse4)
     pshufd     m1, m0, q0032
@@ -2634,7 +2832,7 @@ ALIGN 16
     psubw      m2, [fenc_buf+0x20]
 .satd_8x4b:
     psubw      m3, [fenc_buf+0x30]
-    SATD_8x4_SSE cpuname, 0, 1, 2, 3, 4, 5, 0, swap
+    SATD_8x4_SSE 0, 0, 1, 2, 3, 4, 5, 0, swap
     pmaddwd    m0, [pw_1]
 %if cpuflag(sse4)
     pshufd     m1, m0, q0032
@@ -3579,7 +3777,7 @@ cglobal hadamard_ac_8x8
 %endif
 %if HIGH_BIT_DEPTH
     %define vertical 1
-%elif cpuflag(ssse3)
+%elif cpuflag(ssse3) && notcpuflag(atom)
     %define vertical 0
     ;LOAD_INC loads sumsubs
     mova      m7, [hmul_8p]
@@ -3775,6 +3973,9 @@ SA8D
 INIT_XMM sse2
 SA8D
 SATDS_SSE2
+%if ARCH_X86_64
+SA8D_SATD
+%endif
 %if HIGH_BIT_DEPTH == 0
 INTRA_SA8D_SSE2
 %endif
@@ -3782,6 +3983,16 @@ INIT_MMX mmx2
 INTRA_X3_MMX
 INIT_XMM sse2
 HADAMARD_AC_SSE2
+
+%if HIGH_BIT_DEPTH == 0
+INIT_XMM ssse3,atom
+SATDS_SSE2
+SA8D
+HADAMARD_AC_SSE2
+%if ARCH_X86_64
+SA8D_SATD
+%endif
+%endif
 
 %define DIFFOP DIFF_SUMSUB_SSSE3
 %define LOAD_DUP_4x8P LOAD_DUP_4x8P_CONROE
@@ -3794,6 +4005,9 @@ INIT_XMM ssse3
 SATDS_SSE2
 SA8D
 HADAMARD_AC_SSE2
+%if ARCH_X86_64
+SA8D_SATD
+%endif
 %if HIGH_BIT_DEPTH == 0
 INTRA_X9
 INTRA8_X9
@@ -3812,14 +4026,23 @@ INIT_XMM sse4
 SATDS_SSE2
 SA8D
 HADAMARD_AC_SSE2
+%if ARCH_X86_64
+SA8D_SATD
+%endif
 %if HIGH_BIT_DEPTH == 0
 INTRA_X9
 INTRA8_X9
 %endif
 
+; Sandy/Ivy Bridge and Bulldozer do movddup in the load unit, so
+; it's effectively free.
+%define LOAD_DUP_4x8P LOAD_DUP_4x8P_CONROE
 INIT_XMM avx
 SATDS_SSE2
 SA8D
+%if ARCH_X86_64
+SA8D_SATD
+%endif
 %if HIGH_BIT_DEPTH == 0
 INTRA_X9
 INTRA8_X9
@@ -3830,6 +4053,9 @@ HADAMARD_AC_SSE2
 INIT_XMM xop
 SATDS_SSE2
 SA8D
+%if ARCH_X86_64
+SA8D_SATD
+%endif
 %if HIGH_BIT_DEPTH == 0
 INTRA_X9
 ; no xop INTRA8_X9. it's slower than avx on bulldozer. dunno why.
@@ -4184,8 +4410,8 @@ cglobal pixel_ads4, 5,7,12
     punpckhqdq xmm5, xmm5
     punpckhqdq xmm4, xmm4
 %if ARCH_X86_64
-    pshuflw xmm8, r6m, 0
-    punpcklqdq xmm8, xmm8
+    movd    xmm8, r6m
+    SPLATW  xmm8, xmm8
     ADS_START
     movdqu  xmm10, [r1]
     movdqu  xmm11, [r1+r2]
