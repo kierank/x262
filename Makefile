@@ -20,6 +20,7 @@ SRCS = common/mc.c common/predict.c common/pixel.c common/macroblock.c \
        common/mvpred.c common/bitstream.c \
        encoder/analyse.c encoder/me.c encoder/ratecontrol.c \
        encoder/set.c encoder/macroblock.c encoder/cabac.c \
+       encoder/speed.c \
        encoder/cavlc.c encoder/encoder.c encoder/lookahead.c
 
 SRCCLI = x264.c input/input.c input/timecode.c input/raw.c input/y4m.c \

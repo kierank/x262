@@ -488,6 +488,7 @@ case $host_os in
         SYS="LINUX"
         define HAVE_MALLOC_H
         libm="-lm"
+        LDFLAGS="$LDFLAGS -lrt"
         ;;
     gnu*)
         SYS="HURD"
@@ -1125,7 +1126,7 @@ EOF
 
 if [ $compiler = ICL ]; then
     echo '%.o: %.c' >> config.mak
-    echo '	$(CC) $(CFLAGS) -c -Fo$@ $<' >> config.mak
+    echo '  $(CC) $(CFLAGS) -c -Fo$@ $<' >> config.mak
 fi
 
 if [ "$cli" = "yes" ]; then

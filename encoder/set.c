@@ -279,7 +279,7 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
     }
 
     sps->vui.b_vcl_hrd_parameters_present = 0; // we don't support VCL HRD
-    sps->vui.b_nal_hrd_parameters_present = !!param->i_nal_hrd;
+    sps->vui.b_nal_hrd_parameters_present = param->i_nal_hrd == X264_NAL_HRD_VBR || param->i_nal_hrd == X264_NAL_HRD_CBR;
     sps->vui.b_pic_struct_present = param->b_pic_struct;
 
     // NOTE: HRD related parts of the SPS are initialised in x264_ratecontrol_init_reconfigurable
@@ -456,7 +456,7 @@ void x264_pps_init( x264_t *h, x264_pps_t *pps, int i_id, x264_param_t *param, x
     pps->i_sps_id = sps->i_id;
     pps->b_cabac = param->b_cabac;
 
-    pps->b_pic_order = param->b_interlaced;
+    pps->b_pic_order = param->b_interlaced && !param->b_tff;
     pps->i_num_slice_groups = 1;
 
     pps->i_num_ref_idx_l0_default_active = param->i_frame_reference;

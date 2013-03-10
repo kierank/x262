@@ -667,6 +667,14 @@ static void help( x264_param_t *defaults, int longhelp )
         "                                  K=<I or i> depending on open-gop setting\n"
         "                              QPs are restricted by qpmin/qpmax.\n" );
     H1( "\n" );
+
+    H1( "Speedcontrol:\n" );
+    H1( "\n" );
+    H1( "      --speed <float>         Automatically adjust other options to achieve this\n" );
+    H1( "                                  fraction of realtime.\n" );
+    H1( "      --speed-bufsize <int>   Averaging period for speed. (in frames) [%d]\n", defaults->sc.i_buffer_size );
+    H1( "\n" );
+
     H1( "Analysis:\n" );
     H1( "\n" );
     H1( "  -A, --partitions <string>   Partitions to consider [\"p8x8,b8x8,i8x8,i4x4\"]\n"
@@ -994,6 +1002,8 @@ static struct option long_options[] =
     { "cplxblur",    required_argument, NULL, 0 },
     { "zones",       required_argument, NULL, 0 },
     { "qpfile",      required_argument, NULL, OPT_QPFILE },
+    { "speed",   required_argument, NULL, 0 },
+    { "speed-bufsize", required_argument, NULL, 0 },
     { "threads",     required_argument, NULL, 0 },
     { "lookahead-threads", required_argument, NULL, 0 },
     { "sliced-threads",    no_argument, NULL, 0 },
