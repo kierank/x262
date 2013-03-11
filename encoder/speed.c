@@ -124,7 +124,7 @@ static void apply_preset( x264_t *h, int preset )
 {
     x264_speedcontrol_t *sc = h->sc;
     preset = x264_clip3( preset, 0, h->param.sc.max_preset-1 );
-    //if( preset != sc->preset )
+    if( 0 )
     {
         const sc_preset_t *s = &presets[preset];
         x264_param_t p = h->param;
@@ -221,7 +221,7 @@ void x264_speedcontrol_frame( x264_t *h )
                      / (sc->buffer_size*3/4 + sc->compensation_period);
         float cplx = sc->cplx_num / sc->cplx_den;
         float set, t0, t1;
-	float filled = (float) sc->buffer_fill / sc->buffer_size;
+        float filled = (float) sc->buffer_fill / sc->buffer_size;
         int i;
         t0 = presets[0].time * cplx;
         for( i=1;; i++ )
