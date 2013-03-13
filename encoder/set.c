@@ -906,7 +906,7 @@ void x264_seq_extension_write_mpeg2( x264_t *h, bs_t *s )
     bs_write( s, 12, (h->param.rc.i_vbv_max_bitrate * 1000 + 399) / 400 >> 18 & 0xfff );   // bit_rate_extension
     bs_write1( s, 1 );   // marker_bit
     bs_write( s, 8, (h->param.rc.i_vbv_buffer_size * 1000 + 16383) / 16384 >> 10 & 0xff ); // vbv_buffer_size_extension
-    bs_write1( s, 0 );   // low_delay
+    bs_write1( s, !h->param.i_bframe ); // low_delay
     bs_write( s, 2, 0 ); // frame_rate_extension_n
     bs_write( s, 5, 0 ); // frame_rate_extension_d
 
