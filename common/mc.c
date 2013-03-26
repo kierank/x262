@@ -243,7 +243,7 @@ static pixel *get_ref( pixel *dst,   intptr_t *i_dst_stride,
 }
 
 static void hpel_filter_mpeg2( pixel *dsth, pixel *dstv, pixel *dstc, pixel *src,
-                               int stride, int width, int height, dctcoef *buf )
+                               intptr_t stride, int width, int height, int16_t *buf )
 {
     for( int y = 0; y < height; y++ )
     {
@@ -260,8 +260,8 @@ static void hpel_filter_mpeg2( pixel *dsth, pixel *dstv, pixel *dstc, pixel *src
     }
 }
 
-static void mc_luma_mpeg2( pixel *dst,    int i_dst_stride,
-                           pixel *src[4], int i_src_stride,
+static void mc_luma_mpeg2( pixel *dst,    intptr_t i_dst_stride,
+                           pixel *src[4], intptr_t i_src_stride,
                            int mvx, int mvy,
                            int i_width, int i_height, const x264_weight_t *weight )
 {
@@ -271,9 +271,10 @@ static void mc_luma_mpeg2( pixel *dst,    int i_dst_stride,
     mc_copy( src1, i_src_stride, dst, i_dst_stride, i_width, i_height );
 }
 
-static void mc_chroma_mpeg2( pixel *dstu, pixel *dstv, int i_dst_stride,
-                            pixel *src, int i_src_stride,
-                            int mvx, int mvy, int i_width, int i_height )
+static void mc_chroma_mpeg2( pixel *dstu, pixel *dstv, intptr_t i_dst_stride,
+                             pixel *src, intptr_t i_src_stride,
+                             int mvx, int mvy,
+                             int i_width, int i_height )
 {
     mvx /= 4;
     mvy /= 4;
@@ -340,8 +341,8 @@ static void mc_chroma_mpeg2( pixel *dstu, pixel *dstv, int i_dst_stride,
     }
 }
 
-static pixel *get_ref_mpeg2( pixel *dst,   int *i_dst_stride,
-                             pixel *src[4], int i_src_stride,
+static pixel *get_ref_mpeg2( pixel *dst,   intptr_t *i_dst_stride,
+                             pixel *src[4], intptr_t i_src_stride,
                              int mvx, int mvy,
                              int i_width, int i_height, const x264_weight_t *weight )
 {
