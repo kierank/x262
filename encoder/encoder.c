@@ -1294,6 +1294,7 @@ static void x264_set_aspect_ratio( x264_t *h, x264_param_t *param, int initial )
                 x264_log( h, initial?X264_LOG_INFO:X264_LOG_DEBUG, "using %cAR=%d/%d\n", s, i_w, i_h );
                 h->param.vui.i_sar_width = i_w;
                 h->param.vui.i_sar_height = i_h;
+                h->param.vui.i_aspect_ratio_information = param->vui.i_aspect_ratio_information;
             }
             x264_sps_init( h->sps, h->param.i_sps_id, &h->param );
         }
