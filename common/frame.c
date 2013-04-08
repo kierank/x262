@@ -78,6 +78,7 @@ static x264_frame_t *x264_frame_new( x264_t *h, int b_fdec )
 #else
     int disalign = 1<<10;
 #endif
+    int pixel_buffers = MPEG2 ? 1 : 4;
 
     CHECKED_MALLOCZERO( frame, sizeof(x264_frame_t) );
 
@@ -161,10 +162,10 @@ static x264_frame_t *x264_frame_new( x264_t *h, int b_fdec )
         if( h->param.analyse.i_subpel_refine && b_fdec )
         {
             /* FIXME: Don't allocate both buffers in non-adaptive MBAFF. */
-            CHECKED_MALLOC( frame->buffer[p], 4*luma_plane_size * sizeof(pixel) );
+            CHECKED_MALLOC( frame->buffer[p], pixel_buffers*luma_plane_size * sizeof(pixel) );
             if( PARAM_INTERLACED )
-                CHECKED_MALLOC( frame->buffer_fld[p], 4*luma_plane_size * sizeof(pixel) );
-            for( int i = 0; i < 4; i++ )
+                CHECKED_MALLOC( frame->buffer_fld[p], pixel_buffers*luma_plane_size * sizeof(pixel) );
+            for( int i = 0; i < pixel_buffers; i++ )
             {
                 frame->filtered[p][i] = frame->buffer[p] + i*luma_plane_size + frame->i_stride[p] * i_padv + PADH;
                 frame->filtered_fld[p][i] = frame->buffer_fld[p] + i*luma_plane_size + frame->i_stride[p] * i_padv + PADH;
@@ -223,8 +224,8 @@ static x264_frame_t *x264_frame_new( x264_t *h, int b_fdec )
         {
             int luma_plane_size = align_plane_size( frame->i_stride_lowres * (frame->i_lines[0]/2 + 2*PADV), disalign );
 
-            CHECKED_MALLOC( frame->buffer_lowres[0], 4 * luma_plane_size * sizeof(pixel) );
-            for( int i = 0; i < 4; i++ )
+            CHECKED_MALLOC( frame->buffer_lowres[0], pixel_buffers * luma_plane_size * sizeof(pixel) );
+            for( int i = 0; i < pixel_buffers; i++ )
                 frame->lowres[i] = frame->buffer_lowres[0] + (frame->i_stride_lowres * PADV + PADH) + i * luma_plane_size;
 
             for( int j = 0; j <= !!h->param.i_bframe; j++ )
@@ -555,8 +556,9 @@ void x264_frame_expand_border_filtered( x264_t *h, x264_frame_t *frame, int mb_y
     int height = b_end ? (16*(h->mb.i_mb_height - mb_y) >> PLANE_MBAFF) + 16 : 16;
     int padh = PADH - 4;
     int padv = PADV - 8;
+    int pixel_buffers = MPEG2 ? 1 : 4;
     for( int p = 0; p < (CHROMA444 ? 3 : 1); p++ )
-        for( int i = 1; i < 4; i++ )
+        for( int i = 1; i < pixel_buffers; i++ )
         {
             int stride = frame->i_stride[p];
             // buffer: 8 luma, to match the hpel filter
@@ -573,9 +575,10 @@ void x264_frame_expand_border_filtered( x264_t *h, x264_frame_t *frame, int mb_y
         }
 }
 
-void x264_frame_expand_border_lowres( x264_frame_t *frame )
+void x264_frame_expand_border_lowres( x264_t *h, x264_frame_t *frame )
 {
-    for( int i = 0; i < 4; i++ )
+    int pixel_buffers = MPEG2 ? 1 : 4;
+    for( int i = 0; i < pixel_buffers; i++ )
         plane_expand_border( frame->lowres[i], frame->i_stride_lowres, frame->i_width_lowres, frame->i_lines_lowres, PADH, PADV, 1, 1, 0 );
 }
 

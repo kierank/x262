@@ -903,10 +903,25 @@ static void refine_subpel( x264_t *h, x264_me_t *m, int hpel_iters, int qpel_ite
             intptr_t stride = 64; // candidates are either all hpel or all qpel, so one stride is enough
             pixel *src0, *src1, *src2, *src3;
             src0 = h->mc.get_ref( pix,    &stride, m->p_fref, m->i_stride[0], omx, omy-2, bw, bh+1, &m->weight[0] );
-            src2 = h->mc.get_ref( pix+32, &stride, m->p_fref, m->i_stride[0], omx-2, omy, bw+4, bh, &m->weight[0] );
             src1 = src0 + stride;
-            src3 = src2 + 1;
-            h->pixf.fpelcmp_x4[i_pixel]( m->p_fenc[0], src0, src1, src2, src3, stride, costs );
+
+            if( MPEG2 ) // MPEG-2 has varying stride
+            {
+                costs[0] = h->pixf.mbcmp_unaligned[i_pixel]( m->p_fenc[0], FENC_STRIDE, src0, stride );
+                costs[1] = h->pixf.mbcmp_unaligned[i_pixel]( m->p_fenc[0], FENC_STRIDE, src1, stride );
+                stride = 64;
+                src2 = h->mc.get_ref( pix+32, &stride, m->p_fref, m->i_stride[0], omx-2, omy, bw+4, bh, &m->weight[0] );
+                src3 = src2 + 1;
+                costs[2] = h->pixf.mbcmp_unaligned[i_pixel]( m->p_fenc[0], FENC_STRIDE, src2, stride );
+                costs[3] = h->pixf.mbcmp_unaligned[i_pixel]( m->p_fenc[0], FENC_STRIDE, src3, stride );
+            }
+            else
+            {
+                src2 = h->mc.get_ref( pix+32, &stride, m->p_fref, m->i_stride[0], omx-2, omy, bw+4, bh, &m->weight[0] );
+                src3 = src2 + 1;
+                h->pixf.fpelcmp_x4[i_pixel]( m->p_fenc[0], src0, src1, src2, src3, stride, costs );
+            }
+
             costs[0] += p_cost_mvx[omx  ] + p_cost_mvy[omy-2];
             costs[1] += p_cost_mvx[omx  ] + p_cost_mvy[omy+2];
             costs[2] += p_cost_mvx[omx-2] + p_cost_mvy[omy  ];

@@ -1166,7 +1166,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
 
 static void mbcmp_init( x264_t *h )
 {
-    int satd = !h->mb.b_lossless && h->param.analyse.i_subpel_refine > 1;
+    int satd = (!h->mb.b_lossless && h->param.analyse.i_subpel_refine > 1) || MPEG2;
     memcpy( h->pixf.mbcmp, satd ? h->pixf.satd : h->pixf.sad_aligned, sizeof(h->pixf.mbcmp) );
     memcpy( h->pixf.mbcmp_unaligned, satd ? h->pixf.satd : h->pixf.sad, sizeof(h->pixf.mbcmp_unaligned) );
     h->pixf.intra_mbcmp_x3_16x16 = satd ? h->pixf.intra_satd_x3_16x16 : h->pixf.intra_sad_x3_16x16;
@@ -1178,7 +1178,7 @@ static void mbcmp_init( x264_t *h )
                                : satd ? h->pixf.intra_satd_x9_4x4 : h->pixf.intra_sad_x9_4x4;
     h->pixf.intra_mbcmp_x9_8x8 = h->param.b_cpu_independent || h->mb.b_lossless ? NULL
                                : satd ? h->pixf.intra_sa8d_x9_8x8 : h->pixf.intra_sad_x9_8x8;
-    satd &= h->param.analyse.i_me_method == X264_ME_TESA;
+    satd &= (h->param.analyse.i_me_method == X264_ME_TESA || MPEG2);
     memcpy( h->pixf.fpelcmp, satd ? h->pixf.satd : h->pixf.sad, sizeof(h->pixf.fpelcmp) );
     memcpy( h->pixf.fpelcmp_x3, satd ? h->pixf.satd_x3 : h->pixf.sad_x3, sizeof(h->pixf.fpelcmp_x3) );
     memcpy( h->pixf.fpelcmp_x4, satd ? h->pixf.satd_x4 : h->pixf.sad_x4, sizeof(h->pixf.fpelcmp_x4) );
