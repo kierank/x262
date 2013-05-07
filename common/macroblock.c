@@ -123,8 +123,8 @@ static NOINLINE void x264_mb_mc_01xywh( x264_t *h, int x, int y, int width, int 
     int mvy1   = x264_clip3( h->mb.cache.mv[1][i8][1], h->mb.mv_min[1], h->mb.mv_max[1] ) + 4*4*y*(!MPEG2);
     int i_mode = x264_size2pixel[height][width];
     intptr_t i_stride0 = 16, i_stride1 = 16;
-    ALIGNED_ARRAY_16( pixel, tmp0,[16*16] );
-    ALIGNED_ARRAY_16( pixel, tmp1,[16*16] );
+    ALIGNED_ARRAY_N( pixel, tmp0,[16*16] );
+    ALIGNED_ARRAY_N( pixel, tmp1,[16*16] );
     pixel *src0, *src1;
 
     MC_LUMA_BI( 0 );
@@ -388,7 +388,7 @@ int x264_macroblock_thread_allocate( x264_t *h, int b_lookahead )
     int scratch_size = 0;
     if( !b_lookahead )
     {
-        int buf_hpel = (h->thread[0]->fdec->i_width[0]+48) * sizeof(int16_t);
+        int buf_hpel = (h->thread[0]->fdec->i_width[0]+48+32) * sizeof(int16_t);
         int buf_ssim = h->param.analyse.b_ssim * 8 * (h->param.i_width/4+3) * sizeof(int);
         int me_range = X264_MIN(h->param.analyse.i_me_range, h->param.analyse.i_mv_range);
         int buf_tesa = (h->param.analyse.i_me_method >= X264_ME_ESA) *

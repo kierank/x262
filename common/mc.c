@@ -660,7 +660,7 @@ static void mbtree_propagate_cost( int *dst, uint16_t *propagate_in, uint16_t *i
     }
 }
 
-void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 )
+void x264_mc_init( int cpu, x264_mc_functions_t *pf, int cpu_independent, int b_mpeg2 )
 {
     pf->mc_luma   = mc_luma;
     pf->get_ref   = get_ref;
@@ -735,6 +735,9 @@ void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 )
         pf->hpel_filter = NULL;
         pf->frame_init_lowres_core = frame_init_lowres_core_mpeg2;
     }
+
+    if( cpu_independent )
+        pf->mbtree_propagate_cost = mbtree_propagate_cost;
 }
 
 void x264_frame_filter( x264_t *h, x264_frame_t *frame, int mb_y, int b_end )

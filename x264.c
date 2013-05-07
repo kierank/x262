@@ -600,8 +600,11 @@ static void help( x264_param_t *defaults, int longhelp )
     H2( "      --slices <integer>      Number of slices per frame; forces rectangular\n"
         "                              slices and is overridden by other slicing options\n" );
     else H1( "      --slices <integer>      Number of slices per frame\n" );
+    H2( "      --slices-max <integer>  Absolute maximum slices per frame; overrides\n"
+        "                              slice-max-size/slice-max-mbs when necessary\n" );
     H2( "      --slice-max-size <integer> Limit the size of each slice in bytes\n");
-    H2( "      --slice-max-mbs <integer> Limit the size of each slice in macroblocks\n");
+    H2( "      --slice-max-mbs <integer> Limit the size of each slice in macroblocks (max)\n");
+    H2( "      --slice-min-mbs <integer> Limit the size of each slice in macroblocks (min)\n");
     H0( "      --tff                   Enable interlaced mode (top field first)\n" );
     H0( "      --bff                   Enable interlaced mode (bottom field first)\n" );
     H2( "      --constrained-intra     Enable constrained intra prediction.\n" );
@@ -822,6 +825,9 @@ static void help( x264_param_t *defaults, int longhelp )
         "                                  as opposed to letting them select different algorithms\n" );
     H2( "      --asm <integer>         Override CPU detection\n" );
     H2( "      --no-asm                Disable all CPU optimizations\n" );
+    H2( "      --opencl                Enable use of OpenCL\n" );
+    H2( "      --opencl-clbin <string> Specify path of compiled OpenCL kernel cache\n" );
+    H2( "      --opencl-device <integer>  Specify OpenCL device ordinal\n" );
     H2( "      --visualize             Show MB types overlayed on the encoded video\n" );
     H2( "      --dump-yuv <string>     Save reconstructed frames\n" );
     H2( "      --sps-id <integer>      Set SPS and PPS id numbers [%d]\n", defaults->i_sps_id );
@@ -928,6 +934,9 @@ static struct option long_options[] =
     { "ref",         required_argument, NULL, 'r' },
     { "asm",         required_argument, NULL, 0 },
     { "no-asm",            no_argument, NULL, 0 },
+    { "opencl",            no_argument, NULL, 1 },
+    { "opencl-clbin",required_argument, NULL, 0 },
+    { "opencl-device",required_argument, NULL, 0 },
     { "sar",         required_argument, NULL, 0 },
     { "fps",         required_argument, NULL, OPT_FPS },
     { "frames",      required_argument, NULL, OPT_FRAMES },
@@ -1000,7 +1009,9 @@ static struct option long_options[] =
     { "no-sliced-threads", no_argument, NULL, 0 },
     { "slice-max-size",    required_argument, NULL, 0 },
     { "slice-max-mbs",     required_argument, NULL, 0 },
+    { "slice-min-mbs",     required_argument, NULL, 0 },
     { "slices",            required_argument, NULL, 0 },
+    { "slices-max",        required_argument, NULL, 0 },
     { "thread-input",      no_argument, NULL, OPT_THREAD_INPUT },
     { "sync-lookahead",    required_argument, NULL, 0 },
     { "non-deterministic", no_argument, NULL, 0 },

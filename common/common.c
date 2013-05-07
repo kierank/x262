@@ -198,6 +198,10 @@ void x264_param_default( x264_param_t *param )
     param->b_pic_struct = 0;
     param->b_fake_interlaced = 0;
     param->i_frame_packing = -1;
+    param->b_opencl = 0;
+    param->i_opencl_device = 0;
+    param->opencl_device_id = NULL;
+    param->psz_clbin_file = NULL;
     param->b_mpeg2 = 0;
 }
 
@@ -900,8 +904,12 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         p->i_slice_max_size = atoi(value);
     OPT("slice-max-mbs")
         p->i_slice_max_mbs = atoi(value);
+    OPT("slice-min-mbs")
+        p->i_slice_min_mbs = atoi(value);
     OPT("slices")
         p->i_slice_count = atoi(value);
+    OPT("slices-max")
+        p->i_slice_count_max = atoi(value);
 #if HAVE_MPEG2
     OPT("mpeg2")
         p->b_mpeg2 = atobool(value);
@@ -1163,6 +1171,12 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         p->b_fake_interlaced = atobool(value);
     OPT("frame-packing")
         p->i_frame_packing = atoi(value);
+    OPT("opencl")
+        p->b_opencl = atobool( value );
+    OPT("opencl-clbin")
+        p->psz_clbin_file = strdup( value );
+    OPT("opencl-device")
+        p->i_opencl_device = atoi( value );
     else
         return X264_PARAM_BAD_NAME;
 #undef OPT
@@ -1325,17 +1339,14 @@ void x264_picture_clean( x264_picture_t *pic )
 void *x264_malloc( int i_size )
 {
     uint8_t *align_buf = NULL;
-#if SYS_MACOSX || (SYS_WINDOWS && ARCH_X86_64)
-    /* Mac OS X and Win x64 always returns 16 byte aligned memory */
-    align_buf = malloc( i_size );
-#elif HAVE_MALLOC_H
-    align_buf = memalign( 16, i_size );
+#if HAVE_MALLOC_H
+    align_buf = memalign( NATIVE_ALIGN, i_size );
 #else
-    uint8_t *buf = malloc( i_size + 15 + sizeof(void **) );
+    uint8_t *buf = malloc( i_size + (NATIVE_ALIGN-1) + sizeof(void **) );
     if( buf )
     {
-        align_buf = buf + 15 + sizeof(void **);
-        align_buf -= (intptr_t) align_buf & 15;
+        align_buf = buf + (NATIVE_ALIGN-1) + sizeof(void **);
+        align_buf -= (intptr_t) align_buf & (NATIVE_ALIGN-1);
         *( (void **) ( align_buf - sizeof(void **) ) ) = buf;
     }
 #endif
@@ -1351,7 +1362,7 @@ void x264_free( void *p )
 {
     if( p )
     {
-#if HAVE_MALLOC_H || SYS_MACOSX || (SYS_WINDOWS && ARCH_X86_64)
+#if HAVE_MALLOC_H
         free( p );
 #else
         free( *( ( ( void **) p ) - 1 ) );
@@ -1440,7 +1451,9 @@ char *x264_param2string( x264_param_t *p, int b_res )
         s += sprintf( s, "bitdepth=%d ", BIT_DEPTH );
     }
 
-    s += sprintf( s, "cabac=%d", p->b_cabac );
+    if( p->b_opencl )
+        s += sprintf( s, "opencl=%d", p->b_opencl );
+    s += sprintf( s, " cabac=%d", p->b_cabac );
     s += sprintf( s, " ref=%d", p->i_frame_reference );
     s += sprintf( s, " mpeg2=%d", p->b_mpeg2 );
     s += sprintf( s, " deblock=%d:%d:%d", p->b_deblocking_filter,
@@ -1465,10 +1478,14 @@ char *x264_param2string( x264_param_t *p, int b_res )
     s += sprintf( s, " sliced_threads=%d", p->b_sliced_threads );
     if( p->i_slice_count )
         s += sprintf( s, " slices=%d", p->i_slice_count );
+    if( p->i_slice_count_max )
+        s += sprintf( s, " slices_max=%d", p->i_slice_count_max );
     if( p->i_slice_max_size )
         s += sprintf( s, " slice_max_size=%d", p->i_slice_max_size );
     if( p->i_slice_max_mbs )
         s += sprintf( s, " slice_max_mbs=%d", p->i_slice_max_mbs );
+    if( p->i_slice_min_mbs )
+        s += sprintf( s, " slice_min_mbs=%d", p->i_slice_min_mbs );
     s += sprintf( s, " nr=%d", p->analyse.i_noise_reduction );
     s += sprintf( s, " decimate=%d", p->analyse.b_dct_decimate );
     s += sprintf( s, " interlaced=%s", p->b_interlaced ? p->b_tff ? "tff" : "bff" : p->b_fake_interlaced ? "fake" : "0" );

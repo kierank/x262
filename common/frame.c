@@ -72,7 +72,13 @@ static x264_frame_t *x264_frame_new( x264_t *h, int b_fdec )
     int i_mb_count = h->mb.i_mb_count;
     int i_stride, i_width, i_lines, luma_plane_count;
     int i_padv = PADV << PARAM_INTERLACED;
-    int align = h->param.cpu&X264_CPU_CACHELINE_64 ? 64 : h->param.cpu&X264_CPU_CACHELINE_32 ? 32 : 16;
+    int align = 16;
+#if ARCH_X86 || ARCH_X86_64
+    if( h->param.cpu&X264_CPU_CACHELINE_64 )
+        align = 64;
+    else if( h->param.cpu&X264_CPU_CACHELINE_32 || h->param.cpu&X264_CPU_AVX2 )
+        align = 32;
+#endif
 #if ARCH_PPC
     int disalign = 1<<9;
 #else
@@ -317,6 +323,9 @@ void x264_frame_delete( x264_frame_t *frame )
         }
         x264_pthread_mutex_destroy( &frame->mutex );
         x264_pthread_cond_destroy( &frame->cv );
+#if HAVE_OPENCL
+        x264_opencl_frame_delete( frame );
+#endif
     }
     x264_free( frame );
 }
@@ -665,6 +674,21 @@ void x264_threadslice_cond_wait( x264_t *h, int pass )
     x264_pthread_mutex_unlock( &h->mutex );
 }
 
+int x264_frame_new_slice( x264_t *h, x264_frame_t *frame )
+{
+    if( h->param.i_slice_count_max )
+    {
+        int slice_count;
+        if( h->param.b_sliced_threads )
+            slice_count = x264_pthread_fetch_and_add( &frame->i_slice_count, 1, &frame->mutex );
+        else
+            slice_count = frame->i_slice_count++;
+        if( slice_count >= h->param.i_slice_count_max )
+            return -1;
+    }
+    return 0;
+}
+
 /* list operators */
 
 void x264_frame_push( x264_frame_t **list, x264_frame_t *frame )
@@ -727,6 +751,7 @@ x264_frame_t *x264_frame_pop_unused( x264_t *h, int b_fdec )
     frame->b_scenecut = 1;
     frame->b_keyframe = 0;
     frame->b_corrupt = 0;
+    frame->i_slice_count = h->param.b_sliced_threads ? h->param.i_threads : 1;
 
     memset( frame->weight, 0, sizeof(frame->weight) );
     memset( frame->f_weighted_cost_delta, 0, sizeof(frame->f_weighted_cost_delta) );

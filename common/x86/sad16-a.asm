@@ -4,6 +4,7 @@
 ;* Copyright (C) 2010-2013 x264 project
 ;*
 ;* Authors: Oskar Arvidsson <oskar@irock.se>
+;*          Henrik Gramner <henrik@gramner.com>
 ;*
 ;* This program is free software; you can redistribute it and/or modify
 ;* it under the terms of the GNU General Public License as published by
@@ -90,11 +91,18 @@ cextern pw_8
 ; int pixel_sad_NxM( uint16_t *, intptr_t, uint16_t *, intptr_t )
 ;-----------------------------------------------------------------------------
 %macro SAD_MMX 3
-cglobal pixel_sad_%1x%2, 4,4
+cglobal pixel_sad_%1x%2, 4,5-(%2&4/4)
     pxor    m0, m0
-%rep %2/%3
+%if %2 == 4
     SAD_INC_%3x%1P_MMX
-%endrep
+    SAD_INC_%3x%1P_MMX
+%else
+    mov    r4d, %2/%3
+.loop:
+    SAD_INC_%3x%1P_MMX
+    dec    r4d
+    jg .loop
+%endif
 %if %1*%2 == 256
     HADDUW  m0, m1
 %else
@@ -120,7 +128,8 @@ SAD_MMX  4,  4, 2
 ; SAD XMM
 ;=============================================================================
 
-%macro SAD_INC_2x16P_XMM 0
+%macro SAD_INC_2ROW 1
+%if 2*%1 > mmsize
     movu    m1, [r2+ 0]
     movu    m2, [r2+16]
     movu    m3, [r2+2*r3+ 0]
@@ -137,9 +146,7 @@ SAD_MMX  4,  4, 2
     paddw   m3, m4
     paddw   m0, m1
     paddw   m0, m3
-%endmacro
-
-%macro SAD_INC_2x8P_XMM 0
+%else
     movu    m1, [r2]
     movu    m2, [r2+2*r3]
     psubw   m1, [r0]
@@ -149,44 +156,58 @@ SAD_MMX  4,  4, 2
     lea     r2, [r2+4*r3]
     paddw   m0, m1
     paddw   m0, m2
+%endif
 %endmacro
 
 ;-----------------------------------------------------------------------------
 ; int pixel_sad_NxM( uint16_t *, intptr_t, uint16_t *, intptr_t )
 ;-----------------------------------------------------------------------------
-%macro SAD_XMM 2
-cglobal pixel_sad_%1x%2, 4,4,8
+%macro SAD 2
+cglobal pixel_sad_%1x%2, 4,5-(%2&4/4),8*(%1/mmsize)
     pxor    m0, m0
-%rep %2/2
-    SAD_INC_2x%1P_XMM
-%endrep
+%if %2 == 4
+    SAD_INC_2ROW %1
+    SAD_INC_2ROW %1
+%else
+    mov    r4d, %2/2
+.loop:
+    SAD_INC_2ROW %1
+    dec    r4d
+    jg .loop
+%endif
     HADDW   m0, m1
-    movd   eax, m0
+    movd   eax, xm0
     RET
 %endmacro
 
 INIT_XMM sse2
-SAD_XMM 16, 16
-SAD_XMM 16,  8
-SAD_XMM  8, 16
-SAD_XMM  8,  8
-SAD_XMM  8,  4
+SAD 16, 16
+SAD 16,  8
+SAD  8, 16
+SAD  8,  8
+SAD  8,  4
 INIT_XMM sse2, aligned
-SAD_XMM 16, 16
-SAD_XMM 16,  8
-SAD_XMM  8, 16
-SAD_XMM  8,  8
+SAD 16, 16
+SAD 16,  8
+SAD  8, 16
+SAD  8,  8
 INIT_XMM ssse3
-SAD_XMM 16, 16
-SAD_XMM 16,  8
-SAD_XMM  8, 16
-SAD_XMM  8,  8
-SAD_XMM  8,  4
+SAD 16, 16
+SAD 16,  8
+SAD  8, 16
+SAD  8,  8
+SAD  8,  4
 INIT_XMM ssse3, aligned
-SAD_XMM 16, 16
-SAD_XMM 16,  8
-SAD_XMM  8, 16
-SAD_XMM  8,  8
+SAD 16, 16
+SAD 16,  8
+SAD  8, 16
+SAD  8,  8
+INIT_YMM avx2
+SAD 16, 16
+SAD 16,  8
+INIT_YMM avx2, aligned
+SAD 16, 16
+SAD 16,  8
 
 ;=============================================================================
 ; SAD x3/x4
@@ -237,14 +258,14 @@ SAD_XMM  8,  8
     HADDW    m2, m5
 %endif
 %if UNIX64
-    movd [r5+0], m0
-    movd [r5+4], m1
-    movd [r5+8], m2
+    movd [r5+0], xm0
+    movd [r5+4], xm1
+    movd [r5+8], xm2
 %else
     mov      r0, r5mp
-    movd [r0+0], m0
-    movd [r0+4], m1
-    movd [r0+8], m2
+    movd [r0+0], xm0
+    movd [r0+4], xm1
+    movd [r0+8], xm2
 %endif
     RET
 %endmacro
@@ -333,10 +354,10 @@ SAD_XMM  8,  8
     HADDW     m3, m7
 %endif
     mov       r0, r6mp
-    movd [r0+ 0], m0
-    movd [r0+ 4], m1
-    movd [r0+ 8], m2
-    movd [r0+12], m3
+    movd [r0+ 0], xm0
+    movd [r0+ 4], xm1
+    movd [r0+ 8], xm2
+    movd [r0+12], xm3
     RET
 %endmacro
 
@@ -400,8 +421,39 @@ PIXEL_VSAD
 INIT_XMM xop
 PIXEL_VSAD
 
+INIT_YMM avx2
+cglobal pixel_vsad, 3,3
+    mova      m0, [r0]
+    mova      m1, [r0+2*r1]
+    lea       r0, [r0+4*r1]
+    psubw     m0, m1
+    pabsw     m0, m0
+    sub      r2d, 2
+    je .end
+.loop:
+    mova      m2, [r0]
+    mova      m3, [r0+2*r1]
+    lea       r0, [r0+4*r1]
+    psubw     m1, m2
+    psubw     m2, m3
+    pabsw     m1, m1
+    pabsw     m2, m2
+    paddw     m0, m1
+    paddw     m0, m2
+    mova      m1, m3
+    sub      r2d, 2
+    jg .loop
+.end:
+%if BIT_DEPTH == 9
+    HADDW     m0, m1
+%else
+    HADDUW    m0, m1
+%endif
+    movd     eax, xm0
+    RET
+
 ;-----------------------------------------------------------------------------
-; void pixel_sad_xK_MxN( uint16_t *fenc, uint16_t *pix0, uint16_t *pix1,
+; void pixel_sad_xN_WxH( uint16_t *fenc, uint16_t *pix0, uint16_t *pix1,
 ;                        uint16_t *pix2, intptr_t i_stride, int scores[3] )
 ;-----------------------------------------------------------------------------
 %macro SAD_X 3
@@ -445,29 +497,38 @@ SAD_X 3,  4,  4
 SAD_X 4,  4,  8
 SAD_X 4,  4,  4
 INIT_XMM ssse3
-%define XMM_REGS 9
+%define XMM_REGS 7
 SAD_X 3, 16, 16
 SAD_X 3, 16,  8
 SAD_X 3,  8, 16
 SAD_X 3,  8,  8
 SAD_X 3,  8,  4
+%define XMM_REGS 9
 SAD_X 4, 16, 16
 SAD_X 4, 16,  8
 SAD_X 4,  8, 16
 SAD_X 4,  8,  8
 SAD_X 4,  8,  4
 INIT_XMM sse2
-%define XMM_REGS 11
+%define XMM_REGS 8
 SAD_X 3, 16, 16
 SAD_X 3, 16,  8
 SAD_X 3,  8, 16
 SAD_X 3,  8,  8
 SAD_X 3,  8,  4
+%define XMM_REGS 11
 SAD_X 4, 16, 16
 SAD_X 4, 16,  8
 SAD_X 4,  8, 16
 SAD_X 4,  8,  8
 SAD_X 4,  8,  4
+INIT_YMM avx2
+%define XMM_REGS 7
+SAD_X 3, 16, 16
+SAD_X 3, 16,  8
+%define XMM_REGS 9
+SAD_X 4, 16, 16
+SAD_X 4, 16,  8
 
 ;-----------------------------------------------------------------------------
 ; void intra_sad_x3_4x4( uint16_t *fenc, uint16_t *fdec, int res[3] );

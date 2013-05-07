@@ -700,7 +700,7 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     extern %1
 %endmacro
 
-%macro const 2+
+%macro const 1-2+
     %xdefine %1 mangle(private_prefix %+ _ %+ %1)
     %ifidn __OUTPUT_FORMAT__,elf
         global %1:data hidden
@@ -742,9 +742,8 @@ SECTION .note.GNU-stack noalloc noexec nowrite progbits
 %assign cpuflags_misalign (1<<20)
 %assign cpuflags_aligned  (1<<21) ; not a cpu feature, but a function variant
 %assign cpuflags_atom     (1<<22)
-%assign cpuflags_bmi1     (1<<23)
+%assign cpuflags_bmi1     (1<<23)|cpuflags_lzcnt
 %assign cpuflags_bmi2     (1<<24)|cpuflags_bmi1
-%assign cpuflags_tbm      (1<<25)|cpuflags_bmi1
 
 %define    cpuflag(x) ((cpuflags & (cpuflags_ %+ x)) == (cpuflags_ %+ x))
 %define notcpuflag(x) ((cpuflags & (cpuflags_ %+ x)) != (cpuflags_ %+ x))
@@ -785,7 +784,11 @@ SECTION .note.GNU-stack noalloc noexec nowrite progbits
     %endif
 %endmacro
 
-; merge mmx and sse*
+; Merge mmx and sse*
+; m# is a simd regsiter of the currently selected size
+; xm# is the corresponding xmmreg (if selcted xmm or ymm size), or mmreg (if selected mmx)
+; ym# is the corresponding ymmreg (if selcted xmm or ymm size), or mmreg (if selected mmx)
+; (All 3 remain in sync through SWAP.)
 
 %macro CAT_XDEFINE 3
     %xdefine %1%2 %3
@@ -862,6 +865,26 @@ SECTION .note.GNU-stack noalloc noexec nowrite progbits
 
 INIT_XMM
 
+%macro DECLARE_MMCAST 1
+    %define  mmmm%1   mm%1
+    %define  mmxmm%1  mm%1
+    %define  mmymm%1  mm%1
+    %define xmmmm%1   mm%1
+    %define xmmxmm%1 xmm%1
+    %define xmmymm%1 xmm%1
+    %define ymmmm%1   mm%1
+    %define ymmxmm%1 ymm%1
+    %define ymmymm%1 ymm%1
+    %define xm%1 xmm %+ m%1
+    %define ym%1 ymm %+ m%1
+%endmacro
+
+%assign i 0
+%rep 16
+    DECLARE_MMCAST i
+%assign i i+1
+%endrep
+
 ; I often want to use macros that permute their arguments. e.g. there's no
 ; efficient way to implement butterfly or transpose or dct without swapping some
 ; arguments.
@@ -878,42 +901,42 @@ INIT_XMM
 
 %macro PERMUTE 2-* ; takes a list of pairs to swap
 %rep %0/2
-    %xdefine tmp%2 m%2
-    %xdefine ntmp%2 nm%2
+    %xdefine %%tmp%2 m%2
     %rotate 2
 %endrep
 %rep %0/2
-    %xdefine m%1 tmp%2
-    %xdefine nm%1 ntmp%2
-    %undef tmp%2
-    %undef ntmp%2
+    %xdefine m%1 %%tmp%2
+    CAT_XDEFINE n, m%1, %1
     %rotate 2
 %endrep
 %endmacro
 
-%macro SWAP 2-* ; swaps a single chain (sometimes more concise than pairs)
-%rep %0-1
-%ifdef m%1
-    %xdefine tmp m%1
-    %xdefine m%1 m%2
-    %xdefine m%2 tmp
-    CAT_XDEFINE n, m%1, %1
-    CAT_XDEFINE n, m%2, %2
-%else
-    ; If we were called as "SWAP m0,m1" rather than "SWAP 0,1" infer the original numbers here.
-    ; Be careful using this mode in nested macros though, as in some cases there may be
-    ; other copies of m# that have already been dereferenced and don't get updated correctly.
-    %xdefine %%n1 n %+ %1
-    %xdefine %%n2 n %+ %2
-    %xdefine tmp m %+ %%n1
-    CAT_XDEFINE m, %%n1, m %+ %%n2
-    CAT_XDEFINE m, %%n2, tmp
-    CAT_XDEFINE n, m %+ %%n1, %%n1
-    CAT_XDEFINE n, m %+ %%n2, %%n2
+%macro SWAP 2+ ; swaps a single chain (sometimes more concise than pairs)
+%ifnum %1 ; SWAP 0, 1, ...
+    SWAP_INTERNAL_NUM %1, %2
+%else ; SWAP m0, m1, ...
+    SWAP_INTERNAL_NAME %1, %2
 %endif
-    %undef tmp
+%endmacro
+
+%macro SWAP_INTERNAL_NUM 2-*
+    %rep %0-1
+        %xdefine %%tmp m%1
+        %xdefine m%1 m%2
+        %xdefine m%2 %%tmp
+        CAT_XDEFINE n, m%1, %1
+        CAT_XDEFINE n, m%2, %2
     %rotate 1
-%endrep
+    %endrep
+%endmacro
+
+%macro SWAP_INTERNAL_NAME 2-*
+    %xdefine %%args n %+ %1
+    %rep %0-1
+        %xdefine %%args %%args, n %+ %2
+    %rotate 1
+    %endrep
+    SWAP_INTERNAL_NUM %%args
 %endmacro
 
 ; If SAVE_MM_PERMUTATION is placed at the end of a function, then any later
@@ -1116,10 +1139,10 @@ AVX_INSTR blendpd, 1, 0, 0
 AVX_INSTR blendps, 1, 0, 0
 AVX_INSTR blendvpd, 1, 0, 0
 AVX_INSTR blendvps, 1, 0, 0
-AVX_INSTR cmppd, 1, 0, 0
-AVX_INSTR cmpps, 1, 0, 0
-AVX_INSTR cmpsd, 1, 0, 0
-AVX_INSTR cmpss, 1, 0, 0
+AVX_INSTR cmppd, 1, 1, 0
+AVX_INSTR cmpps, 1, 1, 0
+AVX_INSTR cmpsd, 1, 1, 0
+AVX_INSTR cmpss, 1, 1, 0
 AVX_INSTR comisd
 AVX_INSTR comiss
 AVX_INSTR cvtdq2pd
@@ -1421,3 +1444,14 @@ FMA4_INSTR fnmsubpd, fnmsub132pd, fnmsub213pd, fnmsub231pd
 FMA4_INSTR fnmsubps, fnmsub132ps, fnmsub213ps, fnmsub231ps
 FMA4_INSTR fnmsubsd, fnmsub132sd, fnmsub213sd, fnmsub231sd
 FMA4_INSTR fnmsubss, fnmsub132ss, fnmsub213ss, fnmsub231ss
+
+; workaround: vpbroadcastq is broken in x86_32 due to a yasm bug
+%if ARCH_X86_64 == 0
+%macro vpbroadcastq 2
+%if sizeof%1 == 16
+    movddup %1, %2
+%else
+    vbroadcastsd %1, %2
+%endif
+%endmacro
+%endif

@@ -123,6 +123,6 @@ typedef struct
                                    uint16_t *inter_costs, uint16_t *inv_qscales, float *fps_factor, int len );
 } x264_mc_functions_t;
 
-void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 );
+void x264_mc_init( int cpu, x264_mc_functions_t *pf, int cpu_independent, int b_mpeg2 );
 
 #endif

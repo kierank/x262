@@ -40,6 +40,7 @@
 #define IS_DISPOSABLE(type) ( type == X264_TYPE_B )
 #define FIX8(f) ((int)(f*(1<<8)+.5))
 #define ALIGN(x,a) (((x)+((a)-1))&~((a)-1))
+#define ARRAY_ELEMS(a) ((sizeof(a))/(sizeof(a[0])))
 
 #define CHECKED_MALLOC( var, size )\
 do {\
@@ -52,6 +53,8 @@ do {\
     CHECKED_MALLOC( var, size );\
     memset( var, 0, size );\
 } while( 0 )
+
+#define ARRAY_SIZE(array)  (sizeof(array)/sizeof(array[0]))
 
 #define X264_BFRAME_MAX 16
 #define X264_REF_MAX 16
@@ -98,6 +101,10 @@ do {\
 #include <string.h>
 #include <assert.h>
 #include <limits.h>
+
+#if HAVE_OPENCL
+#include "opencl.h"
+#endif
 
 /* MPEG-2 Support */
 #if HAVE_MPEG2
@@ -219,6 +226,7 @@ static const uint8_t x264_scan8[16*3 + 3] =
 };
 
 #include "x264.h"
+#include "cabac.h"
 #include "bitstream.h"
 #include "set.h"
 #include "predict.h"
@@ -226,7 +234,6 @@ static const uint8_t x264_scan8[16*3 + 3] =
 #include "mc.h"
 #include "frame.h"
 #include "dct.h"
-#include "cabac.h"
 #include "quant.h"
 #include "cpu.h"
 #include "threadpool.h"
@@ -670,12 +677,12 @@ struct x264_t
     /* Current MB DCT coeffs */
     struct
     {
-        ALIGNED_16( dctcoef luma16x16_dc[3][16] );
+        ALIGNED_N( dctcoef luma16x16_dc[3][16] );
         ALIGNED_16( dctcoef chroma_dc[2][8] );
         // FIXME share memory?
-        ALIGNED_16( dctcoef luma8x8[12][64] );
-        ALIGNED_16( dctcoef luma4x4[16*3][16] );
-        ALIGNED_16( dctcoef mpeg2_8x8[8][64] );
+        ALIGNED_N( dctcoef luma8x8[12][64] );
+        ALIGNED_N( dctcoef luma4x4[16*3][16] );
+        ALIGNED_N( dctcoef mpeg2_8x8[8][64] );
     } dct;
 
     /* MB table and cache for current frame/mb */
@@ -823,7 +830,7 @@ struct x264_t
 #define FENC_STRIDE 16
 #define FDEC_STRIDE 32
             ALIGNED_16( pixel fenc_buf[48*FENC_STRIDE] );
-            ALIGNED_16( pixel fdec_buf[52*FDEC_STRIDE] );
+            ALIGNED_N( pixel fdec_buf[52*FDEC_STRIDE] );
 
             /* i4x4 and i8x8 backup data, for skipping the encode stage when possible */
             ALIGNED_16( pixel i4x4_fdec_buf[16*16] );
@@ -840,8 +847,8 @@ struct x264_t
             ALIGNED_16( dctcoef fenc_dct4[16][16] );
 
             /* Psy RD SATD/SA8D scores cache */
-            ALIGNED_16( uint64_t fenc_hadamard_cache[9] );
-            ALIGNED_16( uint32_t fenc_satd_cache[32] );
+            ALIGNED_N( uint64_t fenc_hadamard_cache[9] );
+            ALIGNED_N( uint32_t fenc_satd_cache[32] );
 
             /* pointer over mb of the frame to be compressed */
             pixel *p_fenc[3]; /* y,u,v */
@@ -1015,6 +1022,10 @@ struct x264_t
     struct visualize_t *visualize;
 #endif
     x264_lookahead_t *lookahead;
+
+#if HAVE_OPENCL
+    x264_opencl_t opencl;
+#endif
 };
 
 // included at the end because it needs x264_t
