@@ -982,7 +982,6 @@ static void refine_subpel( x264_t *h, x264_me_t *m, int hpel_iters, int qpel_ite
     else if( bmy > h->mb.mv_min_spel[1] && bmy < h->mb.mv_max_spel[1] && bmx > h->mb.mv_min_spel[0] && bmx < h->mb.mv_max_spel[0] )
     {
         int offset = MPEG2 ? 2 : 1;
-        int costs[4];
         int omx = bmx, omy = bmy;
         /* We have to use mc_luma because all strides must be the same to use fpelcmp_x4 */
         h->mc.mc_luma( pix   , 64, m->p_fref, m->i_stride[0], omx, omy-offset, bw, bh, &m->weight[0] );
