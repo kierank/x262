@@ -845,6 +845,7 @@ void x264_pixel_init( int cpu, x264_pixel_function_t *pixf )
     if( cpu&X264_CPU_MMX2 )
     {
         INIT7( sad, _mmx2 );
+        INIT7_NAME( sad_aligned, sad, _mmx2 );
         INIT7( sad_x3, _mmx2 );
         INIT7( sad_x4, _mmx2 );
         INIT8( satd, _mmx2 );
@@ -923,6 +924,8 @@ void x264_pixel_init( int cpu, x264_pixel_function_t *pixf )
     if( cpu&X264_CPU_SSSE3 )
     {
         INIT4_NAME( sad_aligned, sad, _ssse3_aligned );
+        pixf->sad_aligned[PIXEL_4x4] = x264_pixel_sad_4x4_ssse3;
+        pixf->sad_aligned[PIXEL_4x8] = x264_pixel_sad_4x8_ssse3;
         INIT7( sad, _ssse3 );
         INIT7( sad_x3, _ssse3 );
         INIT7( sad_x4, _ssse3 );
@@ -963,6 +966,7 @@ void x264_pixel_init( int cpu, x264_pixel_function_t *pixf )
     }
     if( cpu&X264_CPU_AVX )
     {
+        INIT5_NAME( sad_aligned, sad, _ssse3 ); /* AVX-capable CPUs doesn't benefit from an aligned version */
         INIT_ADS( _avx );
         INIT6( satd, _avx );
         pixf->satd[PIXEL_4x16] = x264_pixel_satd_4x16_avx;
@@ -996,6 +1000,7 @@ void x264_pixel_init( int cpu, x264_pixel_function_t *pixf )
         INIT2( sad_x4, _avx2 );
         pixf->vsad = x264_pixel_vsad_avx2;
         pixf->ssd_nv12_core = x264_pixel_ssd_nv12_core_avx2;
+        pixf->intra_sad_x3_8x8 = x264_intra_sad_x3_8x8_avx2;
     }
 #endif // HAVE_MMX
 #else // !HIGH_BIT_DEPTH
@@ -1231,6 +1236,7 @@ void x264_pixel_init( int cpu, x264_pixel_function_t *pixf )
 
     if( cpu&X264_CPU_AVX )
     {
+        INIT2_NAME( sad_aligned, sad, _sse2 ); /* AVX-capable CPUs doesn't benefit from an aligned version */
         INIT8( satd, _avx );
         INIT7( satd_x3, _avx );
         INIT7( satd_x4, _avx );
@@ -1298,6 +1304,7 @@ void x264_pixel_init( int cpu, x264_pixel_function_t *pixf )
         pixf->var2[PIXEL_8x8]   = x264_pixel_var2_8x8_avx2;
         pixf->intra_sad_x3_16x16 = x264_intra_sad_x3_16x16_avx2;
         pixf->intra_sad_x9_8x8  = x264_intra_sad_x9_8x8_avx2;
+        pixf->intra_sad_x3_8x8c = x264_intra_sad_x3_8x8c_avx2;
         pixf->ssd_nv12_core = x264_pixel_ssd_nv12_core_avx2;
 #if ARCH_X86_64
         pixf->sa8d_satd[PIXEL_16x16] = x264_pixel_sa8d_satd_16x16_avx2;

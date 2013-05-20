@@ -34,7 +34,6 @@
 
 SECTION_RODATA 32
 
-pw_512: times 16 dw 512
 ch_shuf: times 2 db 0,2,2,4,4,6,6,8,1,3,3,5,5,7,7,9
 ch_shuf_adj: times 8 db 0
              times 8 db 2
@@ -50,6 +49,7 @@ cextern pw_4
 cextern pw_8
 cextern pw_32
 cextern pw_64
+cextern pw_512
 cextern pw_00ff
 cextern pw_pixel_max
 cextern sw_64
@@ -1794,10 +1794,9 @@ ALIGN 4
 %if ARCH_X86_64 ; too many regs for x86_32
     RESET_MM_PERMUTATION
 %if WIN64
-%if xmm_regs_used > 6
-    %assign stack_offset stack_offset-(xmm_regs_used-6)*16-16
-    %assign xmm_regs_used 6
-%endif
+    %assign stack_offset stack_offset - stack_size_padded
+    %assign stack_size_padded 0
+    %assign xmm_regs_used 0
 %endif
 .mc1dy:
     and       t2d, 7

@@ -577,6 +577,17 @@ void x264_quant_init( x264_t *h, int cpu, x264_quant_function_t *pf )
             pf->dequant_8x8 = x264_dequant_8x8_xop;
         }
     }
+    if( cpu&X264_CPU_AVX2 )
+    {
+        pf->quant_4x4 = x264_quant_4x4_avx2;
+        pf->quant_4x4_dc = x264_quant_4x4_dc_avx2;
+        pf->quant_8x8 = x264_quant_8x8_avx2;
+        pf->quant_4x4x4 = x264_quant_4x4x4_avx2;
+        pf->dequant_4x4 = x264_dequant_4x4_avx2;
+        pf->dequant_8x8 = x264_dequant_8x8_avx2;
+        pf->dequant_4x4_dc = x264_dequant_4x4dc_avx2;
+        pf->denoise_dct = x264_denoise_dct_avx2;
+    }
 #endif // HAVE_MMX
 #else // !HIGH_BIT_DEPTH
 #if HAVE_MMX
@@ -721,10 +732,9 @@ void x264_quant_init( x264_t *h, int cpu, x264_quant_function_t *pf )
         pf->quant_4x4_dc = x264_quant_4x4_dc_avx2;
         pf->quant_8x8 = x264_quant_8x8_avx2;
         pf->quant_4x4x4 = x264_quant_4x4x4_avx2;
-        if( cpu&X264_CPU_LZCNT )
-            pf->coeff_last[DCT_LUMA_8x8] = x264_coeff_last64_avx2_lzcnt;
         pf->dequant_4x4 = x264_dequant_4x4_avx2;
         pf->dequant_8x8 = x264_dequant_8x8_avx2;
+        pf->dequant_4x4_dc = x264_dequant_4x4dc_avx2;
         if( h->param.i_cqm_preset == X264_CQM_FLAT )
         {
             pf->dequant_4x4 = x264_dequant_4x4_flat16_avx2;
@@ -734,6 +744,7 @@ void x264_quant_init( x264_t *h, int cpu, x264_quant_function_t *pf )
         pf->denoise_dct = x264_denoise_dct_avx2;
         if( cpu&X264_CPU_LZCNT )
         {
+            pf->coeff_last[DCT_LUMA_8x8] = x264_coeff_last64_avx2_lzcnt;
             pf->coeff_level_run[ DCT_LUMA_AC] = x264_coeff_level_run15_avx2_lzcnt;
             pf->coeff_level_run[DCT_LUMA_4x4] = x264_coeff_level_run16_avx2_lzcnt;
         }

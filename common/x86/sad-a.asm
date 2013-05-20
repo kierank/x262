@@ -29,9 +29,11 @@
 %include "x86inc.asm"
 %include "x86util.asm"
 
-SECTION_RODATA
+SECTION_RODATA 32
 
+pb_shuf8x8c2: times 2 db 0,0,0,0,8,8,8,8,-1,-1,-1,-1,-1,-1,-1,-1
 deinterleave_sadx4: dd 0,4,2,6
+hpred_shuf: db 0,0,2,2,8,8,10,10,1,1,3,3,9,9,11,11
 
 SECTION .text
 
@@ -559,6 +561,65 @@ INIT_MMX mmx2
 INTRA_SAD_8x8C
 INIT_MMX ssse3
 INTRA_SAD_8x8C
+
+INIT_YMM avx2
+cglobal intra_sad_x3_8x8c, 3,3,7
+    vpbroadcastq m2, [r1 - FDEC_STRIDE]         ; V pred
+    add          r1, FDEC_STRIDE*4-1
+    pxor        xm5, xm5
+    punpckldq   xm3, xm2, xm5                   ; V0 _ V1 _
+    movd        xm0, [r1 + FDEC_STRIDE*-1 - 3]
+    movd        xm1, [r1 + FDEC_STRIDE* 3 - 3]
+    pinsrb      xm0, [r1 + FDEC_STRIDE*-4], 0
+    pinsrb      xm1, [r1 + FDEC_STRIDE* 0], 0
+    pinsrb      xm0, [r1 + FDEC_STRIDE*-3], 1
+    pinsrb      xm1, [r1 + FDEC_STRIDE* 1], 1
+    pinsrb      xm0, [r1 + FDEC_STRIDE*-2], 2
+    pinsrb      xm1, [r1 + FDEC_STRIDE* 2], 2
+    punpcklqdq  xm0, xm1                        ; H0 _ H1 _
+    vinserti128  m3, m3, xm0, 1                 ; V0 V1 H0 H1
+    pshufb      xm0, [hpred_shuf]               ; H00224466 H11335577
+    psadbw       m3, m5                         ; s0 s1 s2 s3
+    vpermq       m4, m3, q3312                  ; s2 s1 s3 s3
+    vpermq       m3, m3, q1310                  ; s0 s1 s3 s1
+    paddw        m3, m4
+    psrlw        m3, 2
+    pavgw        m3, m5                         ; s0+s2 s1 s3 s1+s3
+    pshufb       m3, [pb_shuf8x8c2]             ; DC0 _ DC1 _
+    vpblendd     m3, m3, m2, 11001100b          ; DC0 V DC1 V
+    vinserti128  m1, m3, xm3, 1                 ; DC0 V DC0 V
+    vperm2i128   m6, m3, m3, q0101              ; DC1 V DC1 V
+    vpermq       m0, m0, q3120                  ; H00224466 _ H11335577 _
+    movddup      m2, [r0+FENC_STRIDE*0]
+    movddup      m4, [r0+FENC_STRIDE*2]
+    pshuflw      m3, m0, q0000
+    psadbw       m3, m2
+    psadbw       m2, m1
+    pshuflw      m5, m0, q1111
+    psadbw       m5, m4
+    psadbw       m4, m1
+    paddw        m2, m4
+    paddw        m3, m5
+    movddup      m4, [r0+FENC_STRIDE*4]
+    pshuflw      m5, m0, q2222
+    psadbw       m5, m4
+    psadbw       m4, m6
+    paddw        m2, m4
+    paddw        m3, m5
+    movddup      m4, [r0+FENC_STRIDE*6]
+    pshuflw      m5, m0, q3333
+    psadbw       m5, m4
+    psadbw       m4, m6
+    paddw        m2, m4
+    paddw        m3, m5
+    vextracti128 xm0, m2, 1
+    vextracti128 xm1, m3, 1
+    paddw       xm2, xm0 ; DC V
+    paddw       xm3, xm1 ; H
+    pextrd   [r2+8], xm2, 2 ; V
+    movd     [r2+4], xm3    ; H
+    movd     [r2+0], xm2    ; DC
+    RET
 
 
 ;-----------------------------------------------------------------------------
@@ -1733,12 +1794,12 @@ cglobal pixel_sad_x3_%1x%2_cache%3_%6
 .split:
 %if ARCH_X86_64
     PROLOGUE 6,9
-%if WIN64
-    movsxd r4, r4d
-    sub  rsp, 8
-%endif
     push r3
     push r2
+%if WIN64
+    movsxd r4, r4d
+    sub rsp, 40 ; shadow space and alignment
+%endif
     mov  r2, r1
     mov  r1, FENC_STRIDE
     mov  r3, r4
@@ -1747,7 +1808,7 @@ cglobal pixel_sad_x3_%1x%2_cache%3_%6
     call pixel_sad_%1x%2_cache%3_%5
     mov  [r8], eax
 %if WIN64
-    mov  r2, [rsp]
+    mov  r2, [rsp+40+0*8]
 %else
     pop  r2
 %endif
@@ -1755,7 +1816,7 @@ cglobal pixel_sad_x3_%1x%2_cache%3_%6
     call pixel_sad_%1x%2_cache%3_%5
     mov  [r8+4], eax
 %if WIN64
-    mov  r2, [rsp+8]
+    mov  r2, [rsp+40+1*8]
 %else
     pop  r2
 %endif
@@ -1763,7 +1824,7 @@ cglobal pixel_sad_x3_%1x%2_cache%3_%6
     call pixel_sad_%1x%2_cache%3_%5
     mov  [r8+8], eax
 %if WIN64
-    add  rsp, 24
+    add  rsp, 40+2*8
 %endif
     RET
 %else
@@ -1803,6 +1864,9 @@ cglobal pixel_sad_x4_%1x%2_cache%3_%6
     push r4
     push r3
     push r2
+%if WIN64
+    sub rsp, 32 ; shadow space
+%endif
     mov  r2, r1
     mov  r1, FENC_STRIDE
     mov  r3, r5
@@ -1810,7 +1874,7 @@ cglobal pixel_sad_x4_%1x%2_cache%3_%6
     call pixel_sad_%1x%2_cache%3_%5
     mov  [r8], eax
 %if WIN64
-    mov  r2, [rsp]
+    mov  r2, [rsp+32+0*8]
 %else
     pop  r2
 %endif
@@ -1818,7 +1882,7 @@ cglobal pixel_sad_x4_%1x%2_cache%3_%6
     call pixel_sad_%1x%2_cache%3_%5
     mov  [r8+4], eax
 %if WIN64
-    mov  r2, [rsp+8]
+    mov  r2, [rsp+32+1*8]
 %else
     pop  r2
 %endif
@@ -1826,7 +1890,7 @@ cglobal pixel_sad_x4_%1x%2_cache%3_%6
     call pixel_sad_%1x%2_cache%3_%5
     mov  [r8+8], eax
 %if WIN64
-    mov  r2, [rsp+16]
+    mov  r2, [rsp+32+2*8]
 %else
     pop  r2
 %endif
@@ -1834,7 +1898,7 @@ cglobal pixel_sad_x4_%1x%2_cache%3_%6
     call pixel_sad_%1x%2_cache%3_%5
     mov  [r8+12], eax
 %if WIN64
-    add  rsp, 24
+    add  rsp, 32+3*8
 %endif
     RET
 %else

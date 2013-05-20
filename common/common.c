@@ -1452,8 +1452,8 @@ char *x264_param2string( x264_param_t *p, int b_res )
     }
 
     if( p->b_opencl )
-        s += sprintf( s, "opencl=%d", p->b_opencl );
-    s += sprintf( s, " cabac=%d", p->b_cabac );
+        s += sprintf( s, "opencl=%d ", p->b_opencl );
+    s += sprintf( s, "cabac=%d", p->b_cabac );
     s += sprintf( s, " ref=%d", p->i_frame_reference );
     s += sprintf( s, " mpeg2=%d", p->b_mpeg2 );
     s += sprintf( s, " deblock=%d:%d:%d", p->b_deblocking_filter,

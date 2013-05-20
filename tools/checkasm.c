@@ -61,7 +61,7 @@ typedef struct
 {
     void *pointer; // just for detecting duplicates
     uint32_t cpu;
-    uint32_t cycles;
+    uint64_t cycles;
     uint32_t den;
 } bench_t;
 
@@ -138,12 +138,12 @@ static int cmp_bench( const void *a, const void *b )
 
 static void print_bench(void)
 {
-    uint16_t nops[10000] = {0};
+    uint16_t nops[10000];
     int nfuncs, nop_time=0;
 
     for( int i = 0; i < 10000; i++ )
     {
-        int t = read_time();
+        uint32_t t = read_time();
         nops[i] = read_time() - t;
     }
     qsort( nops, 10000, sizeof(uint16_t), cmp_nop );
@@ -242,7 +242,7 @@ void x264_checkasm_stack_clobber( uint64_t clobber, ... );
 #define call_bench(func,cpu,...)\
     if( do_bench && !strncmp(func_name, bench_pattern, bench_pattern_len) )\
     {\
-        uint32_t tsum = 0;\
+        uint64_t tsum = 0;\
         int tcount = 0;\
         call_a1(func, __VA_ARGS__);\
         for( int ti = 0; ti < (cpu?BENCH_RUNS:BENCH_RUNS/4); ti++ )\
@@ -253,7 +253,7 @@ void x264_checkasm_stack_clobber( uint64_t clobber, ... );
             func(__VA_ARGS__);\
             func(__VA_ARGS__);\
             t = read_time() - t;\
-            if( t*tcount <= tsum*4 && ti > 0 )\
+            if( (uint64_t)t*tcount <= tsum*4 && ti > 0 )\
             {\
                 tsum += t;\
                 tcount++;\
@@ -1690,8 +1690,8 @@ static int check_deblock( int cpu_ref, int cpu_new )
             ALIGNED_ARRAY_16( uint8_t, nnz, [X264_SCAN8_SIZE] );
             ALIGNED_4( int8_t ref[2][X264_SCAN8_LUMA_SIZE] );
             ALIGNED_ARRAY_16( int16_t, mv, [2],[X264_SCAN8_LUMA_SIZE][2] );
-            ALIGNED_ARRAY_16( uint8_t, bs, [2],[2][8][4] );
-            memset( bs, 99, sizeof(bs) );
+            ALIGNED_ARRAY_N( uint8_t, bs, [2],[2][8][4] );
+            memset( bs, 99, sizeof(uint8_t)*2*4*8*2 );
             for( int j = 0; j < X264_SCAN8_SIZE; j++ )
                 nnz[j] = ((rand()&7) == 7) * rand() & 0xf;
             for( int j = 0; j < 2; j++ )
@@ -1704,7 +1704,7 @@ static int check_deblock( int cpu_ref, int cpu_new )
             set_func_name( "deblock_strength" );
             call_c( db_c.deblock_strength, nnz, ref, mv, bs[0], 2<<(i&1), ((i>>1)&1) );
             call_a( db_a.deblock_strength, nnz, ref, mv, bs[1], 2<<(i&1), ((i>>1)&1) );
-            if( memcmp( bs[0], bs[1], sizeof(bs[0]) ) )
+            if( memcmp( bs[0], bs[1], sizeof(uint8_t)*2*4*8 ) )
             {
                 ok = 0;
                 fprintf( stderr, "deblock_strength: [FAILED]\n" );
@@ -2817,7 +2817,7 @@ int main(int argc, char *argv[])
             fprintf( stderr, "%d/%d\r", i+1, BENCH_ALIGNS );
         }
     else
-        ret = check_all_flags();
+        ret = x264_stack_pagealign( check_all_flags, 0 );
 
     if( ret )
     {

@@ -53,7 +53,6 @@ DECL_X1( sad, sse2_aligned )
 DECL_X1( sad, ssse3 )
 DECL_X1( sad, ssse3_aligned )
 DECL_X1( sad, avx2 )
-DECL_X1( sad, avx2_aligned )
 DECL_X4( sad, mmx2 )
 DECL_X4( sad, sse2 )
 DECL_X4( sad, sse3 )
@@ -117,6 +116,7 @@ void x264_intra_satd_x3_8x8c_ssse3 ( uint8_t *, uint8_t *, int * );
 void x264_intra_sad_x3_8x8c_mmx2   ( pixel   *, pixel   *, int * );
 void x264_intra_sad_x3_8x8c_sse2   ( pixel   *, pixel   *, int * );
 void x264_intra_sad_x3_8x8c_ssse3  ( pixel   *, pixel   *, int * );
+void x264_intra_sad_x3_8x8c_avx2   ( pixel   *, pixel   *, int * );
 void x264_intra_satd_x3_16x16_mmx2 ( pixel   *, pixel   *, int * );
 void x264_intra_satd_x3_16x16_ssse3( uint8_t *, uint8_t *, int * );
 void x264_intra_sad_x3_16x16_mmx2  ( pixel   *, pixel   *, int * );
@@ -128,6 +128,7 @@ void x264_intra_sa8d_x3_8x8_sse2   ( pixel   *, pixel   *, int * );
 void x264_intra_sad_x3_8x8_mmx2    ( pixel   *, pixel   *, int * );
 void x264_intra_sad_x3_8x8_sse2    ( pixel   *, pixel   *, int * );
 void x264_intra_sad_x3_8x8_ssse3   ( pixel   *, pixel   *, int * );
+void x264_intra_sad_x3_8x8_avx2    ( uint16_t*, uint16_t*, int * );
 int x264_intra_satd_x9_4x4_ssse3( uint8_t *, uint8_t *, uint16_t * );
 int x264_intra_satd_x9_4x4_sse4 ( uint8_t *, uint8_t *, uint16_t * );
 int x264_intra_satd_x9_4x4_avx  ( uint8_t *, uint8_t *, uint16_t * );

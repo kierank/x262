@@ -102,10 +102,6 @@ do {\
 #include <assert.h>
 #include <limits.h>
 
-#if HAVE_OPENCL
-#include "opencl.h"
-#endif
-
 /* MPEG-2 Support */
 #if HAVE_MPEG2
 #   define MPEG2 h->param.b_mpeg2
@@ -226,6 +222,9 @@ static const uint8_t x264_scan8[16*3 + 3] =
 };
 
 #include "x264.h"
+#if HAVE_OPENCL
+#include "opencl.h"
+#endif
 #include "cabac.h"
 #include "bitstream.h"
 #include "set.h"
