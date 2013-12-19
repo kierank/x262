@@ -54,6 +54,31 @@ do {\
     memset( var, 0, size );\
 } while( 0 )
 
+/* Macros for merging multiple allocations into a single large malloc, for improved
+ * use with huge pages. */
+
+/* Needs to be enough to contain any set of buffers that use combined allocations */
+#define PREALLOC_BUF_SIZE 1024
+
+#define PREALLOC_INIT\
+    int    prealloc_idx = 0;\
+    size_t prealloc_size = 0;\
+    uint8_t **preallocs[PREALLOC_BUF_SIZE];
+
+#define PREALLOC( var, size )\
+do {\
+    var = (void*)prealloc_size;\
+    preallocs[prealloc_idx++] = (uint8_t**)&var;\
+    prealloc_size += ALIGN(size, NATIVE_ALIGN);\
+} while(0)
+
+#define PREALLOC_END( ptr )\
+do {\
+    CHECKED_MALLOC( ptr, prealloc_size );\
+    while( prealloc_idx-- )\
+        *preallocs[prealloc_idx] += (intptr_t)ptr;\
+} while(0)
+
 #define ARRAY_SIZE(array)  (sizeof(array)/sizeof(array[0]))
 
 #define X264_BFRAME_MAX 16
@@ -87,6 +112,8 @@ do {\
 
 #define NALU_OVERHEAD 5 // startcode + NAL type costs 5 bytes per frame
 #define FILLER_OVERHEAD (NALU_OVERHEAD+1)
+#define SEI_OVERHEAD (NALU_OVERHEAD - (h->param.b_annexb && !h->param.b_avcintra_compat && (h->out.i_nal-1)))
+
 #define STRUCTURE_OVERHEAD 4 // startcode
 
 #define LOG2_16(x) (31 - x264_clz((x)|1))
@@ -557,6 +584,9 @@ struct x264_t
     uint8_t *nal_buffer;
     int      nal_buffer_size;
 
+    x264_t          *reconfig_h;
+    int             reconfig;
+
     /**** thread synchronization starts here ****/
 
     /* frame number/poc */
@@ -767,6 +797,7 @@ struct x264_t
          * and won't be copied from one thread to another */
 
         /* mb table */
+        uint8_t *base;                      /* base pointer for all malloced data in this mb */
         int8_t  *type;                      /* mb type */
         uint8_t *partition;                 /* mb partition */
         int8_t  *qp;                        /* mb qp */
@@ -982,8 +1013,8 @@ struct x264_t
     uint32_t (*nr_residual_sum)[64];
     uint32_t *nr_count;
 
-    ALIGNED_16( udctcoef nr_offset_denoise[4][64] );
-    ALIGNED_16( uint32_t nr_residual_sum_buf[2][4][64] );
+    ALIGNED_N( udctcoef nr_offset_denoise[4][64] );
+    ALIGNED_N( uint32_t nr_residual_sum_buf[2][4][64] );
     uint32_t nr_count_buf[2][4];
 
     uint8_t luma2chroma_pixel[7]; /* Subsampled pixel size */
@@ -1017,9 +1048,6 @@ struct x264_t
     x264_deblock_function_t loopf;
     x264_bitstream_function_t bsf;
 
-#if HAVE_VISUALIZE
-    struct visualize_t *visualize;
-#endif
     x264_lookahead_t *lookahead;
 
 #if HAVE_OPENCL

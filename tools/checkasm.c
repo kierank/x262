@@ -192,7 +192,6 @@ static void print_bench(void)
                     b->cpu&X264_CPU_SLOW_ATOM && b->cpu&X264_CPU_CACHELINE_64 ? "_c64_atom" :
                     b->cpu&X264_CPU_CACHELINE_64 ? "_c64" :
                     b->cpu&X264_CPU_SLOW_SHUFFLE ? "_slowshuffle" :
-                    b->cpu&X264_CPU_SSE_MISALIGN ? "_misalign" :
                     b->cpu&X264_CPU_LZCNT ? "_lzcnt" :
                     b->cpu&X264_CPU_BMI2 ? "_bmi2" :
                     b->cpu&X264_CPU_BMI1 ? "_bmi1" :
@@ -389,7 +388,8 @@ static int check_pixel( int cpu_ref, int cpu_new )
     ok = 1; used_asm = 0; \
     for( int i = 0; i < 7; i++ ) \
     { \
-        int res_c[4]={0}, res_asm[4]={0}; \
+        ALIGNED_16( int res_c[4] ) = {0}; \
+        ALIGNED_16( int res_asm[4] ) = {0}; \
         if( pixel_asm.sad_x##N[i] && pixel_asm.sad_x##N[i] != pixel_ref.sad_x##N[i] ) \
         { \
             set_func_name( "sad_x%d_%s", N, pixel_names[i] ); \
@@ -407,7 +407,7 @@ static int check_pixel( int cpu_ref, int cpu_new )
                 } \
                 else \
                     call_a( pixel_asm.sad_x3[i], pbuf1, pix2, pix2+6, pix2+1, (intptr_t)64, res_asm ); \
-                if( memcmp(res_c, res_asm, sizeof(res_c)) ) \
+                if( memcmp(res_c, res_asm, N*sizeof(int)) ) \
                 { \
                     ok = 0; \
                     fprintf( stderr, "sad_x"#N"[%d]: %d,%d,%d,%d != %d,%d,%d,%d [FAILED]\n", \
@@ -542,7 +542,8 @@ static int check_pixel( int cpu_ref, int cpu_new )
 #define TEST_INTRA_X3( name, i8x8, ... ) \
     if( pixel_asm.name && pixel_asm.name != pixel_ref.name ) \
     { \
-        int res_c[3], res_asm[3]; \
+        ALIGNED_16( int res_c[3] ); \
+        ALIGNED_16( int res_asm[3] ); \
         set_func_name( #name ); \
         used_asm = 1; \
         call_c( pixel_c.name, pbuf1+48, i8x8 ? edge : pbuf3+48, res_c ); \
@@ -2677,11 +2678,6 @@ static int check_all_flags( void )
         cpu1 &= ~X264_CPU_SLOW_SHUFFLE;
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_SLOW_CTZ, "SSE2 SlowCTZ" );
         cpu1 &= ~X264_CPU_SLOW_CTZ;
-    }
-    if( x264_cpu_detect() & X264_CPU_SSE_MISALIGN )
-    {
-        ret |= add_flags( &cpu0, &cpu1, X264_CPU_SSE_MISALIGN, "SSE_Misalign" );
-        cpu1 &= ~X264_CPU_SSE_MISALIGN;
     }
     if( x264_cpu_detect() & X264_CPU_LZCNT )
     {

@@ -41,7 +41,7 @@
 
 #include "x264_config.h"
 
-#define X264_BUILD 133
+#define X264_BUILD 140
 
 /* Application developers planning to link against a shared library version of
  * libx264 from a Microsoft Visual Studio or similar development environment
@@ -107,12 +107,15 @@ typedef struct
     int i_first_mb; /* If this NAL is a slice, the index of the first MB in the slice. */
     int i_last_mb;  /* If this NAL is a slice, the index of the last MB in the slice. */
 
-    /* Size of payload in bytes. */
+    /* Size of payload (including any padding) in bytes. */
     int     i_payload;
     /* If param->b_annexb is set, Annex-B bytestream with startcode.
      * Otherwise, startcode is replaced with a 4-byte size.
      * This size is the size used in mp4/similar muxing; it is equal to i_payload-4 */
     uint8_t *p_payload;
+
+    /* Size of padding in bytes. */
+    int i_padding;
 } x264_nal_t;
 
 /****************************************************************************
@@ -131,30 +134,29 @@ typedef struct
 #define X264_CPU_SSSE3           0x0000040
 #define X264_CPU_SSE4            0x0000080  /* SSE4.1 */
 #define X264_CPU_SSE42           0x0000100  /* SSE4.2 */
-#define X264_CPU_SSE_MISALIGN    0x0000200  /* Phenom support for misaligned SSE instruction arguments */
-#define X264_CPU_LZCNT           0x0000400  /* Phenom support for "leading zero count" instruction. */
-#define X264_CPU_AVX             0x0000800  /* AVX support: requires OS support even if YMM registers aren't used. */
-#define X264_CPU_XOP             0x0001000  /* AMD XOP */
-#define X264_CPU_FMA4            0x0002000  /* AMD FMA4 */
-#define X264_CPU_AVX2            0x0004000  /* AVX2 */
-#define X264_CPU_FMA3            0x0008000  /* Intel FMA3 */
-#define X264_CPU_BMI1            0x0010000  /* BMI1 */
-#define X264_CPU_BMI2            0x0020000  /* BMI2 */
+#define X264_CPU_LZCNT           0x0000200  /* Phenom support for "leading zero count" instruction. */
+#define X264_CPU_AVX             0x0000400  /* AVX support: requires OS support even if YMM registers aren't used. */
+#define X264_CPU_XOP             0x0000800  /* AMD XOP */
+#define X264_CPU_FMA4            0x0001000  /* AMD FMA4 */
+#define X264_CPU_AVX2            0x0002000  /* AVX2 */
+#define X264_CPU_FMA3            0x0004000  /* Intel FMA3 */
+#define X264_CPU_BMI1            0x0008000  /* BMI1 */
+#define X264_CPU_BMI2            0x0010000  /* BMI2 */
 /* x86 modifiers */
-#define X264_CPU_CACHELINE_32    0x0040000  /* avoid memory loads that span the border between two cachelines */
-#define X264_CPU_CACHELINE_64    0x0080000  /* 32/64 is the size of a cacheline in bytes */
-#define X264_CPU_SSE2_IS_SLOW    0x0100000  /* avoid most SSE2 functions on Athlon64 */
-#define X264_CPU_SSE2_IS_FAST    0x0200000  /* a few functions are only faster on Core2 and Phenom */
-#define X264_CPU_SLOW_SHUFFLE    0x0400000  /* The Conroe has a slow shuffle unit (relative to overall SSE performance) */
-#define X264_CPU_STACK_MOD4      0x0800000  /* if stack is only mod4 and not mod16 */
-#define X264_CPU_SLOW_CTZ        0x1000000  /* BSR/BSF x86 instructions are really slow on some CPUs */
-#define X264_CPU_SLOW_ATOM       0x2000000  /* The Atom is terrible: slow SSE unaligned loads, slow
+#define X264_CPU_CACHELINE_32    0x0020000  /* avoid memory loads that span the border between two cachelines */
+#define X264_CPU_CACHELINE_64    0x0040000  /* 32/64 is the size of a cacheline in bytes */
+#define X264_CPU_SSE2_IS_SLOW    0x0080000  /* avoid most SSE2 functions on Athlon64 */
+#define X264_CPU_SSE2_IS_FAST    0x0100000  /* a few functions are only faster on Core2 and Phenom */
+#define X264_CPU_SLOW_SHUFFLE    0x0200000  /* The Conroe has a slow shuffle unit (relative to overall SSE performance) */
+#define X264_CPU_STACK_MOD4      0x0400000  /* if stack is only mod4 and not mod16 */
+#define X264_CPU_SLOW_CTZ        0x0800000  /* BSR/BSF x86 instructions are really slow on some CPUs */
+#define X264_CPU_SLOW_ATOM       0x1000000  /* The Atom is terrible: slow SSE unaligned loads, slow
                                              * SIMD multiplies, slow SIMD variable shifts, slow pshufb,
                                              * cacheline split penalties -- gather everything here that
                                              * isn't shared by other CPUs to avoid making half a dozen
                                              * new SLOW flags. */
-#define X264_CPU_SLOW_PSHUFB     0x4000000  /* such as on the Intel Atom */
-#define X264_CPU_SLOW_PALIGNR    0x8000000  /* such as on the AMD Bobcat */
+#define X264_CPU_SLOW_PSHUFB     0x2000000  /* such as on the Intel Atom */
+#define X264_CPU_SLOW_PALIGNR    0x4000000  /* such as on the AMD Bobcat */
 
 /* PowerPC */
 #define X264_CPU_ALTIVEC         0x0000001
@@ -207,9 +209,10 @@ static const char * const x264_b_pyramid_names[] = { "none", "strict", "normal",
 static const char * const x264_overscan_names[] = { "undef", "show", "crop", 0 };
 static const char * const x264_vidformat_names[] = { "component", "pal", "ntsc", "secam", "mac", "undef", 0 };
 static const char * const x264_fullrange_names[] = { "off", "on", 0 };
-static const char * const x264_colorprim_names[] = { "", "bt709", "undef", "", "bt470m", "bt470bg", "smpte170m", "smpte240m", "film", 0 };
-static const char * const x264_transfer_names[] = { "", "bt709", "undef", "", "bt470m", "bt470bg", "smpte170m", "smpte240m", "linear", "log100", "log316", 0 };
-static const char * const x264_colmatrix_names[] = { "GBR", "bt709", "undef", "", "fcc", "bt470bg", "smpte170m", "smpte240m", "YCgCo", 0 };
+static const char * const x264_colorprim_names[] = { "", "bt709", "undef", "", "bt470m", "bt470bg", "smpte170m", "smpte240m", "film", "bt2020", 0 };
+static const char * const x264_transfer_names[] = { "", "bt709", "undef", "", "bt470m", "bt470bg", "smpte170m", "smpte240m", "linear", "log100", "log316",
+                                                    "iec61966-2-4", "bt1361e", "iec61966-2-1", "bt2020-10", "bt2020-12", 0 };
+static const char * const x264_colmatrix_names[] = { "GBR", "bt709", "undef", "", "fcc", "bt470bg", "smpte170m", "smpte240m", "YCgCo", "bt2020nc", "bt2020c", 0 };
 static const char * const x264_nal_hrd_names[] = { "none", "vbr", "cbr", 0 };
 
 /* Colorspace type */
@@ -353,6 +356,7 @@ typedef struct x264_param_t
     int         i_bframe_pyramid;   /* Keep some B-frames as references: 0=off, 1=strict hierarchical, 2=normal */
     int         b_open_gop;
     int         b_bluray_compat;
+    int         b_avcintra_compat;
 
     int         b_deblocking_filter;
     int         i_deblocking_filter_alphac0;    /* [-6, 6] -6 light filter, 6 strong */
@@ -365,7 +369,7 @@ typedef struct x264_param_t
     int         b_constrained_intra;
 
     int         i_cqm_preset;
-    char        *psz_cqm_file;      /* JM format */
+    char        *psz_cqm_file;      /* filename (in UTF-8) of CQM file, JM format */
     uint8_t     cqm_4iy[16];        /* used only if i_cqm_preset == X264_CQM_CUSTOM */
     uint8_t     cqm_4py[16];
     uint8_t     cqm_4ic[16];
@@ -388,9 +392,8 @@ typedef struct x264_param_t
     void        (*pf_log)( void *, int i_level, const char *psz, va_list );
     void        *p_log_private;
     int         i_log_level;
-    int         b_visualize;
     int         b_full_recon;   /* fully reconstruct frames, even when not necessary for encoding.  Implied by psz_dump_yuv */
-    char        *psz_dump_yuv;  /* filename for reconstructed frames */
+    char        *psz_dump_yuv;  /* filename (in UTF-8) for reconstructed frames */
 
     /* Encoder analyser parameters */
     struct
@@ -449,6 +452,10 @@ typedef struct x264_param_t
         float       f_ip_factor;
         float       f_pb_factor;
 
+        /* VBV filler: force CBR VBV and use filler bytes to ensure hard-CBR.
+         * Implied by NAL-HRD CBR. */
+        int         b_filler;
+
         int         i_aq_mode;      /* psy adaptive QP. (X264_AQ_*) */
         float       f_aq_strength;
         int         b_mb_tree;      /* Macroblock-tree ratecontrol. */
@@ -456,9 +463,9 @@ typedef struct x264_param_t
 
         /* 2pass */
         int         b_stat_write;   /* Enable stat writing in psz_stat_out */
-        char        *psz_stat_out;
+        char        *psz_stat_out;  /* output filename (in UTF-8) of the 2pass stats file */
         int         b_stat_read;    /* Read stat from psz_stat_in and use it */
-        char        *psz_stat_in;
+        char        *psz_stat_in;   /* input filename (in UTF-8) of the 2pass stats file */
 
         /* 2pass params (same as ffmpeg ones) */
         float       f_qcompress;    /* 0.0 => cbr, 1.0 => constant qp */
@@ -521,10 +528,15 @@ typedef struct x264_param_t
 
     int b_fake_interlaced;
 
+    /* Don't optimize header parameters based on video content, e.g. ensure that splitting an input video, compressing
+     * each part, and stitching them back together will result in identical SPS/PPS. This is necessary for stitching
+     * with container formats that don't allow multiple SPS/PPS. */
+    int b_stitchable;
+
     int b_opencl;            /* use OpenCL when available */
     int i_opencl_device;     /* specify count of GPU devices to skip, for CLI users */
     void *opencl_device_id;  /* pass explicit cl_device_id as void*, for API users */
-    char *psz_clbin_file;    /* compiled OpenCL kernel cache file */
+    char *psz_clbin_file;    /* filename (in UTF-8) of the compiled OpenCL kernel cache file */
 
     /* Slicing parameters */
     int i_slice_max_size;    /* Max size per slice in bytes; includes estimated NAL overhead. */

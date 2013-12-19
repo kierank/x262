@@ -35,7 +35,7 @@
 #define avs_address dlsym
 #else
 #include <windows.h>
-#define avs_open LoadLibrary( "avisynth" )
+#define avs_open LoadLibraryW( L"avisynth" )
 #define avs_close FreeLibrary
 #define avs_address GetProcAddress
 #endif
@@ -172,7 +172,7 @@ static float get_avs_version( avs_hnd_t *h )
 
 static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, cli_input_opt_t *opt )
 {
-    FILE *fh = fopen( psz_filename, "r" );
+    FILE *fh = x264_fopen( psz_filename, "r" );
     if( !fh )
         return -1;
     FAIL_IF_ERROR( !x264_is_regular_file( fh ), "AVS input is incompatible with non-regular file `%s'\n", psz_filename );
@@ -192,7 +192,16 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
     if( avs_version <= 0 )
         return -1;
     x264_cli_log( "avs", X264_LOG_DEBUG, "using avisynth version %.2f\n", avs_version );
+
+#ifdef _WIN32
+    /* Avisynth doesn't support Unicode filenames. */
+    char ansi_filename[MAX_PATH];
+    FAIL_IF_ERROR( !x264_ansi_filename( psz_filename, ansi_filename, MAX_PATH, 0 ), "invalid ansi filename\n" );
+    AVS_Value arg = avs_new_value_string( ansi_filename );
+#else
     AVS_Value arg = avs_new_value_string( psz_filename );
+#endif
+
     AVS_Value res;
     char *filename_ext = get_filename_extension( psz_filename );
 
@@ -329,11 +338,11 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
         info->csp = X264_CSP_I420;
 #if HAVE_SWSCALE
     else if( avs_is_yuy2( vi ) )
-        info->csp = PIX_FMT_YUYV422 | X264_CSP_OTHER;
+        info->csp = AV_PIX_FMT_YUYV422 | X264_CSP_OTHER;
     else if( avs_is_yv411( vi ) )
-        info->csp = PIX_FMT_YUV411P | X264_CSP_OTHER;
+        info->csp = AV_PIX_FMT_YUV411P | X264_CSP_OTHER;
     else if( avs_is_y8( vi ) )
-        info->csp = PIX_FMT_GRAY8 | X264_CSP_OTHER;
+        info->csp = AV_PIX_FMT_GRAY8 | X264_CSP_OTHER;
 #endif
     else
         info->csp = X264_CSP_NONE;
@@ -352,7 +361,7 @@ static int picture_alloc( cli_pic_t *pic, int csp, int width, int height )
     if( cli_csp )
         pic->img.planes = cli_csp->planes;
 #if HAVE_SWSCALE
-    else if( csp == (PIX_FMT_YUV411P | X264_CSP_OTHER) )
+    else if( csp == (AV_PIX_FMT_YUV411P | X264_CSP_OTHER) )
         pic->img.planes = 3;
     else
         pic->img.planes = 1; //y8 and yuy2 are one plane

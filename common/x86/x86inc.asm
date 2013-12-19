@@ -49,6 +49,8 @@
         %define WIN64  1
     %elifidn __OUTPUT_FORMAT__,win64
         %define WIN64  1
+    %elifidn __OUTPUT_FORMAT__,x64
+        %define WIN64  1
     %else
         %define UNIX64 1
     %endif
@@ -731,11 +733,10 @@ SECTION .note.GNU-stack noalloc noexec nowrite progbits
 %assign cpuflags_cache64  (1<<17)
 %assign cpuflags_slowctz  (1<<18)
 %assign cpuflags_lzcnt    (1<<19)
-%assign cpuflags_misalign (1<<20)
-%assign cpuflags_aligned  (1<<21) ; not a cpu feature, but a function variant
-%assign cpuflags_atom     (1<<22)
-%assign cpuflags_bmi1     (1<<23)|cpuflags_lzcnt
-%assign cpuflags_bmi2     (1<<24)|cpuflags_bmi1
+%assign cpuflags_aligned  (1<<20) ; not a cpu feature, but a function variant
+%assign cpuflags_atom     (1<<21)
+%assign cpuflags_bmi1     (1<<22)|cpuflags_lzcnt
+%assign cpuflags_bmi2     (1<<23)|cpuflags_bmi1
 
 %define    cpuflag(x) ((cpuflags & (cpuflags_ %+ x)) == (cpuflags_ %+ x))
 %define notcpuflag(x) ((cpuflags & (cpuflags_ %+ x)) != (cpuflags_ %+ x))
@@ -777,9 +778,9 @@ SECTION .note.GNU-stack noalloc noexec nowrite progbits
 %endmacro
 
 ; Merge mmx and sse*
-; m# is a simd regsiter of the currently selected size
-; xm# is the corresponding xmmreg (if selcted xmm or ymm size), or mmreg (if selected mmx)
-; ym# is the corresponding ymmreg (if selcted xmm or ymm size), or mmreg (if selected mmx)
+; m# is a simd register of the currently selected size
+; xm# is the corresponding xmm register if mmsize >= 16, otherwise the same as m#
+; ym# is the corresponding ymm register if mmsize >= 32, otherwise the same as m#
 ; (All 3 remain in sync through SWAP.)
 
 %macro CAT_XDEFINE 3
@@ -865,7 +866,7 @@ INIT_XMM
     %define xmmxmm%1 xmm%1
     %define xmmymm%1 xmm%1
     %define ymmmm%1   mm%1
-    %define ymmxmm%1 ymm%1
+    %define ymmxmm%1 xmm%1
     %define ymmymm%1 ymm%1
     %define xm%1 xmm %+ m%1
     %define ym%1 ymm %+ m%1
