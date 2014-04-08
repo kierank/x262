@@ -304,7 +304,7 @@ uint32_t x264_cpu_detect( void )
             x264_log( NULL, X264_LOG_WARNING, "unable to determine cacheline size\n" );
     }
 
-#if BROKEN_STACK_ALIGNMENT
+#if STACK_ALIGNMENT < 16
     cpu |= X264_CPU_STACK_MOD4;
 #endif
 
@@ -426,6 +426,10 @@ int x264_cpu_num_processors( void )
     return sysconf( _SC_NPROCESSORS_ONLN );
 
 #elif SYS_LINUX
+#ifdef __ANDROID__
+    // Android NDK does not expose sched_getaffinity
+    return sysconf( _SC_NPROCESSORS_CONF );
+#else
     cpu_set_t p_aff;
     memset( &p_aff, 0, sizeof(p_aff) );
     if( sched_getaffinity( 0, sizeof(p_aff), &p_aff ) )
@@ -437,6 +441,7 @@ int x264_cpu_num_processors( void )
     for( unsigned int bit = 0; bit < 8 * sizeof(p_aff); bit++ )
         np += (((uint8_t *)&p_aff)[bit / 8] >> (bit % 8)) & 1;
     return np;
+#endif
 #endif
 
 #elif SYS_BEOS

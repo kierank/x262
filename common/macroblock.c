@@ -390,7 +390,7 @@ int x264_macroblock_thread_allocate( x264_t *h, int b_lookahead )
             ((me_range*2+24) * sizeof(int16_t) + (me_range+4) * (me_range+1) * 4 * sizeof(mvsad_t));
         scratch_size = X264_MAX3( buf_hpel, buf_ssim, buf_tesa );
     }
-    int buf_mbtree = h->param.rc.b_mb_tree * ((h->mb.i_mb_width+7)&~7) * sizeof(int);
+    int buf_mbtree = h->param.rc.b_mb_tree * ((h->mb.i_mb_width+7)&~7) * sizeof(int16_t);
     scratch_size = X264_MAX( scratch_size, buf_mbtree );
     if( scratch_size )
         CHECKED_MALLOC( h->scratch_buffer, scratch_size );
@@ -398,7 +398,9 @@ int x264_macroblock_thread_allocate( x264_t *h, int b_lookahead )
         h->scratch_buffer = NULL;
 
     int buf_lookahead_threads = (h->mb.i_mb_height + (4 + 32) * h->param.i_lookahead_threads) * sizeof(int) * 2;
-    CHECKED_MALLOC( h->scratch_buffer2, buf_lookahead_threads );
+    int buf_mbtree2 = buf_mbtree * 12; /* size of the internal propagate_list asm buffer */
+    scratch_size = X264_MAX( buf_lookahead_threads, buf_mbtree2 );
+    CHECKED_MALLOC( h->scratch_buffer2, scratch_size );
 
     return 0;
 fail:
@@ -1284,8 +1286,13 @@ static void ALWAYS_INLINE x264_macroblock_cache_load( x264_t *h, int mb_x, int m
         }
     }
 
-    if( b_mbaff && mb_x == 0 && !(mb_y&1) && mb_y > 0 )
-        h->mb.field_decoding_flag = h->mb.field[h->mb.i_mb_xy - h->mb.i_mb_stride];
+    if( b_mbaff && mb_x == 0 && !(mb_y&1) )
+    {
+        if( h->mb.i_mb_top_xy >= h->sh.i_first_mb )
+            h->mb.field_decoding_flag = h->mb.field[h->mb.i_mb_top_xy];
+        else
+            h->mb.field_decoding_flag = 0;
+    }
 
     /* Check whether skip here would cause decoder to predict interlace mode incorrectly.
      * FIXME: It might be better to change the interlace type rather than forcing a skip to be non-skip. */
@@ -1295,7 +1302,7 @@ static void ALWAYS_INLINE x264_macroblock_cache_load( x264_t *h, int mb_x, int m
         if( !MPEG2 )
         {
             if( MB_INTERLACED != h->mb.field_decoding_flag &&
-                h->mb.i_mb_prev_xy >= 0 && IS_SKIP(h->mb.type[h->mb.i_mb_prev_xy]) )
+                (mb_y&1) && IS_SKIP(h->mb.type[h->mb.i_mb_xy - h->mb.i_mb_stride]) )
                 h->mb.b_allow_skip = 0;
             if( (mb_y&1) && IS_SKIP(h->mb.type[h->mb.i_mb_xy - h->mb.i_mb_stride]) )
             {
