@@ -83,7 +83,11 @@ static int read_frame_internal( cli_pic_t *p_pic, lavf_hnd_t *h, int i_frame, vi
     AVCodecContext *c = h->lavf->streams[h->stream_id]->codec;
     AVPacket *pkt = p_pic->opaque;
 
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(55,28,1)
+    av_frame_unref( h->frame );
+#else
     avcodec_get_frame_defaults( h->frame );
+#endif
 
     while( i_frame >= h->next_frame )
     {
@@ -153,7 +157,11 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
     if( !strcmp( psz_filename, "-" ) )
         psz_filename = "pipe:";
 
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(55,28,1)
+    h->frame = av_frame_alloc();
+#else
     h->frame = avcodec_alloc_frame();
+#endif
     if( !h->frame )
         return -1;
 
@@ -252,10 +260,14 @@ static int close_file( hnd_t handle )
     lavf_hnd_t *h = handle;
     avcodec_close( h->lavf->streams[h->stream_id]->codec );
     avformat_close_input( &h->lavf );
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(54, 28, 0)
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(55,28,1)
+    av_frame_free( &h->frame );
+#else
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(54,28,0)
     avcodec_free_frame( &h->frame );
 #else
     av_freep( &h->frame );
+#endif
 #endif
     free( h );
     return 0;
