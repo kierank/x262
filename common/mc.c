@@ -269,25 +269,14 @@ static void mc_luma_mpeg2( pixel *dst,    intptr_t i_dst_stride,
     }
     else if( mvx&1 ) // horizontal hpel positions
     {
-        for( int y = 0; y < i_height; y++ )
-        {
-            for( int x = 0; x < i_width; x++ )
-                dst[x] = ( src1[x] + src1[x+1] + 1 ) >> 1;
-            dst  += i_dst_stride;
-            src1  = srcp;
-            srcp += i_src_stride;
-        }
+        pixel *src2 = src1 + 1;
+        pixel_avg( dst, i_dst_stride, src1, i_src_stride,
+                   src2, i_src_stride, i_width, i_height );
     }
     else // vertical hpel positions
     {
-        for( int y = 0; y < i_height; y++ )
-        {
-            for( int x = 0; x < i_width; x++ )
-                dst[x] = ( src1[x] + srcp[x] + 1 ) >> 1;
-            dst  += i_dst_stride;
-            src1  = srcp;
-            srcp += i_src_stride;
-        }
+        pixel_avg( dst, i_dst_stride, src1, i_src_stride,
+                   srcp, i_src_stride, i_width, i_height );
     }
 }
 
@@ -391,25 +380,14 @@ static pixel *get_ref_mpeg2( pixel *dst,    intptr_t *i_dst_stride,
     }
     else if( mvx&1 ) // horizontal hpel positions
     {
-        for( int y = 0; y < i_height; y++ )
-        {
-            for( int x = 0; x < i_width; x++ )
-                dst[x] = ( src1[x] + src1[x+1] + 1 ) >> 1;
-            dst  += *i_dst_stride;
-            src1  = srcp;
-            srcp += i_src_stride;
-        }
+        pixel *src2 = src1 + 1;
+        pixel_avg( dst, *i_dst_stride, src1, i_src_stride,
+                   src2, i_src_stride, i_width, i_height );
     }
     else // vertical hpel positions
     {
-        for( int y = 0; y < i_height; y++ )
-        {
-            for( int x = 0; x < i_width; x++ )
-                dst[x] = ( src1[x] + srcp[x] + 1 ) >> 1;
-            dst  += *i_dst_stride;
-            src1  = srcp;
-            srcp += i_src_stride;
-        }
+        pixel_avg( dst, *i_dst_stride, src1, i_src_stride,
+                   srcp, i_src_stride, i_width, i_height );
     }
 
     return dst_bak;
