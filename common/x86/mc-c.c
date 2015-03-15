@@ -457,7 +457,6 @@ static pixel *get_ref_mpeg2_##name( pixel *dst,   intptr_t *i_dst_stride,\
     mvx >>= 1;\
     mvy >>= 1;\
     pixel *src1 = src[0] + (mvy>>1)*i_src_stride + (mvx>>1);\
-    pixel *srcp = src1 + i_src_stride;\
     pixel *dst_bak = dst;\
     if( !((mvx|mvy)&1) )\
     {\
@@ -466,6 +465,7 @@ static pixel *get_ref_mpeg2_##name( pixel *dst,   intptr_t *i_dst_stride,\
     }\
     else if( (mvx&mvy)&1 ) /* centre hpel positions */\
     {\
+        pixel *srcp = src1 + i_src_stride;\
         for( int y = 0; y < i_height; y++ )\
         {\
             for( int x = 0; x < i_width; x++ )\
@@ -475,18 +475,12 @@ static pixel *get_ref_mpeg2_##name( pixel *dst,   intptr_t *i_dst_stride,\
             srcp += i_src_stride;\
         }\
     }\
-    else if( mvx&1 ) /* horizontal hpel positions */\
+    else /* horizontal/vertical hpel positions */\
     {\
-        pixel *src2 = src1 + 1;\
+        pixel *src2 = src1 + (mvy&1)*i_src_stride + (mvx&1);\
         x264_pixel_avg_wtab_##name[i_width>>2](\
                 dst, *i_dst_stride, src1, i_src_stride,\
                 src2, i_height );\
-    }\
-    else /* vertical hpel positions */\
-    {\
-        x264_pixel_avg_wtab_##name[i_width>>2](\
-                dst, *i_dst_stride, src1, i_src_stride,\
-                srcp, i_height );\
     }\
     return dst_bak;\
 }
