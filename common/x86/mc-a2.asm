@@ -1,7 +1,7 @@
 ;*****************************************************************************
 ;* mc-a2.asm: x86 motion compensation
 ;*****************************************************************************
-;* Copyright (C) 2005-2013 x264 project
+;* Copyright (C) 2005-2014 x264 project
 ;*
 ;* Authors: Loren Merritt <lorenm@u.washington.edu>
 ;*          Jason Garrett-Glaser <darkshikari@gmail.com>
@@ -30,24 +30,35 @@
 %include "x86inc.asm"
 %include "x86util.asm"
 
-SECTION_RODATA
+SECTION_RODATA 32
 
-filt_mul20: times 16 db 20
-filt_mul15: times 8 db 1, -5
-filt_mul51: times 8 db -5, 1
-hpel_shuf: db 0,8,1,9,2,10,3,11,4,12,5,13,6,14,7,15
-deinterleave_shuf: db 0,2,4,6,8,10,12,14,1,3,5,7,9,11,13,15
+pw_1024: times 16 dw 1024
+filt_mul20: times 32 db 20
+filt_mul15: times 16 db 1, -5
+filt_mul51: times 16 db -5, 1
+hpel_shuf: times 2 db 0,8,1,9,2,10,3,11,4,12,5,13,6,14,7,15
+deinterleave_shuf: times 2 db 0,2,4,6,8,10,12,14,1,3,5,7,9,11,13,15
+
 %if HIGH_BIT_DEPTH
+v210_mask: times 4 dq 0xc00ffc003ff003ff
+v210_luma_shuf: times 2 db 1,2,4,5,6,7,9,10,12,13,14,15,12,13,14,15
+v210_chroma_shuf: times 2 db 0,1,2,3,5,6,8,9,10,11,13,14,10,11,13,14
+; vpermd indices {0,1,2,4,5,7,_,_} merged in the 3 lsb of each dword to save a register
+v210_mult: dw 0x2000,0x7fff,0x0801,0x2000,0x7ffa,0x0800,0x7ffc,0x0800
+           dw 0x1ffd,0x7fff,0x07ff,0x2000,0x7fff,0x0800,0x7fff,0x0800
+
 deinterleave_shuf32a: SHUFFLE_MASK_W 0,2,4,6,8,10,12,14
 deinterleave_shuf32b: SHUFFLE_MASK_W 1,3,5,7,9,11,13,15
 %else
+deinterleave_rgb_shuf: db 0,3,6,9,1,4,7,10,2,5,8,11,-1,-1,-1,-1
+                       db 0,4,8,12,1,5,9,13,2,6,10,14,-1,-1,-1,-1
+
 deinterleave_shuf32a: db 0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30
 deinterleave_shuf32b: db 1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31
-%endif
+%endif ; !HIGH_BIT_DEPTH
 
 pd_16: times 4 dd 16
 pd_0f: times 4 dd 0xffff
-pf_inv256: times 8 dd 0.00390625
 
 pad10: times 8 dw    10*PIXEL_MAX
 pad20: times 8 dw    20*PIXEL_MAX
@@ -58,15 +69,22 @@ tap1: times 4 dw  1, -5
 tap2: times 4 dw 20, 20
 tap3: times 4 dw -5,  1
 
+pw_0xc000: times 8 dw 0xc000
+pw_31: times 8 dw 31
+pd_4: times 4 dd 4
+
 SECTION .text
 
 cextern pb_0
 cextern pw_1
+cextern pw_8
 cextern pw_16
 cextern pw_32
+cextern pw_512
 cextern pw_00ff
 cextern pw_3fff
 cextern pw_pixel_max
+cextern pw_0to15
 cextern pd_ffff
 
 %macro LOAD_ADD 4
@@ -127,19 +145,24 @@ cextern pd_ffff
     paddw  %4, %6
 %endmacro
 
-%macro FILT_PACK 4-6 b
-    paddw      %1, %4
-    paddw      %2, %4
-%if %0 == 6
-    psubusw    %1, %6
-    psubusw    %2, %6
-    psrlw      %1, %3
-    psrlw      %2, %3
+%macro FILT_PACK 3-5
+%if cpuflag(ssse3)
+    pmulhrsw %1, %3
+    pmulhrsw %2, %3
 %else
-    psraw      %1, %3
-    psraw      %2, %3
+    paddw    %1, %3
+    paddw    %2, %3
+%if %0 == 5
+    psubusw  %1, %5
+    psubusw  %2, %5
+    psrlw    %1, %4
+    psrlw    %2, %4
+%else
+    psraw    %1, %4
+    psraw    %2, %4
 %endif
-%ifnidn w, %5
+%endif
+%if HIGH_BIT_DEPTH == 0
     packuswb %1, %2
 %endif
 %endmacro
@@ -203,7 +226,7 @@ cglobal hpel_filter_v, 5,6,11
     mova      [r2+r4+mmsize], m4
     paddw      m1, s30
     paddw      m4, s30
-    FILT_PACK  m1, m4, 5, m6, w, s10
+    FILT_PACK  m1, m4, m6, 5, s10
     CLIPW      m1, m0, m7
     CLIPW      m4, m0, m7
     mova      [r0+r4], m1
@@ -295,7 +318,7 @@ cglobal hpel_filter_h, 3,4,8
     FILT_H2    m1, m2, m3, m4, m5, m6
     mova       m7, [pw_1]
     pxor       m2, m2
-    FILT_PACK  m1, m4, 1, m7, w
+    FILT_PACK  m1, m4, m7, 1
     CLIPW      m1, m2, m0
     CLIPW      m4, m2, m0
     mova      [r0+r2], m1
@@ -349,17 +372,25 @@ cglobal hpel_filter_v, 5,6,%1
     paddw  m4, m5
     paddw  m1, m3
     paddw  m4, m6
+    mova   m7, [pw_1024]
 %else
     LOAD_ADD_2 m1, m4, [r1     ], [r5+r3*2], m6, m7            ; a0 / a1
     LOAD_ADD_2 m2, m5, [r1+r3  ], [r5+r3  ], m6, m7            ; b0 / b1
     LOAD_ADD   m3,     [r1+r3*2], [r5     ], m7                ; c0
     LOAD_ADD   m6,     [r1+r3*2+mmsize/2], [r5+mmsize/2], m7   ; c1
     FILT_V2 m1, m2, m3, m4, m5, m6
+    mova   m7, [pw_16]
 %endif
-    mova      m7, [pw_16]
+%if mmsize==32
+    mova         [r2+r4*2], xm1
+    mova         [r2+r4*2+mmsize/2], xm4
+    vextracti128 [r2+r4*2+mmsize], m1, 1
+    vextracti128 [r2+r4*2+mmsize*3/2], m4, 1
+%else
     mova      [r2+r4*2], m1
     mova      [r2+r4*2+mmsize], m4
-    FILT_PACK m1, m4, 5, m7
+%endif
+    FILT_PACK m1, m4, m7, 5
     movnta    [r0+r4], m1
     add r1, mmsize
     add r5, mmsize
@@ -371,8 +402,8 @@ cglobal hpel_filter_v, 5,6,%1
 ;-----------------------------------------------------------------------------
 ; void hpel_filter_c( uint8_t *dst, int16_t *buf, intptr_t width );
 ;-----------------------------------------------------------------------------
-INIT_MMX
-cglobal hpel_filter_c_mmx2, 3,3
+INIT_MMX mmx2
+cglobal hpel_filter_c, 3,3
     add r0, r2
     lea r1, [r1+r2*2]
     neg r2
@@ -392,7 +423,7 @@ cglobal hpel_filter_c_mmx2, 3,3
     paddw  m5, [src+12] ; b1
     paddw  m6, [src+10] ; c1
     FILT_H2 m1, m2, m3, m4, m5, m6
-    FILT_PACK m1, m4, 6, m7
+    FILT_PACK m1, m4, m7, 6
     movntq [r0+r2], m1
     add r2, 8
     jl .loop
@@ -401,7 +432,8 @@ cglobal hpel_filter_c_mmx2, 3,3
 ;-----------------------------------------------------------------------------
 ; void hpel_filter_h( uint8_t *dst, uint8_t *src, intptr_t width );
 ;-----------------------------------------------------------------------------
-cglobal hpel_filter_h_mmx2, 3,3
+INIT_MMX mmx2
+cglobal hpel_filter_h, 3,3
     add r0, r2
     add r1, r2
     neg r2
@@ -436,13 +468,11 @@ cglobal hpel_filter_h_mmx2, 3,3
     paddw      m6, m7 ; a1
     movq       m7, [pw_1]
     FILT_H2 m1, m2, m3, m4, m5, m6
-    FILT_PACK m1, m4, 1, m7
+    FILT_PACK m1, m4, m7, 1
     movntq     [r0+r2], m1
     add r2, 8
     jl .loop
     RET
-
-INIT_XMM
 
 %macro HPEL_C 0
 ;-----------------------------------------------------------------------------
@@ -454,29 +484,33 @@ cglobal hpel_filter_c, 3,3,9
     neg r2
     %define src r1+r2*2
 %ifnidn cpuname, sse2
+%if cpuflag(ssse3)
+    mova    m7, [pw_512]
+%else
     mova    m7, [pw_32]
-    %define tpw_32 m7
+%endif
+    %define pw_rnd m7
 %elif ARCH_X86_64
     mova    m8, [pw_32]
-    %define tpw_32 m8
+    %define pw_rnd m8
 %else
-    %define tpw_32 [pw_32]
+    %define pw_rnd [pw_32]
 %endif
 ; This doesn't seem to be faster (with AVX) on Sandy Bridge or Bulldozer...
-%if cpuflag(misalign)
+%if mmsize==32
 .loop:
     movu    m4, [src-4]
     movu    m5, [src-2]
-    mova    m6, [src]
-    movu    m3, [src+12]
-    movu    m2, [src+14]
-    mova    m1, [src+16]
+    mova    m6, [src+0]
+    movu    m3, [src-4+mmsize]
+    movu    m2, [src-2+mmsize]
+    mova    m1, [src+0+mmsize]
     paddw   m4, [src+6]
     paddw   m5, [src+4]
     paddw   m6, [src+2]
-    paddw   m3, [src+22]
-    paddw   m2, [src+20]
-    paddw   m1, [src+18]
+    paddw   m3, [src+6+mmsize]
+    paddw   m2, [src+4+mmsize]
+    paddw   m1, [src+2+mmsize]
     FILT_H2 m4, m5, m6, m3, m2, m1
 %else
     mova      m0, [src-16]
@@ -506,9 +540,12 @@ cglobal hpel_filter_c, 3,3,9
     paddw     m6, m0
     FILT_H    m3, m5, m6
 %endif
-    FILT_PACK m4, m3, 6, tpw_32
-    movntps [r0+r2], m4
-    add r2, 16
+    FILT_PACK m4, m3, pw_rnd, 6
+%if mmsize==32
+    vpermq    m4, m4, q3120
+%endif
+    movnta [r0+r2], m4
+    add       r2, mmsize
     jl .loop
     RET
 %endmacro
@@ -516,7 +553,8 @@ cglobal hpel_filter_c, 3,3,9
 ;-----------------------------------------------------------------------------
 ; void hpel_filter_h( uint8_t *dst, uint8_t *src, intptr_t width );
 ;-----------------------------------------------------------------------------
-cglobal hpel_filter_h_sse2, 3,3,8
+INIT_XMM sse2
+cglobal hpel_filter_h, 3,3,8
     add r0, r2
     add r1, r2
     neg r2
@@ -555,7 +593,7 @@ cglobal hpel_filter_h_sse2, 3,3,8
     paddw      m6, m7 ; c1
     mova       m7, [pw_1] ; FIXME xmm8
     FILT_H2 m1, m2, m3, m4, m5, m6
-    FILT_PACK m1, m4, 1, m7
+    FILT_PACK m1, m4, m7, 1
     movntps    [r0+r2], m1
     add r2, 16
     jl .loop
@@ -572,7 +610,7 @@ cglobal hpel_filter_h, 3,3
     %define src r1+r2
     mova      m0, [src-16]
     mova      m1, [src]
-    mova      m7, [pw_16]
+    mova      m7, [pw_1024]
 .loop:
     mova      m2, [src+16]
     ; Using unaligned loads instead of palignr is marginally slower on SB and significantly
@@ -594,7 +632,7 @@ cglobal hpel_filter_h, 3,3
     paddw     m3, m1
     paddw     m4, m5
     paddw     m4, m6
-    FILT_PACK m3, m4, 5, m7
+    FILT_PACK m3, m4, m7, 5
     pshufb    m3, [hpel_shuf]
     mova      m1, m2
     movntps [r0+r2], m3
@@ -607,8 +645,6 @@ INIT_MMX mmx2
 HPEL_V 0
 INIT_XMM sse2
 HPEL_V 8
-INIT_XMM sse2, misalign
-HPEL_C
 %if ARCH_X86_64 == 0
 INIT_XMM sse2
 HPEL_C
@@ -620,6 +656,45 @@ INIT_XMM avx
 HPEL_C
 HPEL_V 0
 HPEL_H
+INIT_YMM avx2
+HPEL_V 8
+HPEL_C
+
+INIT_YMM avx2
+cglobal hpel_filter_h, 3,3,8
+    add       r0, r2
+    add       r1, r2
+    neg       r2
+    %define src r1+r2
+    mova      m5, [filt_mul15]
+    mova      m6, [filt_mul20]
+    mova      m7, [filt_mul51]
+.loop:
+    movu      m0, [src-2]
+    movu      m1, [src-1]
+    movu      m2, [src+2]
+    pmaddubsw m0, m5
+    pmaddubsw m1, m5
+    pmaddubsw m2, m7
+    paddw     m0, m2
+
+    mova      m2, [src+0]
+    movu      m3, [src+1]
+    movu      m4, [src+3]
+    pmaddubsw m2, m6
+    pmaddubsw m3, m6
+    pmaddubsw m4, m7
+    paddw     m0, m2
+    paddw     m1, m3
+    paddw     m1, m4
+
+    mova      m2, [pw_1024]
+    FILT_PACK m0, m1, m2, 5
+    pshufb    m0, [hpel_shuf]
+    movnta [r0+r2], m0
+    add       r2, mmsize
+    jl .loop
+    RET
 %endif
 
 %if ARCH_X86_64
@@ -627,9 +702,9 @@ HPEL_H
     ;The optimum prefetch distance is difficult to determine in checkasm:
     ;any prefetch seems slower than not prefetching.
     ;In real use, the prefetch seems to be a slight win.
-    ;+16 is picked somewhat arbitrarily here based on the fact that even one
+    ;+mmsize is picked somewhat arbitrarily here based on the fact that even one
     ;loop iteration is going to take longer than the prefetch.
-    prefetcht0 [r1+r2*2+16]
+    prefetcht0 [r1+r2*2+mmsize]
 %if cpuflag(ssse3)
     mova m1, [r3]
     mova m2, [r3+r2]
@@ -662,31 +737,48 @@ HPEL_H
     packuswb %3, %4
     FILT_V2 m1, m2, m3, m4, m5, m6
 %endif
-    add       r3, 16
-    add       r1, 16
+    add       r3, mmsize
+    add       r1, mmsize
+%if mmsize==32
+    vinserti128 %1, m1, xm4, 1
+    vperm2i128  %2, m1, m4, q0301
+%else
     mova      %1, m1
     mova      %2, m4
-    FILT_PACK m1, m4, 5, m15
+%endif
+    FILT_PACK m1, m4, m15, 5
     movntps  [r8+r4+%5], m1
 %endmacro
 
-%macro FILT_C 4
-    PALIGNR   m1, %2, %1, 12, m2
-    PALIGNR   m2, %2, %1, 14, %1
+%macro FILT_C 3
+%if mmsize==32
+    vperm2i128 m3, %2, %1, q0003
+%endif
+    PALIGNR   m1, %2, %1, (mmsize-4), m3
+    PALIGNR   m2, %2, %1, (mmsize-2), m3
+%if mmsize==32
+    vperm2i128 %1, %3, %2, q0003
+%endif
     PALIGNR   m3, %3, %2, 4, %1
     PALIGNR   m4, %3, %2, 2, %1
     paddw     m3, m2
+%if mmsize==32
+    mova      m2, %1
+%endif
     mova      %1, %3
-    PALIGNR   %3, %2, 6, m2
+    PALIGNR   %3, %3, %2, 6, m2
     paddw     m4, %2
     paddw     %3, m1
     FILT_H    %3, m3, m4
 %endmacro
 
 %macro DO_FILT_C 4
-    FILT_C %1, %2, %3, 6
-    FILT_C %2, %1, %4, 6
-    FILT_PACK %3, %4, 6, m15
+    FILT_C %1, %2, %3
+    FILT_C %2, %1, %4
+    FILT_PACK %3, %4, m15, 6
+%if mmsize==32
+    vpermq %3, %3, q3120
+%endif
     movntps   [r5+r4], %3
 %endmacro
 
@@ -700,8 +792,14 @@ HPEL_H
 %endmacro
 
 %macro DO_FILT_H 3
-    PALIGNR   m1, %2, %1, 14, m3
-    PALIGNR   m2, %2, %1, 15, m3
+%if mmsize==32
+    vperm2i128 m3, %2, %1, q0003
+%endif
+    PALIGNR   m1, %2, %1, (mmsize-2), m3
+    PALIGNR   m2, %2, %1, (mmsize-1), m3
+%if mmsize==32
+    vperm2i128 m3, %3, %2, q0003
+%endif
     PALIGNR   m4, %3, %2, 1 , m3
     PALIGNR   m5, %3, %2, 2 , m3
     PALIGNR   m6, %3, %2, 3 , m3
@@ -717,14 +815,14 @@ HPEL_H
     paddw     m2, m4
     paddw     m1, m5
     paddw     m2, m6
-    FILT_PACK m1, m2, 5, m15
+    FILT_PACK m1, m2, m15, 5
     pshufb    m1, [hpel_shuf]
 %else ; ssse3, avx
     ADD8TO16  m1, m6, m12, m3, m0 ; a
     ADD8TO16  m2, m5, m12, m3, m0 ; b
     ADD8TO16  %2, m4, m12, m3, m0 ; c
     FILT_V2   m1, m2, %2, m6, m5, m4
-    FILT_PACK m1, m6, 5, m15
+    FILT_PACK m1, m6, m15, 5
 %endif
     movntps [r0+r4], m1
     mova      %2, %3
@@ -737,9 +835,9 @@ HPEL_H
 ;-----------------------------------------------------------------------------
 cglobal hpel_filter, 7,9,16
     mov       r7, r3
-    sub      r5d, 16
+    sub      r5d, mmsize
     mov       r8, r1
-    and       r7, 15
+    and       r7, mmsize-1
     sub       r3, r7
     add       r0, r5
     add       r8, r5
@@ -751,13 +849,14 @@ cglobal hpel_filter, 7,9,16
     sub       r3, r2
     sub       r3, r2
     mov       r4, r7
-    mova     m15, [pw_16]
 %if cpuflag(ssse3)
     mova      m0, [filt_mul51]
     mova     m12, [filt_mul15]
     mova     m14, [filt_mul20]
+    mova     m15, [pw_1024]
 %else
     pxor      m0, m0
+    mova     m15, [pw_16]
 %endif
 ;ALIGN 16
 .loopy:
@@ -765,16 +864,24 @@ cglobal hpel_filter, 7,9,16
     DO_FILT_V m8, m7, m13, m12, 0
 ;ALIGN 16
 .loopx:
-    DO_FILT_V m6, m5, m11, m12, 16
+    DO_FILT_V m6, m5, m11, m12, mmsize
 .lastx:
+%if cpuflag(ssse3)
+    psrlw   m15, 1   ; pw_512
+%else
     paddw   m15, m15 ; pw_32
+%endif
     DO_FILT_C m9, m8, m7, m6
-    psrlw   m15, 1 ; pw_16
-    movdqa   m7, m5
+%if cpuflag(ssse3)
+    paddw   m15, m15 ; pw_1024
+%else
+    psrlw   m15, 1   ; pw_16
+%endif
+    mova     m7, m5
     DO_FILT_H m10, m13, m11
-    add      r4, 16
+    add      r4, mmsize
     jl .loopx
-    cmp      r4, 16
+    cmp      r4, mmsize
     jl .lastx
 ; setup regs for next y
     sub      r4, r7
@@ -796,6 +903,8 @@ HPEL
 INIT_XMM ssse3
 HPEL
 INIT_XMM avx
+HPEL
+INIT_YMM avx2
 HPEL
 %endif ; ARCH_X86_64
 
@@ -1101,6 +1210,163 @@ cglobal load_deinterleave_chroma_fdec, 4,4
     RET
 %endmacro ; PLANE_DEINTERLEAVE
 
+%macro PLANE_DEINTERLEAVE_RGB_CORE 9 ; pw, i_dsta, i_dstb, i_dstc, i_src, w, h, tmp1, tmp2
+%if cpuflag(ssse3)
+    mova        m3, [deinterleave_rgb_shuf+(%1-3)*16]
+%endif
+%%loopy:
+    mov         %8, r6
+    mov         %9, %6
+%%loopx:
+    movu        m0, [%8]
+    movu        m1, [%8+%1*mmsize/4]
+%if cpuflag(ssse3)
+    pshufb      m0, m3        ; b0 b1 b2 b3 g0 g1 g2 g3 r0 r1 r2 r3
+    pshufb      m1, m3        ; b4 b5 b6 b7 g4 g5 g6 g7 r4 r5 r6 r7
+%elif %1 == 3
+    psrldq      m2, m0, 6
+    punpcklqdq  m0, m1        ; b0 g0 r0 b1 g1 r1 __ __ b4 g4 r4 b5 g5 r5
+    psrldq      m1, 6
+    punpcklqdq  m2, m1        ; b2 g2 r2 b3 g3 r3 __ __ b6 g6 r6 b7 g7 r7
+    psrlq       m3, m0, 24
+    psrlq       m4, m2, 24
+    punpckhbw   m1, m0, m3    ; b4 b5 g4 g5 r4 r5
+    punpcklbw   m0, m3        ; b0 b1 g0 g1 r0 r1
+    punpckhbw   m3, m2, m4    ; b6 b7 g6 g7 r6 r7
+    punpcklbw   m2, m4        ; b2 b3 g2 g3 r2 r3
+    punpcklwd   m0, m2        ; b0 b1 b2 b3 g0 g1 g2 g3 r0 r1 r2 r3
+    punpcklwd   m1, m3        ; b4 b5 b6 b7 g4 g5 g6 g7 r4 r5 r6 r7
+%else
+    pshufd      m3, m0, q2301
+    pshufd      m4, m1, q2301
+    punpckhbw   m2, m0, m3    ; b2 b3 g2 g3 r2 r3
+    punpcklbw   m0, m3        ; b0 b1 g0 g1 r0 r1
+    punpckhbw   m3, m1, m4    ; b6 b7 g6 g7 r6 r7
+    punpcklbw   m1, m4        ; b4 b5 g4 g5 r4 r5
+    punpcklwd   m0, m2        ; b0 b1 b2 b3 g0 g1 g2 g3 r0 r1 r2 r3
+    punpcklwd   m1, m3        ; b4 b5 b6 b7 g4 g5 g6 g7 r4 r5 r6 r7
+%endif
+    punpckldq   m2, m0, m1    ; b0 b1 b2 b3 b4 b5 b6 b7 g0 g1 g2 g3 g4 g5 g6 g7
+    punpckhdq   m0, m1        ; r0 r1 r2 r3 r4 r5 r6 r7
+    movh   [r0+%9], m2
+    movhps [r2+%9], m2
+    movh   [r4+%9], m0
+    add         %8, %1*mmsize/2
+    add         %9, mmsize/2
+    jl %%loopx
+    add         r0, %2
+    add         r2, %3
+    add         r4, %4
+    add         r6, %5
+    dec        %7d
+    jg %%loopy
+%endmacro
+
+%macro PLANE_DEINTERLEAVE_RGB 0
+;-----------------------------------------------------------------------------
+; void x264_plane_copy_deinterleave_rgb( pixel *dsta, intptr_t i_dsta,
+;                                        pixel *dstb, intptr_t i_dstb,
+;                                        pixel *dstc, intptr_t i_dstc,
+;                                        pixel *src,  intptr_t i_src, int pw, int w, int h )
+;-----------------------------------------------------------------------------
+%if ARCH_X86_64
+cglobal plane_copy_deinterleave_rgb, 8,12
+    %define %%args r1, r3, r5, r7, r8, r9, r10, r11
+    mov        r8d, r9m
+    mov        r9d, r10m
+    add         r0, r8
+    add         r2, r8
+    add         r4, r8
+    neg         r8
+%else
+cglobal plane_copy_deinterleave_rgb, 1,7
+    %define %%args r1m, r3m, r5m, r7m, r9m, r1, r3, r5
+    mov         r1, r9m
+    mov         r2, r2m
+    mov         r4, r4m
+    mov         r6, r6m
+    add         r0, r1
+    add         r2, r1
+    add         r4, r1
+    neg         r1
+    mov        r9m, r1
+    mov         r1, r10m
+%endif
+    cmp  dword r8m, 4
+    je .pw4
+    PLANE_DEINTERLEAVE_RGB_CORE 3, %%args ; BGR
+    jmp .ret
+.pw4:
+    PLANE_DEINTERLEAVE_RGB_CORE 4, %%args ; BGRA
+.ret:
+    REP_RET
+%endmacro
+
+%if HIGH_BIT_DEPTH == 0
+INIT_XMM sse2
+PLANE_DEINTERLEAVE_RGB
+INIT_XMM ssse3
+PLANE_DEINTERLEAVE_RGB
+%endif ; !HIGH_BIT_DEPTH
+
+%macro PLANE_DEINTERLEAVE_V210 0
+;-----------------------------------------------------------------------------
+; void x264_plane_copy_deinterleave_v210( uint16_t *dsty, intptr_t i_dsty,
+;                                         uint16_t *dstc, intptr_t i_dstc,
+;                                         uint32_t *src, intptr_t i_src, int w, int h )
+;-----------------------------------------------------------------------------
+%if ARCH_X86_64
+cglobal plane_copy_deinterleave_v210, 8,10,7
+%define src   r8
+%define org_w r9
+%define h     r7d
+%else
+cglobal plane_copy_deinterleave_v210, 7,7,7
+%define src   r4m
+%define org_w r6m
+%define h     dword r7m
+%endif
+    FIX_STRIDES r1, r3, r6d
+    shl    r5, 2
+    add    r0, r6
+    add    r2, r6
+    neg    r6
+    mov   src, r4
+    mov org_w, r6
+    mova   m2, [v210_mask]
+    mova   m3, [v210_luma_shuf]
+    mova   m4, [v210_chroma_shuf]
+    mova   m5, [v210_mult] ; also functions as vpermd index for avx2
+    pshufd m6, m5, q1102
+
+ALIGN 16
+.loop:
+    movu   m1, [r4]
+    pandn  m0, m2, m1
+    pand   m1, m2
+    pshufb m0, m3
+    pshufb m1, m4
+    pmulhrsw m0, m5 ; y0 y1 y2 y3 y4 y5 __ __
+    pmulhrsw m1, m6 ; u0 v0 u1 v1 u2 v2 __ __
+%if mmsize == 32
+    vpermd m0, m5, m0
+    vpermd m1, m5, m1
+%endif
+    movu [r0+r6], m0
+    movu [r2+r6], m1
+    add    r4, mmsize
+    add    r6, 3*mmsize/4
+    jl .loop
+    add    r0, r1
+    add    r2, r3
+    add   src, r5
+    mov    r4, src
+    mov    r6, org_w
+    dec     h
+    jg .loop
+    RET
+%endmacro ; PLANE_DEINTERLEAVE_V210
+
 %if HIGH_BIT_DEPTH
 INIT_MMX mmx2
 PLANE_INTERLEAVE
@@ -1109,9 +1375,14 @@ PLANE_DEINTERLEAVE
 INIT_XMM sse2
 PLANE_INTERLEAVE
 PLANE_DEINTERLEAVE
+INIT_XMM ssse3
+PLANE_DEINTERLEAVE_V210
 INIT_XMM avx
 PLANE_INTERLEAVE
 PLANE_DEINTERLEAVE
+PLANE_DEINTERLEAVE_V210
+INIT_YMM avx2
+PLANE_DEINTERLEAVE_V210
 %else
 INIT_MMX mmx2
 PLANE_INTERLEAVE
@@ -1174,7 +1445,7 @@ MEMCPY
 ;-----------------------------------------------------------------------------
 ; void *memzero_aligned( void *dst, size_t n );
 ;-----------------------------------------------------------------------------
-%macro MEMZERO 0
+%macro MEMZERO 1
 cglobal memzero_aligned, 2,2
     add  r0, r1
     neg  r1
@@ -1185,45 +1456,55 @@ cglobal memzero_aligned, 2,2
 %endif
 .loop:
 %assign i 0
-%rep 8
+%rep %1
     mova [r0 + r1 + i], m0
 %assign i i+mmsize
 %endrep
-    add r1, mmsize*8
+    add r1, mmsize*%1
     jl .loop
     RET
 %endmacro
 
 INIT_MMX mmx
-MEMZERO
+MEMZERO 8
 INIT_XMM sse
-MEMZERO
-
-
+MEMZERO 8
+INIT_YMM avx
+MEMZERO 4
 
 %if HIGH_BIT_DEPTH == 0
 ;-----------------------------------------------------------------------------
 ; void integral_init4h( uint16_t *sum, uint8_t *pix, intptr_t stride )
 ;-----------------------------------------------------------------------------
-INIT_XMM
-cglobal integral_init4h_sse4, 3,4
+%macro INTEGRAL_INIT4H 0
+cglobal integral_init4h, 3,4
     lea     r3, [r0+r2*2]
     add     r1, r2
     neg     r2
     pxor    m4, m4
 .loop:
-    movdqa  m0, [r1+r2]
-    movdqa  m1, [r1+r2+16]
+    mova    m0, [r1+r2]
+%if mmsize==32
+    movu    m1, [r1+r2+8]
+%else
+    mova    m1, [r1+r2+16]
     palignr m1, m0, 8
+%endif
     mpsadbw m0, m4, 0
     mpsadbw m1, m4, 0
     paddw   m0, [r0+r2*2]
-    paddw   m1, [r0+r2*2+16]
-    movdqa  [r3+r2*2   ], m0
-    movdqa  [r3+r2*2+16], m1
-    add     r2, 16
+    paddw   m1, [r0+r2*2+mmsize]
+    mova  [r3+r2*2   ], m0
+    mova  [r3+r2*2+mmsize], m1
+    add     r2, mmsize
     jl .loop
     RET
+%endmacro
+
+INIT_XMM sse4
+INTEGRAL_INIT4H
+INIT_YMM avx2
+INTEGRAL_INIT4H
 
 %macro INTEGRAL_INIT8H 0
 cglobal integral_init8h, 3,4
@@ -1232,20 +1513,26 @@ cglobal integral_init8h, 3,4
     neg     r2
     pxor    m4, m4
 .loop:
-    movdqa  m0, [r1+r2]
-    movdqa  m1, [r1+r2+16]
+    mova    m0, [r1+r2]
+%if mmsize==32
+    movu    m1, [r1+r2+8]
+    mpsadbw m2, m0, m4, 100100b
+    mpsadbw m3, m1, m4, 100100b
+%else
+    mova    m1, [r1+r2+16]
     palignr m1, m0, 8
-    mpsadbw m2, m0, m4, 4
-    mpsadbw m3, m1, m4, 4
+    mpsadbw m2, m0, m4, 100b
+    mpsadbw m3, m1, m4, 100b
+%endif
     mpsadbw m0, m4, 0
     mpsadbw m1, m4, 0
     paddw   m0, [r0+r2*2]
-    paddw   m1, [r0+r2*2+16]
+    paddw   m1, [r0+r2*2+mmsize]
     paddw   m0, m2
     paddw   m1, m3
-    movdqa  [r3+r2*2   ], m0
-    movdqa  [r3+r2*2+16], m1
-    add     r2, 16
+    mova  [r3+r2*2   ], m0
+    mova  [r3+r2*2+mmsize], m1
+    add     r2, mmsize
     jl .loop
     RET
 %endmacro
@@ -1254,6 +1541,8 @@ INIT_XMM sse4
 INTEGRAL_INIT8H
 INIT_XMM avx
 INTEGRAL_INIT8H
+INIT_YMM avx2
+INTEGRAL_INIT8H
 %endif ; !HIGH_BIT_DEPTH
 
 %macro INTEGRAL_INIT_8V 0
@@ -1261,7 +1550,7 @@ INTEGRAL_INIT8H
 ; void integral_init8v( uint16_t *sum8, intptr_t stride )
 ;-----------------------------------------------------------------------------
 cglobal integral_init8v, 3,3
-    shl   r1, 1
+    add   r1, r1
     add   r0, r1
     lea   r2, [r0+r1*8]
     neg   r1
@@ -1281,12 +1570,14 @@ INIT_MMX mmx
 INTEGRAL_INIT_8V
 INIT_XMM sse2
 INTEGRAL_INIT_8V
+INIT_YMM avx2
+INTEGRAL_INIT_8V
 
 ;-----------------------------------------------------------------------------
 ; void integral_init4v( uint16_t *sum8, uint16_t *sum4, intptr_t stride )
 ;-----------------------------------------------------------------------------
-INIT_MMX
-cglobal integral_init4v_mmx, 3,5
+INIT_MMX mmx
+cglobal integral_init4v, 3,5
     shl   r2, 1
     lea   r3, [r0+r2*4]
     lea   r4, [r0+r2*8]
@@ -1307,8 +1598,8 @@ cglobal integral_init4v_mmx, 3,5
     jge .loop
     RET
 
-INIT_XMM
-cglobal integral_init4v_sse2, 3,5
+INIT_XMM sse2
+cglobal integral_init4v, 3,5
     shl     r2, 1
     add     r0, r2
     add     r1, r2
@@ -1333,7 +1624,8 @@ cglobal integral_init4v_sse2, 3,5
     jl .loop
     RET
 
-cglobal integral_init4v_ssse3, 3,5
+INIT_XMM ssse3
+cglobal integral_init4v, 3,5
     shl     r2, 1
     add     r0, r2
     add     r1, r2
@@ -1358,6 +1650,28 @@ cglobal integral_init4v_ssse3, 3,5
     jl .loop
     RET
 
+INIT_YMM avx2
+cglobal integral_init4v, 3,5
+    add     r2, r2
+    add     r0, r2
+    add     r1, r2
+    lea     r3, [r0+r2*4]
+    lea     r4, [r0+r2*8]
+    neg     r2
+.loop:
+    mova    m2, [r0+r2]
+    movu    m1, [r4+r2+8]
+    paddw   m0, m2, [r0+r2+8]
+    paddw   m1, [r4+r2]
+    mova    m3, [r3+r2]
+    psubw   m1, m0
+    psubw   m3, m2
+    mova  [r0+r2], m1
+    mova  [r1+r2], m3
+    add     r2, 32
+    jl .loop
+    RET
+
 %macro FILT8x4 7
     mova      %3, [r0+%7]
     mova      %4, [r0+r5+%7]
@@ -1376,6 +1690,43 @@ cglobal integral_init4v_ssse3, 3,5
     pand      %1, m7
     pand      %2, m7
 %endif
+%endmacro
+
+%macro FILT32x4U 4
+    mova      m1, [r0+r5]
+    pavgb     m0, m1, [r0]
+    movu      m3, [r0+r5+1]
+    pavgb     m2, m3, [r0+1]
+    pavgb     m1, [r0+r5*2]
+    pavgb     m3, [r0+r5*2+1]
+    pavgb     m0, m2
+    pavgb     m1, m3
+
+    mova      m3, [r0+r5+mmsize]
+    pavgb     m2, m3, [r0+mmsize]
+    movu      m5, [r0+r5+1+mmsize]
+    pavgb     m4, m5, [r0+1+mmsize]
+    pavgb     m3, [r0+r5*2+mmsize]
+    pavgb     m5, [r0+r5*2+1+mmsize]
+    pavgb     m2, m4
+    pavgb     m3, m5
+
+    pshufb    m0, m7
+    pshufb    m1, m7
+    pshufb    m2, m7
+    pshufb    m3, m7
+    punpckhqdq m4, m0, m2
+    punpcklqdq m0, m0, m2
+    punpckhqdq m5, m1, m3
+    punpcklqdq m2, m1, m3
+    vpermq    m0, m0, q3120
+    vpermq    m1, m4, q3120
+    vpermq    m2, m2, q3120
+    vpermq    m3, m5, q3120
+    mova    [%1], m0
+    mova    [%2], m1
+    mova    [%3], m2
+    mova    [%4], m3
 %endmacro
 
 %macro FILT16x2 4
@@ -1481,6 +1832,10 @@ cglobal frame_init_lowres_core, 6,7,(12-4*(BIT_DEPTH/9)) ; 8 for HIGH_BIT_DEPTH,
     FIX_STRIDES r5
     shl   dword r7m, 1
 %endif
+%if mmsize >= 16
+    add   dword r7m, mmsize-1
+    and   dword r7m, ~(mmsize-1)
+%endif
     ; src += 2*(height-1)*stride + 2*width
     mov      r6d, r8m
     dec      r6d
@@ -1538,17 +1893,9 @@ cglobal frame_init_lowres_core, 6,7,(12-4*(BIT_DEPTH/9)) ; 8 for HIGH_BIT_DEPTH,
     sub      r6d, mmsize
     jg .hloop
 %else ; !HIGH_BIT_DEPTH
-%if mmsize == 16
-    ; adjust for the odd end case
-    mov      r6d, r7m
-    and      r6d, 8
-    sub       r1, r6
-    sub       r2, r6
-    sub       r3, r6
-    sub       r4, r6
-    add  dst_gap, r6d
-%endif ; mmsize
-%if cpuflag(xop)
+%if cpuflag(avx2)
+    mova      m7, [deinterleave_shuf]
+%elif cpuflag(xop)
     mova      m6, [deinterleave_shuf32a]
     mova      m7, [deinterleave_shuf32b]
 %else
@@ -1558,44 +1905,22 @@ cglobal frame_init_lowres_core, 6,7,(12-4*(BIT_DEPTH/9)) ; 8 for HIGH_BIT_DEPTH,
 .vloop:
     mov      r6d, r7m
 %ifnidn cpuname, mmx2
+%if mmsize <= 16
     mova      m0, [r0]
     mova      m1, [r0+r5]
     pavgb     m0, m1
     pavgb     m1, [r0+r5*2]
 %endif
-%if mmsize == 16
-    test     r6d, 8
-    jz .hloop
-    sub       r0, 16
-    FILT8x4   m0, m1, m2, m3, m4, m5, 0
-%if cpuflag(xop)
-    mova      m4, m0
-    vpperm    m0, m4, m1, m6
-    vpperm    m1, m4, m1, m7
-    movq    [r1], m0
-    movq    [r2], m1
-    movhps  [r3], m0
-    movhps  [r4], m1
-%else
-    packuswb  m0, m4
-    packuswb  m1, m5
-    movq    [r1], m0
-    movhps  [r2], m0
-    movq    [r3], m1
-    movhps  [r4], m1
 %endif
-    mova      m0, m2
-    mova      m1, m3
-    sub      r6d, 8
-    jz .skip
-%endif ; mmsize
 .hloop:
     sub       r0, mmsize*2
     sub       r1, mmsize
     sub       r2, mmsize
     sub       r3, mmsize
     sub       r4, mmsize
-%ifdef m8
+%if mmsize==32
+    FILT32x4U r1, r2, r3, r4
+%elifdef m8
     FILT8x4   m0, m1, m2, m3, m10, m11, mmsize
     mova      m8, m0
     mova      m9, m1
@@ -1653,68 +1978,74 @@ INIT_XMM avx
 FRAME_INIT_LOWRES
 INIT_XMM xop
 FRAME_INIT_LOWRES
+%if HIGH_BIT_DEPTH==0
+INIT_YMM avx2
+FRAME_INIT_LOWRES
+%endif
 
 ;-----------------------------------------------------------------------------
 ; void mbtree_propagate_cost( int *dst, uint16_t *propagate_in, uint16_t *intra_costs,
 ;                             uint16_t *inter_costs, uint16_t *inv_qscales, float *fps_factor, int len )
 ;-----------------------------------------------------------------------------
 %macro MBTREE 0
-cglobal mbtree_propagate_cost, 7,7,7
-    add        r6d, r6d
-    lea         r0, [r0+r6*2]
-    add         r1, r6
-    add         r2, r6
-    add         r3, r6
-    add         r4, r6
-    neg         r6
-    pxor      xmm4, xmm4
-    movss     xmm6, [r5]
-    shufps    xmm6, xmm6, 0
-    mulps     xmm6, [pf_inv256]
-    movdqa    xmm5, [pw_3fff]
+cglobal mbtree_propagate_cost, 6,6,7
+    movss     m6, [r5]
+    mov      r5d, r6m
+    lea       r0, [r0+r5*2]
+    add      r5d, r5d
+    add       r1, r5
+    add       r2, r5
+    add       r3, r5
+    add       r4, r5
+    neg       r5
+    pxor      m4, m4
+    shufps    m6, m6, 0
+    mova      m5, [pw_3fff]
 .loop:
-    movq      xmm2, [r2+r6] ; intra
-    movq      xmm0, [r4+r6] ; invq
-    movq      xmm3, [r3+r6] ; inter
-    movq      xmm1, [r1+r6] ; prop
-    punpcklwd xmm2, xmm4
-    punpcklwd xmm0, xmm4
-    pmaddwd   xmm0, xmm2
-    pand      xmm3, xmm5
-    punpcklwd xmm1, xmm4
-    punpcklwd xmm3, xmm4
+    movq      m2, [r2+r5] ; intra
+    movq      m0, [r4+r5] ; invq
+    movq      m3, [r3+r5] ; inter
+    movq      m1, [r1+r5] ; prop
+    pand      m3, m5
+    pminsw    m3, m2
+    punpcklwd m2, m4
+    punpcklwd m0, m4
+    pmaddwd   m0, m2
+    punpcklwd m1, m4
+    punpcklwd m3, m4
 %if cpuflag(fma4)
-    cvtdq2ps  xmm0, xmm0
-    cvtdq2ps  xmm1, xmm1
-    fmaddps   xmm0, xmm0, xmm6, xmm1
-    cvtdq2ps  xmm1, xmm2
-    psubd     xmm2, xmm3
-    cvtdq2ps  xmm2, xmm2
-    rcpps     xmm3, xmm1
-    mulps     xmm1, xmm3
-    mulps     xmm0, xmm2
-    addps     xmm2, xmm3, xmm3
-    fnmaddps  xmm3, xmm1, xmm3, xmm2
-    mulps     xmm0, xmm3
+    cvtdq2ps  m0, m0
+    cvtdq2ps  m1, m1
+    fmaddps   m0, m0, m6, m1
+    cvtdq2ps  m1, m2
+    psubd     m2, m3
+    cvtdq2ps  m2, m2
+    rcpps     m3, m1
+    mulps     m1, m3
+    mulps     m0, m2
+    addps     m2, m3, m3
+    fnmaddps  m3, m1, m3, m2
+    mulps     m0, m3
 %else
-    cvtdq2ps  xmm0, xmm0
-    mulps     xmm0, xmm6    ; intra*invq*fps_factor>>8
-    cvtdq2ps  xmm1, xmm1    ; prop
-    addps     xmm0, xmm1    ; prop + (intra*invq*fps_factor>>8)
-    cvtdq2ps  xmm1, xmm2    ; intra
-    psubd     xmm2, xmm3    ; intra - inter
-    cvtdq2ps  xmm2, xmm2    ; intra - inter
-    rcpps     xmm3, xmm1    ; 1 / intra 1st approximation
-    mulps     xmm1, xmm3    ; intra * (1/intra 1st approx)
-    mulps     xmm1, xmm3    ; intra * (1/intra 1st approx)^2
-    mulps     xmm0, xmm2    ; (prop + (intra*invq*fps_factor>>8)) * (intra - inter)
-    addps     xmm3, xmm3    ; 2 * (1/intra 1st approx)
-    subps     xmm3, xmm1    ; 2nd approximation for 1/intra
-    mulps     xmm0, xmm3    ; / intra
+    cvtdq2ps  m0, m0
+    mulps     m0, m6    ; intra*invq*fps_factor>>8
+    cvtdq2ps  m1, m1    ; prop
+    addps     m0, m1    ; prop + (intra*invq*fps_factor>>8)
+    cvtdq2ps  m1, m2    ; intra
+    psubd     m2, m3    ; intra - inter
+    cvtdq2ps  m2, m2    ; intra - inter
+    rcpps     m3, m1    ; 1 / intra 1st approximation
+    mulps     m1, m3    ; intra * (1/intra 1st approx)
+    mulps     m1, m3    ; intra * (1/intra 1st approx)^2
+    mulps     m0, m2    ; (prop + (intra*invq*fps_factor>>8)) * (intra - inter)
+    addps     m3, m3    ; 2 * (1/intra 1st approx)
+    subps     m3, m1    ; 2nd approximation for 1/intra
+    mulps     m0, m3    ; / intra
 %endif
-    cvtps2dq  xmm0, xmm0
-    movdqa [r0+r6*2], xmm0
-    add         r6, 8
+    cvtps2dq  m0, m0
+    packssdw  m0, m0
+    movh [r0+r5], m0
+    add       r5, 8
     jl .loop
     RET
 %endmacro
@@ -1725,73 +2056,177 @@ MBTREE
 INIT_XMM fma4
 MBTREE
 
-%macro INT16_TO_FLOAT 1
-%if cpuflag(avx2)
-    vpmovzxwd   ymm%1, xmm%1
-%else
-    vpunpckhwd   xmm4, xmm%1, xmm7
-    vpunpcklwd  xmm%1, xmm7
-    vinsertf128 ymm%1, ymm%1, xmm4, 1
-%endif
-    vcvtdq2ps   ymm%1, ymm%1
+%macro INT16_UNPACK 1
+    punpckhwd   xm4, xm%1, xm7
+    punpcklwd  xm%1, xm7
+    vinsertf128 m%1, m%1, xm4, 1
 %endmacro
 
-; FIXME: align loads/stores to 16 bytes
-%macro MBTREE_AVX 0
-cglobal mbtree_propagate_cost, 7,7,8
-    add           r6d, r6d
-    lea            r0, [r0+r6*2]
-    add            r1, r6
-    add            r2, r6
-    add            r3, r6
-    add            r4, r6
-    neg            r6
-    vmovdqa      xmm5, [pw_3fff]
-    vbroadcastss ymm6, [r5]
-    vmulps       ymm6, ymm6, [pf_inv256]
+; FIXME: align loads to 16 bytes
+%macro MBTREE_AVX 1
+cglobal mbtree_propagate_cost, 6,6,%1
+    vbroadcastss m6, [r5]
+    mov         r5d, r6m
+    lea          r0, [r0+r5*2]
+    add         r5d, r5d
+    add          r1, r5
+    add          r2, r5
+    add          r3, r5
+    add          r4, r5
+    neg          r5
+    mova        xm5, [pw_3fff]
 %if notcpuflag(avx2)
-    vpxor        xmm7, xmm7
+    pxor        xm7, xm7
 %endif
 .loop:
-    vmovdqu      xmm0, [r2+r6]       ; intra
-    vmovdqu      xmm1, [r4+r6]       ; invq
-    vmovdqu      xmm2, [r1+r6]       ; prop
-    vpand        xmm3, xmm5, [r3+r6] ; inter
-    INT16_TO_FLOAT 0
-    INT16_TO_FLOAT 1
-    INT16_TO_FLOAT 2
-    INT16_TO_FLOAT 3
-%if cpuflag(fma3)
-    vmulps       ymm1, ymm1, ymm0
-    vsubps       ymm4, ymm0, ymm3
-    fmaddps      ymm1, ymm1, ymm6, ymm2
-    vrcpps       ymm3, ymm0
-    vmulps       ymm2, ymm0, ymm3
-    vmulps       ymm1, ymm1, ymm4
-    vaddps       ymm4, ymm3, ymm3
-    fnmaddps     ymm4, ymm2, ymm3, ymm4
-    vmulps       ymm1, ymm1, ymm4
+%if cpuflag(avx2)
+    pmovzxwd     m0, [r2+r5]      ; intra
+    pmovzxwd     m1, [r4+r5]      ; invq
+    pmovzxwd     m2, [r1+r5]      ; prop
+    pand        xm3, xm5, [r3+r5] ; inter
+    pmovzxwd     m3, xm3
+    pminsd       m3, m0
+    pmaddwd      m1, m0
+    psubd        m4, m0, m3
+    cvtdq2ps     m0, m0
+    cvtdq2ps     m1, m1
+    cvtdq2ps     m2, m2
+    cvtdq2ps     m4, m4
+    fmaddps      m1, m1, m6, m2
+    rcpps        m3, m0
+    mulps        m2, m0, m3
+    mulps        m1, m4
+    addps        m4, m3, m3
+    fnmaddps     m4, m2, m3, m4
+    mulps        m1, m4
 %else
-    vmulps       ymm1, ymm1, ymm0
-    vsubps       ymm4, ymm0, ymm3
-    vmulps       ymm1, ymm1, ymm6    ; intra*invq*fps_factor>>8
-    vaddps       ymm1, ymm1, ymm2    ; prop + (intra*invq*fps_factor>>8)
-    vrcpps       ymm3, ymm0          ; 1 / intra 1st approximation
-    vmulps       ymm2, ymm0, ymm3    ; intra * (1/intra 1st approx)
-    vmulps       ymm2, ymm2, ymm3    ; intra * (1/intra 1st approx)^2
-    vmulps       ymm1, ymm1, ymm4    ; (prop + (intra*invq*fps_factor>>8)) * (intra - inter)
-    vaddps       ymm3, ymm3, ymm3    ; 2 * (1/intra 1st approx)
-    vsubps       ymm3, ymm3, ymm2    ; 2nd approximation for 1/intra
-    vmulps       ymm1, ymm1, ymm3    ; / intra
+    movu        xm0, [r2+r5]
+    movu        xm1, [r4+r5]
+    movu        xm2, [r1+r5]
+    pand        xm3, xm5, [r3+r5]
+    pminsw      xm3, xm0
+    INT16_UNPACK 0
+    INT16_UNPACK 1
+    INT16_UNPACK 2
+    INT16_UNPACK 3
+    cvtdq2ps     m0, m0
+    cvtdq2ps     m1, m1
+    cvtdq2ps     m2, m2
+    cvtdq2ps     m3, m3
+    mulps        m1, m0
+    subps        m4, m0, m3
+    mulps        m1, m6         ; intra*invq*fps_factor>>8
+    addps        m1, m2         ; prop + (intra*invq*fps_factor>>8)
+    rcpps        m3, m0         ; 1 / intra 1st approximation
+    mulps        m2, m0, m3     ; intra * (1/intra 1st approx)
+    mulps        m2, m3         ; intra * (1/intra 1st approx)^2
+    mulps        m1, m4         ; (prop + (intra*invq*fps_factor>>8)) * (intra - inter)
+    addps        m3, m3         ; 2 * (1/intra 1st approx)
+    subps        m3, m2         ; 2nd approximation for 1/intra
+    mulps        m1, m3         ; / intra
 %endif
-    vcvtps2dq    ymm1, ymm1
-    vmovdqu [r0+r6*2], ymm1
-    add            r6, 16
+    vcvtps2dq    m1, m1
+    vextractf128 xm2, m1, 1
+    packssdw    xm1, xm2
+    mova    [r0+r5], xm1
+    add          r5, 16
     jl .loop
     RET
 %endmacro
 
 INIT_YMM avx
-MBTREE_AVX
+MBTREE_AVX 8
 INIT_YMM avx2,fma3
-MBTREE_AVX
+MBTREE_AVX 7
+
+%macro MBTREE_PROPAGATE_LIST 0
+;-----------------------------------------------------------------------------
+; void mbtree_propagate_list_internal( int16_t (*mvs)[2], int *propagate_amount, uint16_t *lowres_costs,
+;                                      int16_t *output, int bipred_weight, int mb_y, int len )
+;-----------------------------------------------------------------------------
+cglobal mbtree_propagate_list_internal, 4,6,8
+    movh     m6, [pw_0to15] ; mb_x
+    movd     m7, r5m
+    pshuflw  m7, m7, 0
+    punpcklwd m6, m7       ; 0 y 1 y 2 y 3 y
+    movd     m7, r4m
+    SPLATW   m7, m7        ; bipred_weight
+    psllw    m7, 9         ; bipred_weight << 9
+
+    mov     r5d, r6m
+    xor     r4d, r4d
+.loop:
+    mova     m3, [r1+r4*2]
+    movu     m4, [r2+r4*2]
+    mova     m5, [pw_0xc000]
+    pand     m4, m5
+    pcmpeqw  m4, m5
+    pmulhrsw m5, m3, m7    ; propagate_amount = (propagate_amount * bipred_weight + 32) >> 6
+%if cpuflag(avx)
+    pblendvb m5, m3, m5, m4
+%else
+    pand     m5, m4
+    pandn    m4, m3
+    por      m5, m4        ; if( lists_used == 3 )
+                           ;     propagate_amount = (propagate_amount * bipred_weight + 32) >> 6
+%endif
+
+    movu     m0, [r0+r4*4] ; x,y
+    movu     m1, [r0+r4*4+mmsize]
+
+    psraw    m2, m0, 5
+    psraw    m3, m1, 5
+    mova     m4, [pd_4]
+    paddw    m2, m6        ; {mbx, mby} = ({x,y}>>5)+{h->mb.i_mb_x,h->mb.i_mb_y}
+    paddw    m6, m4        ; {mbx, mby} += {4, 0}
+    paddw    m3, m6        ; {mbx, mby} = ({x,y}>>5)+{h->mb.i_mb_x,h->mb.i_mb_y}
+    paddw    m6, m4        ; {mbx, mby} += {4, 0}
+
+    mova [r3+mmsize*0], m2
+    mova [r3+mmsize*1], m3
+
+    mova     m3, [pw_31]
+    pand     m0, m3        ; x &= 31
+    pand     m1, m3        ; y &= 31
+    packuswb m0, m1
+    psrlw    m1, m0, 3
+    pand     m0, m3        ; x
+    SWAP      1, 3
+    pandn    m1, m3        ; y premultiplied by (1<<5) for later use of pmulhrsw
+
+    mova     m3, [pw_32]
+    psubw    m3, m0        ; 32 - x
+    mova     m4, [pw_1024]
+    psubw    m4, m1        ; (32 - y) << 5
+
+    pmullw   m2, m3, m4    ; idx0weight = (32-y)*(32-x) << 5
+    pmullw   m4, m0        ; idx1weight = (32-y)*x << 5
+    pmullw   m0, m1        ; idx3weight = y*x << 5
+    pmullw   m1, m3        ; idx2weight = y*(32-x) << 5
+
+    ; avoid overflow in the input to pmulhrsw
+    psrlw    m3, m2, 15
+    psubw    m2, m3        ; idx0weight -= (idx0weight == 32768)
+
+    pmulhrsw m2, m5        ; idx0weight * propagate_amount + 512 >> 10
+    pmulhrsw m4, m5        ; idx1weight * propagate_amount + 512 >> 10
+    pmulhrsw m1, m5        ; idx2weight * propagate_amount + 512 >> 10
+    pmulhrsw m0, m5        ; idx3weight * propagate_amount + 512 >> 10
+
+    SBUTTERFLY wd, 2, 4, 3
+    SBUTTERFLY wd, 1, 0, 3
+    mova [r3+mmsize*2], m2
+    mova [r3+mmsize*3], m4
+    mova [r3+mmsize*4], m1
+    mova [r3+mmsize*5], m0
+    add     r4d, mmsize/2
+    add      r3, mmsize*6
+    cmp     r4d, r5d
+    jl .loop
+    REP_RET
+%endmacro
+
+INIT_XMM ssse3
+MBTREE_PROPAGATE_LIST
+INIT_XMM avx
+MBTREE_PROPAGATE_LIST

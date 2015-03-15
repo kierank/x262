@@ -1,7 +1,7 @@
 /*****************************************************************************
  * predict.h: x86 intra prediction
  *****************************************************************************
- * Copyright (C) 2003-2013 x264 project
+ * Copyright (C) 2003-2014 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -35,21 +35,26 @@ void x264_predict_8x8_init_mmx   ( int cpu, x264_predict8x8_t pf[12], x264_predi
 
 void x264_predict_16x16_v_mmx2( pixel *src );
 void x264_predict_16x16_v_sse ( pixel *src );
+void x264_predict_16x16_v_avx ( uint16_t *src );
 void x264_predict_16x16_h_mmx2( pixel *src );
 void x264_predict_16x16_h_sse2( uint16_t *src );
 void x264_predict_16x16_h_ssse3( uint8_t *src );
+void x264_predict_16x16_h_avx2( uint16_t *src );
 void x264_predict_16x16_dc_mmx2( pixel *src );
 void x264_predict_16x16_dc_sse2( pixel *src );
 void x264_predict_16x16_dc_core_mmx2( pixel *src, int i_dc_left );
 void x264_predict_16x16_dc_core_sse2( pixel *src, int i_dc_left );
+void x264_predict_16x16_dc_core_avx2( pixel *src, int i_dc_left );
 void x264_predict_16x16_dc_left_core_mmx2( pixel *src, int i_dc_left );
 void x264_predict_16x16_dc_left_core_sse2( pixel *src, int i_dc_left );
+void x264_predict_16x16_dc_left_core_avx2( pixel *src, int i_dc_left );
 void x264_predict_16x16_dc_top_mmx2( pixel *src );
 void x264_predict_16x16_dc_top_sse2( pixel *src );
-void x264_predict_16x16_dc_top_ssse3( uint16_t *src );
+void x264_predict_16x16_dc_top_avx2( pixel *src );
 void x264_predict_16x16_p_core_mmx2( uint8_t *src, int i00, int b, int c );
 void x264_predict_16x16_p_core_sse2( pixel *src, int i00, int b, int c );
 void x264_predict_16x16_p_core_avx( pixel *src, int i00, int b, int c );
+void x264_predict_16x16_p_core_avx2( pixel *src, int i00, int b, int c );
 void x264_predict_8x16c_dc_mmx2( pixel *src );
 void x264_predict_8x16c_dc_sse2( uint16_t *src );
 void x264_predict_8x16c_dc_top_mmx2( uint8_t *src );
@@ -57,14 +62,17 @@ void x264_predict_8x16c_dc_top_sse2( uint16_t *src );
 void x264_predict_8x16c_v_mmx( uint8_t *src );
 void x264_predict_8x16c_v_sse( uint16_t *src );
 void x264_predict_8x16c_h_mmx2( pixel *src );
-void x264_predict_8x16c_h_sse2( pixel *src );
+void x264_predict_8x16c_h_sse2( uint16_t *src );
 void x264_predict_8x16c_h_ssse3( uint8_t *src );
+void x264_predict_8x16c_h_avx2( uint16_t *src );
 void x264_predict_8x16c_p_core_mmx2( uint8_t *src, int i00, int b, int c );
 void x264_predict_8x16c_p_core_sse2( pixel *src, int i00, int b, int c );
-void x264_predict_8x16c_p_core_avx( pixel *src, int i00, int b, int c );
+void x264_predict_8x16c_p_core_avx ( pixel *src, int i00, int b, int c );
+void x264_predict_8x16c_p_core_avx2( pixel *src, int i00, int b, int c );
 void x264_predict_8x8c_p_core_mmx2( uint8_t *src, int i00, int b, int c );
 void x264_predict_8x8c_p_core_sse2( pixel *src, int i00, int b, int c );
-void x264_predict_8x8c_p_core_avx( pixel *src, int i00, int b, int c );
+void x264_predict_8x8c_p_core_avx ( pixel *src, int i00, int b, int c );
+void x264_predict_8x8c_p_core_avx2( pixel *src, int i00, int b, int c );
 void x264_predict_8x8c_dc_mmx2( pixel *src );
 void x264_predict_8x8c_dc_sse2( uint16_t *src );
 void x264_predict_8x8c_dc_top_mmx2( uint8_t *src );
@@ -72,8 +80,9 @@ void x264_predict_8x8c_dc_top_sse2( uint16_t *src );
 void x264_predict_8x8c_v_mmx( pixel *src );
 void x264_predict_8x8c_v_sse( uint16_t *src );
 void x264_predict_8x8c_h_mmx2( pixel *src );
-void x264_predict_8x8c_h_sse2( pixel *src );
+void x264_predict_8x8c_h_sse2( uint16_t *src );
 void x264_predict_8x8c_h_ssse3( uint8_t *src );
+void x264_predict_8x8c_h_avx2( uint16_t *src );
 void x264_predict_8x8_v_mmx2( uint8_t *src, uint8_t edge[36] );
 void x264_predict_8x8_v_sse ( uint16_t *src, uint16_t edge[36] );
 void x264_predict_8x8_h_mmx2( uint8_t *src, uint8_t edge[36] );
@@ -114,6 +123,7 @@ void x264_predict_8x8_filter_mmx2( uint8_t *src, uint8_t edge[36], int i_neighbo
 void x264_predict_8x8_filter_sse2( uint16_t *src, uint16_t edge[36], int i_neighbor, int i_filters );
 void x264_predict_8x8_filter_ssse3( pixel *src, pixel edge[36], int i_neighbor, int i_filters );
 void x264_predict_8x8_filter_avx( uint16_t *src, uint16_t edge[36], int i_neighbor, int i_filters );
+void x264_predict_4x4_h_avx2( uint16_t *src );
 void x264_predict_4x4_ddl_mmx2( pixel *src );
 void x264_predict_4x4_ddl_sse2( uint16_t *src );
 void x264_predict_4x4_ddl_avx( uint16_t *src );

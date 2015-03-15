@@ -1,7 +1,7 @@
 /*****************************************************************************
  * cavlc.c: cavlc bitstream writing
  *****************************************************************************
- * Copyright (C) 2003-2013 x264 project
+ * Copyright (C) 2003-2014 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -128,13 +128,13 @@ static int x264_cavlc_block_residual_internal( x264_t *h, int ctx_block_cat, dct
     unsigned int i_sign;
 
     /* level and run and total */
-    /* set these to 2 to allow branchless i_trailing calculation */
-    runlevel.level[1] = 2;
-    runlevel.level[2] = 2;
     i_total = h->quantf.coeff_level_run[ctx_block_cat]( l, &runlevel );
     x264_prefetch( &x264_run_before[runlevel.mask] );
     i_total_zero = runlevel.last + 1 - i_total;
 
+    /* branchless i_trailing calculation */
+    runlevel.level[i_total+0] = 2;
+    runlevel.level[i_total+1] = 2;
     i_trailing = ((((runlevel.level[0]+1) | (1-runlevel.level[0])) >> 31) & 1) // abs(runlevel.level[0])>1
                | ((((runlevel.level[1]+1) | (1-runlevel.level[1])) >> 31) & 2)
                | ((((runlevel.level[2]+1) | (1-runlevel.level[2])) >> 31) & 4);
@@ -213,11 +213,14 @@ static void x264_cavlc_qp_delta( x264_t *h )
     bs_t *s = &h->out.bs;
     int i_dqp = h->mb.i_qp - h->mb.i_last_qp;
 
-    /* Avoid writing a delta quant if we have an empty i16x16 block, e.g. in a completely flat background area */
+    /* Avoid writing a delta quant if we have an empty i16x16 block, e.g. in a completely
+     * flat background area. Don't do this if it would raise the quantizer, since that could
+     * cause unexpected deblocking artifacts. */
     if( h->mb.i_type == I_16x16 && !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma)
         && !h->mb.cache.non_zero_count[x264_scan8[LUMA_DC]]
         && !h->mb.cache.non_zero_count[x264_scan8[CHROMA_DC+0]]
-        && !h->mb.cache.non_zero_count[x264_scan8[CHROMA_DC+1]] )
+        && !h->mb.cache.non_zero_count[x264_scan8[CHROMA_DC+1]]
+        && h->mb.i_qp > h->mb.i_last_qp )
     {
 #if !RDO_SKIP_BS
         h->mb.i_qp = h->mb.i_last_qp;
@@ -497,6 +500,9 @@ void x264_macroblock_write_cavlc( x264_t *h )
         && (!(h->mb.i_mb_y & 1) || IS_SKIP(h->mb.type[h->mb.i_mb_xy - h->mb.i_mb_stride])) )
     {
         bs_write1( s, MB_INTERLACED );
+#if !RDO_SKIP_BS
+        h->mb.field_decoding_flag = MB_INTERLACED;
+#endif
     }
 
 #if !RDO_SKIP_BS

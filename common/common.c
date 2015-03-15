@@ -1,7 +1,7 @@
 /*****************************************************************************
  * common.c: misc common functions
  *****************************************************************************
- * Copyright (C) 2003-2013 x264 project
+ * Copyright (C) 2003-2014 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -31,6 +31,9 @@
 
 #if HAVE_MALLOC_H
 #include <malloc.h>
+#endif
+#if HAVE_THP
+#include <sys/mman.h>
 #endif
 
 const int x264_bit_depth = BIT_DEPTH;
@@ -204,6 +207,10 @@ void x264_param_default( x264_param_t *param )
     param->b_pic_struct = 0;
     param->b_fake_interlaced = 0;
     param->i_frame_packing = -1;
+    param->b_opencl = 0;
+    param->i_opencl_device = 0;
+    param->opencl_device_id = NULL;
+    param->psz_clbin_file = NULL;
     param->b_mpeg2 = 0;
 }
 
@@ -388,7 +395,7 @@ static int x264_param_apply_tune( x264_param_t *param, const char *tune )
             param->analyse.i_luma_deadzone[1] = 6;
             param->rc.f_qcompress = 0.8;
         }
-        else if( !strncasecmp( s, "stillimage", 5 ) )
+        else if( !strncasecmp( s, "stillimage", 10 ) )
         {
             if( psy_tuning_used++ ) goto psy_failure;
             param->i_deblocking_filter_alphac0 = -3;
@@ -792,6 +799,8 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
     }
     OPT("bluray-compat")
         p->b_bluray_compat = atobool(value);
+    OPT("avcintra-class")
+        p->i_avcintra_class = atoi(value);
     OPT("sar")
     {
         b_error = ( 2 != sscanf( value, "%d:%d", &p->vui.i_sar_width, &p->vui.i_sar_height ) &&
@@ -906,8 +915,12 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         p->i_slice_max_size = atoi(value);
     OPT("slice-max-mbs")
         p->i_slice_max_mbs = atoi(value);
+    OPT("slice-min-mbs")
+        p->i_slice_min_mbs = atoi(value);
     OPT("slices")
         p->i_slice_count = atoi(value);
+    OPT("slices-max")
+        p->i_slice_count_max = atoi(value);
 #if HAVE_MPEG2
     OPT("mpeg2")
         p->b_mpeg2 = atobool(value);
@@ -1008,10 +1021,6 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
     }
     OPT("log")
         p->i_log_level = atoi(value);
-#if HAVE_VISUALIZE
-    OPT("visualize")
-        p->b_visualize = atobool(value);
-#endif
     OPT("dump-yuv")
         p->psz_dump_yuv = strdup(value);
     OPT2("analyse", "partitions")
@@ -1171,12 +1180,22 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         p->b_vfr_input = !atobool(value);
     OPT("nal-hrd")
         b_error |= parse_enum( value, x264_nal_hrd_names, &p->i_nal_hrd );
+    OPT("filler")
+        p->rc.b_filler = atobool(value);
     OPT("pic-struct")
         p->b_pic_struct = atobool(value);
     OPT("fake-interlaced")
         p->b_fake_interlaced = atobool(value);
     OPT("frame-packing")
         p->i_frame_packing = atoi(value);
+    OPT("stitchable")
+        p->b_stitchable = atobool(value);
+    OPT("opencl")
+        p->b_opencl = atobool( value );
+    OPT("opencl-clbin")
+        p->psz_clbin_file = strdup( value );
+    OPT("opencl-device")
+        p->i_opencl_device = atoi( value );
     else
         return X264_PARAM_BAD_NAME;
 #undef OPT
@@ -1231,7 +1250,7 @@ static void x264_log_default( void *p_unused, int i_level, const char *psz_fmt, 
             break;
     }
     fprintf( stderr, "x264 [%s]: ", psz_prefix );
-    vfprintf( stderr, psz_fmt, arg );
+    x264_vfprintf( stderr, psz_fmt, arg );
 }
 
 static void x264_log_mpeg2( void *p_unused, int i_level, const char *psz_fmt, va_list arg )
@@ -1298,7 +1317,7 @@ int x264_picture_alloc( x264_picture_t *pic, int i_csp, int i_width, int i_heigh
     };
 
     int csp = i_csp & X264_CSP_MASK;
-    if( csp <= X264_CSP_NONE || csp >= X264_CSP_MAX )
+    if( csp <= X264_CSP_NONE || csp >= X264_CSP_MAX || csp == X264_CSP_V210 )
         return -1;
     x264_picture_init( pic );
     pic->img.i_csp = i_csp;
@@ -1339,17 +1358,32 @@ void x264_picture_clean( x264_picture_t *pic )
 void *x264_malloc( int i_size )
 {
     uint8_t *align_buf = NULL;
-#if SYS_MACOSX || (SYS_WINDOWS && ARCH_X86_64)
-    /* Mac OS X and Win x64 always returns 16 byte aligned memory */
-    align_buf = malloc( i_size );
-#elif HAVE_MALLOC_H
-    align_buf = memalign( 16, i_size );
+#if HAVE_MALLOC_H
+#if HAVE_THP
+#define HUGE_PAGE_SIZE 2*1024*1024
+#define HUGE_PAGE_THRESHOLD HUGE_PAGE_SIZE*7/8 /* FIXME: Is this optimal? */
+    /* Attempt to allocate huge pages to reduce TLB misses. */
+    if( i_size >= HUGE_PAGE_THRESHOLD )
+    {
+        align_buf = memalign( HUGE_PAGE_SIZE, i_size );
+        if( align_buf )
+        {
+            /* Round up to the next huge page boundary if we are close enough. */
+            size_t madv_size = (i_size + HUGE_PAGE_SIZE - HUGE_PAGE_THRESHOLD) & ~(HUGE_PAGE_SIZE-1);
+            madvise( align_buf, madv_size, MADV_HUGEPAGE );
+        }
+    }
+    else
+#undef HUGE_PAGE_SIZE
+#undef HUGE_PAGE_THRESHOLD
+#endif
+        align_buf = memalign( NATIVE_ALIGN, i_size );
 #else
-    uint8_t *buf = malloc( i_size + 15 + sizeof(void **) );
+    uint8_t *buf = malloc( i_size + (NATIVE_ALIGN-1) + sizeof(void **) );
     if( buf )
     {
-        align_buf = buf + 15 + sizeof(void **);
-        align_buf -= (intptr_t) align_buf & 15;
+        align_buf = buf + (NATIVE_ALIGN-1) + sizeof(void **);
+        align_buf -= (intptr_t) align_buf & (NATIVE_ALIGN-1);
         *( (void **) ( align_buf - sizeof(void **) ) ) = buf;
     }
 #endif
@@ -1365,7 +1399,7 @@ void x264_free( void *p )
 {
     if( p )
     {
-#if HAVE_MALLOC_H || SYS_MACOSX || (SYS_WINDOWS && ARCH_X86_64)
+#if HAVE_MALLOC_H
         free( p );
 #else
         free( *( ( ( void **) p ) - 1 ) );
@@ -1406,7 +1440,7 @@ char *x264_slurp_file( const char *filename )
     int b_error = 0;
     size_t i_size;
     char *buf;
-    FILE *fh = fopen( filename, "rb" );
+    FILE *fh = x264_fopen( filename, "rb" );
     if( !fh )
         return NULL;
     b_error |= fseek( fh, 0, SEEK_END ) < 0;
@@ -1456,6 +1490,8 @@ char *x264_param2string( x264_param_t *p, int b_res )
 
     // FIXME speedcontrol stuff
 
+    if( p->b_opencl )
+        s += sprintf( s, "opencl=%d ", p->b_opencl );
     s += sprintf( s, "cabac=%d", p->b_cabac );
     s += sprintf( s, " ref=%d", p->i_frame_reference );
     s += sprintf( s, " mpeg2=%d", p->b_mpeg2 );
@@ -1481,14 +1517,20 @@ char *x264_param2string( x264_param_t *p, int b_res )
     s += sprintf( s, " sliced_threads=%d", p->b_sliced_threads );
     if( p->i_slice_count )
         s += sprintf( s, " slices=%d", p->i_slice_count );
+    if( p->i_slice_count_max )
+        s += sprintf( s, " slices_max=%d", p->i_slice_count_max );
     if( p->i_slice_max_size )
         s += sprintf( s, " slice_max_size=%d", p->i_slice_max_size );
     if( p->i_slice_max_mbs )
         s += sprintf( s, " slice_max_mbs=%d", p->i_slice_max_mbs );
+    if( p->i_slice_min_mbs )
+        s += sprintf( s, " slice_min_mbs=%d", p->i_slice_min_mbs );
     s += sprintf( s, " nr=%d", p->analyse.i_noise_reduction );
     s += sprintf( s, " decimate=%d", p->analyse.b_dct_decimate );
     s += sprintf( s, " interlaced=%s", p->b_interlaced ? p->b_tff ? "tff" : "bff" : p->b_fake_interlaced ? "fake" : "0" );
     s += sprintf( s, " bluray_compat=%d", p->b_bluray_compat );
+    if( p->b_stitchable )
+        s += sprintf( s, " stitchable=%d", p->b_stitchable );
 
     s += sprintf( s, " constrained_intra=%d", p->b_constrained_intra );
 
@@ -1538,7 +1580,7 @@ char *x264_param2string( x264_param_t *p, int b_res )
         s += sprintf( s, " qp=%d", p->rc.i_qp_constant );
 
     if( p->rc.i_vbv_buffer_size )
-        s += sprintf( s, " nal_hrd=%s", x264_nal_hrd_names[p->i_nal_hrd] );
+        s += sprintf( s, " nal_hrd=%s filler=%d", x264_nal_hrd_names[p->i_nal_hrd], p->rc.b_filler );
     if( p->crop_rect.i_left | p->crop_rect.i_top | p->crop_rect.i_right | p->crop_rect.i_bottom )
         s += sprintf( s, " crop_rect=%u,%u,%u,%u", p->crop_rect.i_left, p->crop_rect.i_top,
                                                    p->crop_rect.i_right, p->crop_rect.i_bottom );

@@ -8,6 +8,8 @@ vpath %.S $(SRCPATH)
 vpath %.asm $(SRCPATH)
 vpath %.rc $(SRCPATH)
 
+GENERATED =
+
 all: default
 default:
 
@@ -75,9 +77,8 @@ SRCS   += common/mpeg2vlc.c encoder/mpeg2vlc.c
 CLIS   += x262$(EXE)
 endif
 
-# Visualization sources
-ifneq ($(findstring HAVE_VISUALIZE 1, $(CONFIG)),)
-SRCS   += common/visualize.c common/display-x11.c
+ifneq ($(findstring HAVE_LSMASH 1, $(CONFIG)),)
+SRCCLI += output/mp4_lsmash.c
 endif
 
 # MMX/SSE optims
@@ -153,6 +154,13 @@ OBJSO  += $(if $(RC), x264res.dll.o)
 endif
 endif
 
+ifeq ($(HAVE_OPENCL),yes)
+common/oclobj.h: common/opencl/x264-cl.h $(wildcard $(SRCPATH)/common/opencl/*.cl)
+	cat $^ | perl $(SRCPATH)/tools/cltostr.pl x264_opencl_source > $@
+GENERATED += common/oclobj.h
+SRCS += common/opencl.c encoder/slicetype-cl.c
+endif
+
 OBJS   += $(SRCS:%.c=%.o)
 OBJCLI += $(SRCCLI:%.c=%.o)
 OBJSO  += $(SRCSO:%.c=%.o)
@@ -163,12 +171,12 @@ cli: $(CLIS)
 lib-static: $(LIBX264)
 lib-shared: $(SONAME)
 
-$(LIBX264): .depend $(OBJS) $(OBJASM)
+$(LIBX264): $(GENERATED) .depend $(OBJS) $(OBJASM)
 	rm -f $(LIBX264)
 	$(AR)$@ $(OBJS) $(OBJASM)
 	$(if $(RANLIB), $(RANLIB) $@)
 
-$(SONAME): .depend $(OBJS) $(OBJASM) $(OBJSO)
+$(SONAME): $(GENERATED) .depend $(OBJS) $(OBJASM) $(OBJSO)
 	$(LD)$@ $(OBJS) $(OBJASM) $(OBJSO) $(SOFLAGS) $(LDFLAGS)
 
 ifneq ($(EXE),)
@@ -177,7 +185,7 @@ x264: x264$(EXE)
 checkasm: checkasm$(EXE)
 endif
 
-x264$(EXE): .depend $(OBJCLI) $(CLI_LIBX264)
+x264$(EXE): $(GENERATED) .depend $(OBJCLI) $(CLI_LIBX264)
 	$(LD)$@ $(OBJCLI) $(CLI_LIBX264) $(LDFLAGSCLI) $(LDFLAGS)
 
 ifeq ($(HAVE_MPEG2),1)
@@ -189,7 +197,7 @@ x262$(EXE): x264
 	ln -sf x264$(EXE) x262$(EXE)
 endif
 
-checkasm$(EXE): .depend $(OBJCHK) $(LIBX264)
+checkasm$(EXE): $(GENERATED) .depend $(OBJCHK) $(LIBX264)
 	$(LD)$@ $(OBJCHK) $(LIBX264) $(LDFLAGS)
 
 $(OBJS) $(OBJASM) $(OBJSO) $(OBJCLI) $(OBJCHK): .depend
@@ -251,36 +259,36 @@ endif
 
 clean:
 	rm -f $(OBJS) $(OBJASM) $(OBJCLI) $(OBJSO) $(SONAME) *.a *.lib *.exp *.pdb x264 x264.exe x262 x262.exe .depend TAGS
-	rm -f checkasm checkasm.exe $(OBJCHK)
+	rm -f checkasm checkasm.exe $(OBJCHK) $(GENERATED) x264_lookahead.clbin
 	rm -f $(SRC2:%.c=%.gcda) $(SRC2:%.c=%.gcno) *.dyn pgopti.dpi pgopti.dpi.lock
 
 distclean: clean
 	rm -f config.mak x264_config.h config.h config.log x264.pc x264.def
 
 install-cli: cli
-	install -d $(DESTDIR)$(bindir)
-	install $(CLIS) $(DESTDIR)$(bindir)
+	$(INSTALL) -d $(DESTDIR)$(bindir)
+	$(INSTALL) x264$(EXE) $(DESTDIR)$(bindir)
 
 install-lib-dev:
-	install -d $(DESTDIR)$(includedir)
-	install -d $(DESTDIR)$(libdir)
-	install -d $(DESTDIR)$(libdir)/pkgconfig
-	install -m 644 $(SRCPATH)/x264.h $(DESTDIR)$(includedir)
-	install -m 644 x264_config.h $(DESTDIR)$(includedir)
-	install -m 644 x264.pc $(DESTDIR)$(libdir)/pkgconfig
+	$(INSTALL) -d $(DESTDIR)$(includedir)
+	$(INSTALL) -d $(DESTDIR)$(libdir)
+	$(INSTALL) -d $(DESTDIR)$(libdir)/pkgconfig
+	$(INSTALL) -m 644 $(SRCPATH)/x264.h $(DESTDIR)$(includedir)
+	$(INSTALL) -m 644 x264_config.h $(DESTDIR)$(includedir)
+	$(INSTALL) -m 644 x264.pc $(DESTDIR)$(libdir)/pkgconfig
 
 install-lib-static: lib-static install-lib-dev
-	install -m 644 $(LIBX264) $(DESTDIR)$(libdir)
+	$(INSTALL) -m 644 $(LIBX264) $(DESTDIR)$(libdir)
 	$(if $(RANLIB), $(RANLIB) $(DESTDIR)$(libdir)/$(LIBX264))
 
 install-lib-shared: lib-shared install-lib-dev
 ifneq ($(IMPLIBNAME),)
-	install -d $(DESTDIR)$(bindir)
-	install -m 755 $(SONAME) $(DESTDIR)$(bindir)
-	install -m 644 $(IMPLIBNAME) $(DESTDIR)$(libdir)
+	$(INSTALL) -d $(DESTDIR)$(bindir)
+	$(INSTALL) -m 755 $(SONAME) $(DESTDIR)$(bindir)
+	$(INSTALL) -m 644 $(IMPLIBNAME) $(DESTDIR)$(libdir)
 else ifneq ($(SONAME),)
 	ln -f -s $(SONAME) $(DESTDIR)$(libdir)/libx264.$(SOSUFFIX)
-	install -m 755 $(SONAME) $(DESTDIR)$(libdir)
+	$(INSTALL) -m 755 $(SONAME) $(DESTDIR)$(libdir)
 endif
 
 uninstall:

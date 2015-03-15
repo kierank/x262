@@ -1,7 +1,7 @@
 /*****************************************************************************
  * cpu.c: cpu detection
  *****************************************************************************
- * Copyright (C) 2003-2013 x264 project
+ * Copyright (C) 2003-2014 x264 project
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -74,7 +74,6 @@ const x264_cpu_name_t x264_cpu_names[] =
 #undef MMX2
     {"Cache32",         X264_CPU_CACHELINE_32},
     {"Cache64",         X264_CPU_CACHELINE_64},
-    {"SSEMisalign",     X264_CPU_SSE_MISALIGN},
     {"LZCNT",           X264_CPU_LZCNT},
     {"BMI1",            X264_CPU_BMI1},
     {"BMI2",            X264_CPU_BMI1|X264_CPU_BMI2},
@@ -123,7 +122,7 @@ uint32_t x264_cpu_detect( void )
     uint32_t cpu = 0;
     uint32_t eax, ebx, ecx, edx;
     uint32_t vendor[4] = {0};
-    uint32_t max_extended_cap;
+    uint32_t max_extended_cap, max_basic_cap;
     int cache;
 
 #if !ARCH_X86_64
@@ -132,7 +131,8 @@ uint32_t x264_cpu_detect( void )
 #endif
 
     x264_cpu_cpuid( 0, &eax, vendor+0, vendor+2, vendor+1 );
-    if( eax == 0 )
+    max_basic_cap = eax;
+    if( max_basic_cap == 0 )
         return 0;
 
     x264_cpu_cpuid( 1, &eax, &ebx, &ecx, &edx );
@@ -169,15 +169,18 @@ uint32_t x264_cpu_detect( void )
         }
     }
 
-    x264_cpu_cpuid( 7, &eax, &ebx, &ecx, &edx );
-    /* AVX2 requires OS support, but BMI1/2 don't. */
-    if( (cpu&X264_CPU_AVX) && (ebx&0x00000020) )
-        cpu |= X264_CPU_AVX2;
-    if( ebx&0x00000008 )
+    if( max_basic_cap >= 7 )
     {
-        cpu |= X264_CPU_BMI1;
-        if( ebx&0x00000100 )
-            cpu |= X264_CPU_BMI2;
+        x264_cpu_cpuid( 7, &eax, &ebx, &ecx, &edx );
+        /* AVX2 requires OS support, but BMI1/2 don't. */
+        if( (cpu&X264_CPU_AVX) && (ebx&0x00000020) )
+            cpu |= X264_CPU_AVX2;
+        if( ebx&0x00000008 )
+        {
+            cpu |= X264_CPU_BMI1;
+            if( ebx&0x00000100 )
+                cpu |= X264_CPU_BMI2;
+        }
     }
 
     if( cpu & X264_CPU_SSSE3 )
@@ -202,12 +205,12 @@ uint32_t x264_cpu_detect( void )
                 cpu |= X264_CPU_SSE2_IS_SLOW;  /* Bobcat has 64-bit SIMD units */
                 cpu |= X264_CPU_SLOW_PALIGNR;  /* palignr is insanely slow on Bobcat */
             }
-        }
-
-        if( ecx&0x00000080 ) /* Misalign SSE */
-        {
-            cpu |= X264_CPU_SSE_MISALIGN;
-            x264_cpu_mask_misalign_sse();
+            if( family == 0x16 )
+            {
+                cpu |= X264_CPU_SLOW_PSHUFB;   /* Jaguar's pshufb isn't that slow, but it's slow enough
+                                                * compared to alternate instruction sequences that this
+                                                * is equal or faster on almost all such functions. */
+            }
         }
 
         if( cpu & X264_CPU_AVX )
@@ -268,7 +271,7 @@ uint32_t x264_cpu_detect( void )
             x264_cpu_cpuid( 0x80000006, &eax, &ebx, &ecx, &edx );
             cache = ecx&0xff; // cacheline size
         }
-        if( !cache )
+        if( !cache && max_basic_cap >= 2 )
         {
             // Cache and TLB Information
             static const char cache32_ids[] = { 0x0a, 0x0c, 0x41, 0x42, 0x43, 0x44, 0x45, 0x82, 0x83, 0x84, 0x85, 0 };
@@ -301,7 +304,7 @@ uint32_t x264_cpu_detect( void )
             x264_log( NULL, X264_LOG_WARNING, "unable to determine cacheline size\n" );
     }
 
-#if BROKEN_STACK_ALIGNMENT
+#if STACK_ALIGNMENT < 16
     cpu |= X264_CPU_STACK_MOD4;
 #endif
 
@@ -423,6 +426,10 @@ int x264_cpu_num_processors( void )
     return sysconf( _SC_NPROCESSORS_ONLN );
 
 #elif SYS_LINUX
+#ifdef __ANDROID__
+    // Android NDK does not expose sched_getaffinity
+    return sysconf( _SC_NPROCESSORS_CONF );
+#else
     cpu_set_t p_aff;
     memset( &p_aff, 0, sizeof(p_aff) );
     if( sched_getaffinity( 0, sizeof(p_aff), &p_aff ) )
@@ -434,6 +441,7 @@ int x264_cpu_num_processors( void )
     for( unsigned int bit = 0; bit < 8 * sizeof(p_aff); bit++ )
         np += (((uint8_t *)&p_aff)[bit / 8] >> (bit % 8)) & 1;
     return np;
+#endif
 #endif
 
 #elif SYS_BEOS

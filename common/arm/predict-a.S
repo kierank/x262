@@ -1,7 +1,7 @@
 /*****************************************************************************
  * predict.S: arm intra prediction
  *****************************************************************************
- * Copyright (C) 2009-2013 x264 project
+ * Copyright (C) 2009-2014 x264 project
  *
  * Authors: David Conrad <lessen42@gmail.com>
  *          Mans Rullgard <mans@mansr.com>
@@ -181,9 +181,9 @@ function x264_predict_4x4_ddl_neon
 
 function x264_predict_8x8_dc_neon
     mov     ip, #0
-    ldrd    r2, [r1, #8]
+    ldrd    r2, r3, [r1, #8]
     push    {r4-r5,lr}
-    ldrd    r4, [r1, #16]
+    ldrd    r4, r5, [r1, #16]
     lsl     r3, r3, #8
     ldrb    lr, [r1, #7]
     usad8   r2, r2, ip

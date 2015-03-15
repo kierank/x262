@@ -1,7 +1,7 @@
 /*****************************************************************************
  * frame.h: frame handling
  *****************************************************************************
- * Copyright (C) 2003-2013 x264 project
+ * Copyright (C) 2003-2014 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -35,6 +35,7 @@
 typedef struct x264_frame
 {
     /* */
+    uint8_t *base;       /* Base pointer for all malloced data in this frame. */
     int     i_poc;
     int     i_delta_poc[2];
     int     i_type;
@@ -159,6 +160,7 @@ typedef struct x264_frame
     int     i_reference_count; /* number of threads using this frame (not necessarily the number of pointers) */
     x264_pthread_mutex_t mutex;
     x264_pthread_cond_t  cv;
+    int     i_slice_count; /* Atomically written to/read from with slice threads */
 
     /* periodic intra refresh */
     float   f_pir_position;
@@ -178,6 +180,10 @@ typedef struct x264_frame
     /* user frame properties */
     uint8_t *mb_info;
     void (*mb_info_free)( void* );
+
+#if HAVE_OPENCL
+    x264_frame_opencl_t opencl;
+#endif
 } x264_frame_t;
 
 /* synchronized frame list */
@@ -222,7 +228,7 @@ int           x264_frame_copy_picture( x264_t *h, x264_frame_t *dst, x264_pictur
 
 void          x264_frame_expand_border( x264_t *h, x264_frame_t *frame, int mb_y );
 void          x264_frame_expand_border_filtered( x264_t *h, x264_frame_t *frame, int mb_y, int b_end );
-void          x264_frame_expand_border_lowres( x264_frame_t *frame );
+void          x264_frame_expand_border_lowres( x264_t *h, x264_frame_t *frame );
 void          x264_frame_expand_border_chroma( x264_t *h, x264_frame_t *frame, int plane );
 void          x264_frame_expand_border_mod16( x264_t *h, x264_frame_t *frame );
 void          x264_expand_border_mbpair( x264_t *h, int mb_x, int mb_y );
@@ -237,6 +243,7 @@ void          x264_deblock_init( int cpu, x264_deblock_function_t *pf, int b_mba
 
 void          x264_frame_cond_broadcast( x264_frame_t *frame, int i_lines_completed );
 void          x264_frame_cond_wait( x264_frame_t *frame, int i_lines_completed );
+int           x264_frame_new_slice( x264_t *h, x264_frame_t *frame );
 
 void          x264_threadslice_cond_broadcast( x264_t *h, int pass );
 void          x264_threadslice_cond_wait( x264_t *h, int pass );

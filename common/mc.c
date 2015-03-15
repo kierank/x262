@@ -1,7 +1,7 @@
 /*****************************************************************************
  * mc.c: motion compensation
  *****************************************************************************
- * Copyright (C) 2003-2013 x264 project
+ * Copyright (C) 2003-2014 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -242,33 +242,42 @@ static pixel *get_ref( pixel *dst,   intptr_t *i_dst_stride,
     }
 }
 
-static void hpel_filter_mpeg2( pixel *dsth, pixel *dstv, pixel *dstc, pixel *src,
-                               intptr_t stride, int width, int height, int16_t *buf )
-{
-    for( int y = 0; y < height; y++ )
-    {
-        for( int x = 0; x < width; x++ )
-            dsth[x] = (src[x] + src[x+1] + 1) >> 1;
-        for( int x = 0; x < width; x++ )
-            dstv[x] = (src[x] + src[x+stride] + 1) >> 1;
-        for( int x = 0; x < width; x++ )
-            dstc[x] = (src[x] + src[x+1] + src[x+stride] + src[x+stride+1] + 2) >> 2;
-        dsth += stride;
-        dstv += stride;
-        dstc += stride;
-        src += stride;
-    }
-}
-
 static void mc_luma_mpeg2( pixel *dst,    intptr_t i_dst_stride,
                            pixel *src[4], intptr_t i_src_stride,
                            int mvx, int mvy,
                            int i_width, int i_height, const x264_weight_t *weight )
 {
-    int idx = ((mvx&2)>>1) + (mvy&2);
-    int offset = (mvy>>2)*i_src_stride + (mvx>>2);
-    pixel *src1 = src[idx] + offset;
-    mc_copy( src1, i_src_stride, dst, i_dst_stride, i_width, i_height );
+    mvx >>= 1;
+    mvy >>= 1;
+
+    int offset = (mvy>>1)*i_src_stride + (mvx>>1);
+    pixel *src1 = src[0] + offset;
+    pixel *srcp = src1 + i_src_stride;
+
+    if( !((mvx|mvy)&1) ) // fullpel
+        mc_copy( src1, i_src_stride, dst, i_dst_stride, i_width, i_height );
+    else if( (mvx&mvy)&1 ) // centre hpel positions
+    {
+        for( int y = 0; y < i_height; y++ )
+        {
+            for( int x = 0; x < i_width; x++ )
+                dst[x] = ( src1[x] + src1[x+1] + srcp[x] + srcp[x+1] + 2 ) >> 2;
+            dst  += i_dst_stride;
+            src1  = srcp;
+            srcp += i_src_stride;
+        }
+    }
+    else if( mvx&1 ) // horizontal hpel positions
+    {
+        pixel *src2 = src1 + 1;
+        pixel_avg( dst, i_dst_stride, src1, i_src_stride,
+                   src2, i_src_stride, i_width, i_height );
+    }
+    else // vertical hpel positions
+    {
+        pixel_avg( dst, i_dst_stride, src1, i_src_stride,
+                   srcp, i_src_stride, i_width, i_height );
+    }
 }
 
 static void mc_chroma_mpeg2( pixel *dstu, pixel *dstv, intptr_t i_dst_stride,
@@ -341,17 +350,47 @@ static void mc_chroma_mpeg2( pixel *dstu, pixel *dstv, intptr_t i_dst_stride,
     }
 }
 
-static pixel *get_ref_mpeg2( pixel *dst,   intptr_t *i_dst_stride,
+static pixel *get_ref_mpeg2( pixel *dst,    intptr_t *i_dst_stride,
                              pixel *src[4], intptr_t i_src_stride,
                              int mvx, int mvy,
                              int i_width, int i_height, const x264_weight_t *weight )
 {
-    int idx = ((mvx&2)>>1) + (mvy&2);
-    int offset = (mvy>>2)*i_src_stride + (mvx>>2);
-    pixel *src1 = src[idx] + offset;
+    mvx >>= 1;
+    mvy >>= 1;
 
-    *i_dst_stride = i_src_stride;
-    return src1;
+    pixel *src1 = src[0] + (mvy>>1)*i_src_stride + (mvx>>1);
+    pixel *srcp = src1 + i_src_stride;
+    pixel *dst_bak = dst;
+
+    if( !((mvx|mvy)&1) ) // fullpel
+    {
+        *i_dst_stride = i_src_stride;
+        return src1;
+    }
+    else if( (mvx&mvy)&1 ) // centre hpel positions
+    {
+        for( int y = 0; y < i_height; y++ )
+        {
+            for( int x = 0; x < i_width; x++ )
+                dst[x] = ( src1[x] + src1[x+1] + srcp[x] + srcp[x+1] + 2 ) >> 2;
+            dst  += *i_dst_stride;
+            src1  = srcp;
+            srcp += i_src_stride;
+        }
+    }
+    else if( mvx&1 ) // horizontal hpel positions
+    {
+        pixel *src2 = src1 + 1;
+        pixel_avg( dst, *i_dst_stride, src1, i_src_stride,
+                   src2, i_src_stride, i_width, i_height );
+    }
+    else // vertical hpel positions
+    {
+        pixel_avg( dst, *i_dst_stride, src1, i_src_stride,
+                   srcp, i_src_stride, i_width, i_height );
+    }
+
+    return dst_bak;
 }
 
 /* full chroma mc (ie until 1/8 pixel)*/
@@ -448,6 +487,34 @@ static void x264_plane_copy_deinterleave_rgb_c( pixel *dsta, intptr_t i_dsta,
     }
 }
 
+void x264_plane_copy_deinterleave_v210_c( pixel *dsty, intptr_t i_dsty,
+                                          pixel *dstc, intptr_t i_dstc,
+                                          uint32_t *src, intptr_t i_src, int w, int h )
+{
+    for( int l = 0; l < h; l++ )
+    {
+        pixel *dsty0 = dsty;
+        pixel *dstc0 = dstc;
+        uint32_t *src0 = src;
+
+        for( int n = 0; n < w; n += 3 )
+        {
+            *(dstc0++) = *src0 & 0x03FF;
+            *(dsty0++) = ( *src0 >> 10 ) & 0x03FF;
+            *(dstc0++) = ( *src0 >> 20 ) & 0x03FF;
+            src0++;
+            *(dsty0++) = *src0 & 0x03FF;
+            *(dstc0++) = ( *src0 >> 10 ) & 0x03FF;
+            *(dsty0++) = ( *src0 >> 20 ) & 0x03FF;
+            src0++;
+        }
+
+        dsty += i_dsty;
+        dstc += i_dstc;
+        src  += i_src;
+    }
+}
+
 static void store_interleave_chroma( pixel *dst, intptr_t i_dst, pixel *srcu, pixel *srcv, int height )
 {
     for( int y=0; y<height; y++, dst+=i_dst, srcu+=FDEC_STRIDE, srcv+=FDEC_STRIDE )
@@ -527,7 +594,7 @@ void x264_frame_init_lowres( x264_t *h, x264_frame_t *frame )
     memcpy( src+i_stride*i_height, src+i_stride*(i_height-1), (i_width+1) * sizeof(pixel) );
     h->mc.frame_init_lowres_core( src, frame->lowres[0], frame->lowres[1], frame->lowres[2], frame->lowres[3],
                                   i_stride, frame->i_stride_lowres, frame->i_width_lowres, frame->i_lines_lowres );
-    x264_frame_expand_border_lowres( frame );
+    x264_frame_expand_border_lowres( h, frame );
 
     memset( frame->i_cost_est, -1, sizeof(frame->i_cost_est) );
 
@@ -565,23 +632,118 @@ static void frame_init_lowres_core( pixel *src0, pixel *dst0, pixel *dsth, pixel
     }
 }
 
-/* Estimate the total amount of influence on future quality that could be had if we
- * were to improve the reference samples used to inter predict any given macroblock. */
-static void mbtree_propagate_cost( int *dst, uint16_t *propagate_in, uint16_t *intra_costs,
-                                   uint16_t *inter_costs, uint16_t *inv_qscales, float *fps_factor, int len )
+static void frame_init_lowres_core_mpeg2( pixel *src0, pixel *dst0, pixel *dsth, pixel *dstv, pixel *dstc,
+                                          intptr_t src_stride, intptr_t dst_stride, int width, int height )
 {
-    float fps = *fps_factor / 256.f;
-    for( int i = 0; i < len; i++ )
+    for( int y = 0; y < height; y++ )
     {
-        float intra_cost       = intra_costs[i] * inv_qscales[i];
-        float propagate_amount = propagate_in[i] + intra_cost*fps;
-        float propagate_num    = intra_costs[i] - (inter_costs[i] & LOWRES_COST_MASK);
-        float propagate_denom  = intra_costs[i];
-        dst[i] = (int)(propagate_amount * propagate_num / propagate_denom + 0.5f);
+        pixel *src1 = src0+src_stride;
+        for( int x = 0; x<width; x++ )
+        {
+            // slower than naive bilinear, but matches asm
+#define FILTER(a,b,c,d) ((((a+b+1)>>1)+((c+d+1)>>1)+1)>>1)
+            dst0[x] = FILTER(src0[2*x  ], src1[2*x  ], src0[2*x+1], src1[2*x+1]);
+#undef FILTER
+        }
+        src0 += src_stride*2;
+        dst0 += dst_stride;
     }
 }
 
-void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 )
+/* Estimate the total amount of influence on future quality that could be had if we
+ * were to improve the reference samples used to inter predict any given macroblock. */
+static void mbtree_propagate_cost( int16_t *dst, uint16_t *propagate_in, uint16_t *intra_costs,
+                                   uint16_t *inter_costs, uint16_t *inv_qscales, float *fps_factor, int len )
+{
+    float fps = *fps_factor;
+    for( int i = 0; i < len; i++ )
+    {
+        int intra_cost = intra_costs[i];
+        int inter_cost = X264_MIN(intra_costs[i], inter_costs[i] & LOWRES_COST_MASK);
+        float propagate_intra  = intra_cost * inv_qscales[i];
+        float propagate_amount = propagate_in[i] + propagate_intra*fps;
+        float propagate_num    = intra_cost - inter_cost;
+        float propagate_denom  = intra_cost;
+        dst[i] = X264_MIN((int)(propagate_amount * propagate_num / propagate_denom + 0.5f), 32767);
+    }
+}
+
+static void mbtree_propagate_list( x264_t *h, uint16_t *ref_costs, int16_t (*mvs)[2],
+                                   int16_t *propagate_amount, uint16_t *lowres_costs,
+                                   int bipred_weight, int mb_y, int len, int list )
+{
+    unsigned stride = h->mb.i_mb_stride;
+    unsigned width = h->mb.i_mb_width;
+    unsigned height = h->mb.i_mb_height;
+
+    for( unsigned i = 0; i < len; i++ )
+    {
+#define CLIP_ADD(s,x) (s) = X264_MIN((s)+(x),(1<<15)-1)
+        int lists_used = lowres_costs[i]>>LOWRES_COST_SHIFT;
+
+        if( !(lists_used & (1 << list)) )
+            continue;
+
+        int listamount = propagate_amount[i];
+        /* Apply bipred weighting. */
+        if( lists_used == 3 )
+            listamount = (listamount * bipred_weight + 32) >> 6;
+
+        /* Early termination for simple case of mv0. */
+        if( !M32( mvs[i] ) )
+        {
+            CLIP_ADD( ref_costs[mb_y*stride + i], listamount );
+            continue;
+        }
+
+        int x = mvs[i][0];
+        int y = mvs[i][1];
+        unsigned mbx = (x>>5)+i;
+        unsigned mby = (y>>5)+mb_y;
+        unsigned idx0 = mbx + mby * stride;
+        unsigned idx2 = idx0 + stride;
+        x &= 31;
+        y &= 31;
+        int idx0weight = (32-y)*(32-x);
+        int idx1weight = (32-y)*x;
+        int idx2weight = y*(32-x);
+        int idx3weight = y*x;
+        idx0weight = (idx0weight * listamount + 512) >> 10;
+        idx1weight = (idx1weight * listamount + 512) >> 10;
+        idx2weight = (idx2weight * listamount + 512) >> 10;
+        idx3weight = (idx3weight * listamount + 512) >> 10;
+
+        if( mbx < width-1 && mby < height-1 )
+        {
+            CLIP_ADD( ref_costs[idx0+0], idx0weight );
+            CLIP_ADD( ref_costs[idx0+1], idx1weight );
+            CLIP_ADD( ref_costs[idx2+0], idx2weight );
+            CLIP_ADD( ref_costs[idx2+1], idx3weight );
+        }
+        else
+        {
+            /* Note: this takes advantage of unsigned representation to
+             * catch negative mbx/mby. */
+            if( mby < height )
+            {
+                if( mbx < width )
+                    CLIP_ADD( ref_costs[idx0+0], idx0weight );
+                if( mbx+1 < width )
+                    CLIP_ADD( ref_costs[idx0+1], idx1weight );
+            }
+            if( mby+1 < height )
+            {
+                if( mbx < width )
+                    CLIP_ADD( ref_costs[idx2+0], idx2weight );
+                if( mbx+1 < width )
+                    CLIP_ADD( ref_costs[idx2+1], idx3weight );
+            }
+        }
+    }
+#undef CLIP_ADD
+}
+
+void x264_mc_init( int cpu, x264_mc_functions_t *pf, int cpu_independent, int b_mpeg2 )
 {
     pf->mc_luma   = mc_luma;
     pf->get_ref   = get_ref;
@@ -619,6 +781,7 @@ void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 )
     pf->plane_copy_interleave = x264_plane_copy_interleave_c;
     pf->plane_copy_deinterleave = x264_plane_copy_deinterleave_c;
     pf->plane_copy_deinterleave_rgb = x264_plane_copy_deinterleave_rgb_c;
+    pf->plane_copy_deinterleave_v210 = x264_plane_copy_deinterleave_v210_c;
 
     pf->hpel_filter = hpel_filter;
 
@@ -635,6 +798,7 @@ void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 )
     pf->integral_init8v = integral_init8v;
 
     pf->mbtree_propagate_cost = mbtree_propagate_cost;
+    pf->mbtree_propagate_list = mbtree_propagate_list;
 
 #if HAVE_MMX
     x264_mc_init_mmx( cpu, pf );
@@ -653,7 +817,18 @@ void x264_mc_init( int cpu, x264_mc_functions_t *pf, int b_mpeg2 )
         pf->mc_luma   = mc_luma_mpeg2;
         pf->mc_chroma = mc_chroma_mpeg2;
         pf->get_ref   = get_ref_mpeg2;
-        pf->hpel_filter = hpel_filter_mpeg2;
+        pf->hpel_filter = NULL;
+        pf->frame_init_lowres_core = frame_init_lowres_core_mpeg2;
+
+#if HAVE_MMX
+            x264_mc_init_mmx_mpeg2( cpu, pf );
+#endif
+    }
+
+    if( cpu_independent )
+    {
+        pf->mbtree_propagate_cost = mbtree_propagate_cost;
+        pf->mbtree_propagate_list = mbtree_propagate_list;
     }
 }
 
@@ -666,7 +841,7 @@ void x264_frame_filter( x264_t *h, x264_frame_t *frame, int mb_y, int b_end )
     if( (mb_y & b_interlaced) && !MPEG2 )
         return;
 
-    for( int p = 0; p < (CHROMA444 ? 3 : 1); p++ )
+    for( int p = 0; p < (CHROMA444 ? 3 : 1) && !MPEG2; p++ )
     {
         int stride = frame->i_stride[p];
         const int width = frame->i_width[p];

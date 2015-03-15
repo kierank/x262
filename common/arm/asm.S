@@ -1,7 +1,7 @@
 /*****************************************************************************
  * asm.S: arm utility macros
  *****************************************************************************
- * Copyright (C) 2008-2013 x264 project
+ * Copyright (C) 2008-2014 x264 project
  *
  * Authors: Mans Rullgard <mans@mansr.com>
  *          David Conrad <lessen42@gmail.com>
@@ -25,6 +25,8 @@
  *****************************************************************************/
 
 #include "config.h"
+
+.syntax unified
 
 #ifdef PREFIX
 #   define EXTERN_ASM _

@@ -1,7 +1,7 @@
 /*****************************************************************************
  * common.h: misc common functions
  *****************************************************************************
- * Copyright (C) 2003-2013 x264 project
+ * Copyright (C) 2003-2014 x264 project
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -40,6 +40,7 @@
 #define IS_DISPOSABLE(type) ( type == X264_TYPE_B )
 #define FIX8(f) ((int)(f*(1<<8)+.5))
 #define ALIGN(x,a) (((x)+((a)-1))&~((a)-1))
+#define ARRAY_ELEMS(a) ((sizeof(a))/(sizeof(a[0])))
 
 #define CHECKED_MALLOC( var, size )\
 do {\
@@ -52,6 +53,33 @@ do {\
     CHECKED_MALLOC( var, size );\
     memset( var, 0, size );\
 } while( 0 )
+
+/* Macros for merging multiple allocations into a single large malloc, for improved
+ * use with huge pages. */
+
+/* Needs to be enough to contain any set of buffers that use combined allocations */
+#define PREALLOC_BUF_SIZE 1024
+
+#define PREALLOC_INIT\
+    int    prealloc_idx = 0;\
+    size_t prealloc_size = 0;\
+    uint8_t **preallocs[PREALLOC_BUF_SIZE];
+
+#define PREALLOC( var, size )\
+do {\
+    var = (void*)prealloc_size;\
+    preallocs[prealloc_idx++] = (uint8_t**)&var;\
+    prealloc_size += ALIGN(size, NATIVE_ALIGN);\
+} while(0)
+
+#define PREALLOC_END( ptr )\
+do {\
+    CHECKED_MALLOC( ptr, prealloc_size );\
+    while( prealloc_idx-- )\
+        *preallocs[prealloc_idx] += (intptr_t)ptr;\
+} while(0)
+
+#define ARRAY_SIZE(array)  (sizeof(array)/sizeof(array[0]))
 
 #define X264_BFRAME_MAX 16
 #define X264_REF_MAX 16
@@ -84,6 +112,8 @@ do {\
 
 #define NALU_OVERHEAD 5 // startcode + NAL type costs 5 bytes per frame
 #define FILLER_OVERHEAD (NALU_OVERHEAD+1)
+#define SEI_OVERHEAD (NALU_OVERHEAD - (h->param.b_annexb && !h->param.i_avcintra_class && (h->out.i_nal-1)))
+
 #define STRUCTURE_OVERHEAD 4 // startcode
 
 #define LOG2_16(x) (31 - x264_clz((x)|1))
@@ -220,6 +250,10 @@ static const uint8_t x264_scan8[16*3 + 3] =
 };
 
 #include "x264.h"
+#if HAVE_OPENCL
+#include "opencl.h"
+#endif
+#include "cabac.h"
 #include "bitstream.h"
 #include "set.h"
 #include "predict.h"
@@ -227,7 +261,6 @@ static const uint8_t x264_scan8[16*3 + 3] =
 #include "mc.h"
 #include "frame.h"
 #include "dct.h"
-#include "cabac.h"
 #include "quant.h"
 #include "cpu.h"
 #include "threadpool.h"
@@ -553,6 +586,9 @@ struct x264_t
     uint8_t *nal_buffer;
     int      nal_buffer_size;
 
+    x264_t          *reconfig_h;
+    int             reconfig;
+
     /**** thread synchronization starts here ****/
 
     /* frame number/poc */
@@ -585,15 +621,15 @@ struct x264_t
     int             (*dequant4_mf[4])[16];   /* [4][6][16] */
     int             (*dequant8_mf[4])[64];   /* [4][6][64] */
     /* quantization matrix for trellis, [cqm][qp][coef] */
-    int             (*unquant4_mf[4])[16];   /* [4][52][16] */
-    int             (*unquant8_mf[4])[64];   /* [4][52][64] */
+    int             (*unquant4_mf[4])[16];   /* [4][QP_MAX_SPEC+1][16] */
+    int             (*unquant8_mf[4])[64];   /* [4][QP_MAX_SPEC+1][64] */
     /* quantization matrix for deadzone */
-    udctcoef        (*quant4_mf[4])[16];     /* [4][52][16] */
-    udctcoef        (*quant8_mf[4])[64];     /* [4][52][64] */
-    udctcoef        (*quant4_bias[4])[16];   /* [4][52][16] */
-    udctcoef        (*quant8_bias[4])[64];   /* [4][52][64] */
-    udctcoef        (*quant4_bias0[4])[16];  /* [4][52][16] */
-    udctcoef        (*quant8_bias0[4])[64];  /* [4][52][64] */
+    udctcoef        (*quant4_mf[4])[16];     /* [4][QP_MAX_SPEC+1][16] */
+    udctcoef        (*quant8_mf[4])[64];     /* [4][QP_MAX_SPEC+1][64] */
+    udctcoef        (*quant4_bias[4])[16];   /* [4][QP_MAX_SPEC+1][16] */
+    udctcoef        (*quant8_bias[4])[64];   /* [4][QP_MAX_SPEC+1][64] */
+    udctcoef        (*quant4_bias0[4])[16];  /* [4][QP_MAX_SPEC+1][16] */
+    udctcoef        (*quant8_bias0[4])[64];  /* [4][QP_MAX_SPEC+1][64] */
     udctcoef        (*nr_offset_emergency)[4][64];
 
     /* mv/ref cost arrays. */
@@ -672,12 +708,12 @@ struct x264_t
     /* Current MB DCT coeffs */
     struct
     {
-        ALIGNED_16( dctcoef luma16x16_dc[3][16] );
+        ALIGNED_N( dctcoef luma16x16_dc[3][16] );
         ALIGNED_16( dctcoef chroma_dc[2][8] );
         // FIXME share memory?
-        ALIGNED_16( dctcoef luma8x8[12][64] );
-        ALIGNED_16( dctcoef luma4x4[16*3][16] );
-        ALIGNED_16( dctcoef mpeg2_8x8[8][64] );
+        ALIGNED_N( dctcoef luma8x8[12][64] );
+        ALIGNED_N( dctcoef luma4x4[16*3][16] );
+        ALIGNED_N( dctcoef mpeg2_8x8[8][64] );
     } dct;
 
     /* MB table and cache for current frame/mb */
@@ -763,6 +799,7 @@ struct x264_t
          * and won't be copied from one thread to another */
 
         /* mb table */
+        uint8_t *base;                      /* base pointer for all malloced data in this mb */
         int8_t  *type;                      /* mb type */
         uint8_t *partition;                 /* mb partition */
         int8_t  *qp;                        /* mb qp */
@@ -825,7 +862,7 @@ struct x264_t
 #define FENC_STRIDE 16
 #define FDEC_STRIDE 32
             ALIGNED_16( pixel fenc_buf[48*FENC_STRIDE] );
-            ALIGNED_16( pixel fdec_buf[52*FDEC_STRIDE] );
+            ALIGNED_N( pixel fdec_buf[52*FDEC_STRIDE] );
 
             /* i4x4 and i8x8 backup data, for skipping the encode stage when possible */
             ALIGNED_16( pixel i4x4_fdec_buf[16*16] );
@@ -842,8 +879,8 @@ struct x264_t
             ALIGNED_16( dctcoef fenc_dct4[16][16] );
 
             /* Psy RD SATD/SA8D scores cache */
-            ALIGNED_16( uint64_t fenc_hadamard_cache[9] );
-            ALIGNED_16( uint32_t fenc_satd_cache[32] );
+            ALIGNED_N( uint64_t fenc_hadamard_cache[9] );
+            ALIGNED_N( uint32_t fenc_satd_cache[32] );
 
             /* pointer over mb of the frame to be compressed */
             pixel *p_fenc[3]; /* y,u,v */
@@ -979,8 +1016,8 @@ struct x264_t
     uint32_t (*nr_residual_sum)[64];
     uint32_t *nr_count;
 
-    ALIGNED_16( udctcoef nr_offset_denoise[4][64] );
-    ALIGNED_16( uint32_t nr_residual_sum_buf[2][4][64] );
+    ALIGNED_N( udctcoef nr_offset_denoise[4][64] );
+    ALIGNED_N( uint32_t nr_residual_sum_buf[2][4][64] );
     uint32_t nr_count_buf[2][4];
 
     uint8_t luma2chroma_pixel[7]; /* Subsampled pixel size */
@@ -1014,10 +1051,11 @@ struct x264_t
     x264_deblock_function_t loopf;
     x264_bitstream_function_t bsf;
 
-#if HAVE_VISUALIZE
-    struct visualize_t *visualize;
-#endif
     x264_lookahead_t *lookahead;
+
+#if HAVE_OPENCL
+    x264_opencl_t opencl;
+#endif
 };
 
 // included at the end because it needs x264_t
