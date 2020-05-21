@@ -150,6 +150,12 @@ void x264_param_default( x264_param_t *param )
     param->rc.i_zones = 0;
     param->rc.b_mb_tree = 1;
 
+    // speedcontrol
+    param->sc.f_speed = 0;
+    param->sc.i_buffer_size = 12;
+    param->sc.f_buffer_init = 0.75;
+    param->sc.max_preset = SC_PRESETS;
+
     /* Log */
     param->pf_log = x264_log_default;
     param->p_log_private = NULL;
@@ -1145,6 +1151,14 @@ int x264_param_parse( x264_param_t *p, const char *name, const char *value )
         p->rc.f_complexity_blur = atof(value);
     OPT("zones")
         p->rc.psz_zones = strdup(value);
+    OPT("speed")
+        p->sc.f_speed = atof(value);
+    OPT("speed-bufsize")
+        p->sc.i_buffer_size = atoi(value);
+    OPT("speed-init")
+        p->sc.f_buffer_init = atof(value);
+    OPT("speed-alt-timer")
+        p->sc.b_alt_timer = atobool(value);
     OPT("crop-rect")
         b_error |= sscanf( value, "%u,%u,%u,%u", &p->crop_rect.i_left, &p->crop_rect.i_top,
                                                  &p->crop_rect.i_right, &p->crop_rect.i_bottom ) != 4;
@@ -1473,6 +1487,8 @@ char *x264_param2string( x264_param_t *p, int b_res )
         s += sprintf( s, "timebase=%u/%u ", p->i_timebase_num, p->i_timebase_den );
         s += sprintf( s, "bitdepth=%d ", BIT_DEPTH );
     }
+
+    // FIXME speedcontrol stuff
 
     if( p->b_opencl )
         s += sprintf( s, "opencl=%d ", p->b_opencl );

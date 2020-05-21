@@ -64,5 +64,12 @@ int x264_weighted_reference_duplicate( x264_t *h, int i_ref, const x264_weight_t
 void x264_threads_distribute_ratecontrol( x264_t *h );
 void x264_threads_merge_ratecontrol( x264_t *h );
 void x264_hrd_fullness( x264_t *h );
+
+// speedcontrol
+void x264_speedcontrol_new( x264_t *h );
+void x264_speedcontrol_delete( x264_t *h );
+void x264_speedcontrol_frame( x264_t *h );
+void x264_speedcontrol_frame_end( x264_t *h );
+
 #endif
 
