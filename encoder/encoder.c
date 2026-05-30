@@ -1666,7 +1666,7 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
     x264_predict_8x8_init( h->param.cpu, h->predict_8x8, &h->predict_8x8_filter );
     x264_predict_4x4_init( h->param.cpu, h->predict_4x4 );
     x264_pixel_init( h->param.cpu, &h->pixf );
-    x264_dct_init( h->param.cpu, &h->dctf );
+    x264_dct_init( h->param.cpu, &h->dctf, HAVE_MPEG2 && h->param.b_mpeg2 );
     x264_zigzag_init( h->param.cpu, &h->zigzagf_progressive, &h->zigzagf_interlaced );
     memcpy( &h->zigzagf, PARAM_INTERLACED ? &h->zigzagf_interlaced : &h->zigzagf_progressive, sizeof(h->zigzagf) );
     x264_mc_init( h->param.cpu, &h->mc, h->param.b_cpu_independent );

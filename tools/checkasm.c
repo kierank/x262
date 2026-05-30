@@ -910,9 +910,9 @@ static int check_dct( uint32_t cpu_ref, uint32_t cpu_new )
     x264_t h_buf;
     x264_t *h = &h_buf;
 
-    x264_dct_init( 0, &dct_c );
-    x264_dct_init( cpu_ref, &dct_ref);
-    x264_dct_init( cpu_new, &dct_asm );
+    x264_dct_init( 0, &dct_c, 0 );
+    x264_dct_init( cpu_ref, &dct_ref, 0 );
+    x264_dct_init( cpu_new, &dct_asm, 0 );
 
     memset( h, 0, sizeof(*h) );
     x264_param_default( &h->param );

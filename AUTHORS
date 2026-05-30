@@ -97,3 +97,6 @@ N: Radek Czyz
 E: radoslaw AT syskin DOT cjb DOT net
 D: Cached motion compensation
 
+# This software uses DCT algorithms from the Independent JPEG Group's software.
+# Copyright (C) 1991-1996, Thomas G. Lane.
+
