@@ -1207,9 +1207,9 @@ static int check_dct( uint32_t cpu_ref, uint32_t cpu_new )
         } \
     }
 
-    x264_zigzag_init( 0, &zigzag_c[0], &zigzag_c[1] );
-    x264_zigzag_init( cpu_ref, &zigzag_ref[0], &zigzag_ref[1] );
-    x264_zigzag_init( cpu_new, &zigzag_asm[0], &zigzag_asm[1] );
+    x264_zigzag_init( 0, &zigzag_c[0], &zigzag_c[1], 0 );
+    x264_zigzag_init( cpu_ref, &zigzag_ref[0], &zigzag_ref[1], 0 );
+    x264_zigzag_init( cpu_new, &zigzag_asm[0], &zigzag_asm[1], 0 );
 
     ok = 1; used_asm = 0;
     TEST_INTERLEAVE( interleave_8x8_cavlc, level1, level2, dct8[0], 64 );
