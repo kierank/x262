@@ -384,6 +384,9 @@ typedef struct x264_param_t
         /* they will be reduced to be 0 < x <= 65535 and prime */
         int         i_sar_height;
         int         i_sar_width;
+#if HAVE_MPEG2
+        int         i_aspect_ratio_information; /* MPEG-2 - overrides SAR */
+#endif
 
         int         i_overscan;    /* 0=undef, 1=no overscan, 2=overscan */
 
