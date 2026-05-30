@@ -607,6 +607,11 @@ struct x264_t
         ALIGNED_4( uint8_t i_sub_partition[4] );
         int     b_transform_8x8;
 
+#if HAVE_MPEG2
+        int     i_intra_dc_predictor[8];
+        int16_t mvp[2][2];
+#endif
+
         int     i_cbp_luma;
         int     i_cbp_chroma;
 
@@ -807,6 +812,9 @@ struct x264_t
     x264_predict_t      predict_8x8c[4+3];
     x264_predict_t      predict_8x16c[4+3];
     x264_predict_8x8_filter_t predict_8x8_filter;
+#if HAVE_MPEG2
+    x264_predict_mpeg2_t      predict_8x8_mpeg2;
+#endif
 
     x264_pixel_function_t pixf;
     x264_mc_functions_t   mc;

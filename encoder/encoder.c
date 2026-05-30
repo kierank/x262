@@ -1665,6 +1665,9 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
     x264_predict_8x16c_init( h->param.cpu, h->predict_8x16c );
     x264_predict_8x8_init( h->param.cpu, h->predict_8x8, &h->predict_8x8_filter );
     x264_predict_4x4_init( h->param.cpu, h->predict_4x4 );
+#if HAVE_MPEG2
+    x264_predict_8x8_mpeg2_init( h->param.cpu, &h->predict_8x8_mpeg2 );
+#endif
     x264_pixel_init( h->param.cpu, &h->pixf );
     x264_dct_init( h->param.cpu, &h->dctf, HAVE_MPEG2 && h->param.b_mpeg2 );
     x264_zigzag_init( h->param.cpu, &h->zigzagf_progressive, &h->zigzagf_interlaced, HAVE_MPEG2 && h->param.b_mpeg2 );
@@ -2849,6 +2852,17 @@ static intptr_t slice_write( x264_t *h )
             }
         }
 
+#if HAVE_MPEG2
+        if( MPEG2 && ( i_skip || i_mb_x == 0 || !IS_INTRA( h->mb.i_type ) ) )
+            x264_reset_intra_dc_mpeg2( h );
+
+        if( MPEG2 && i_mb_x == 0 )
+        {
+            i_skip = 0;
+            x264_reset_mv_predictor_mpeg2( h );
+        }
+#endif
+
         if( PARAM_INTERLACED )
         {
             if( h->mb.b_adaptive_mbaff )
@@ -3050,7 +3064,7 @@ cont:
                 h->stat.frame.i_mb_count_8x8dct[0] ++;
                 h->stat.frame.i_mb_count_8x8dct[1] += h->mb.b_transform_8x8;
             }
-            if( b_intra && h->mb.i_type != I_PCM )
+            if( b_intra && h->mb.i_type != I_PCM && !MPEG2 )
             {
                 if( h->mb.i_type == I_16x16 )
                     h->stat.frame.i_mb_pred_mode[0][h->mb.i_intra16x16_pred_mode]++;
