@@ -904,6 +904,18 @@ int x264_sei_avcintra_vanc_write( x264_t *h, bs_t *s, int len )
     return 0;
 }
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+const x264_level_mpeg2_t x264_levels_mpeg2[] =
+{
+    { 10,   3041280,        0,  352,  288, 5,  4000,      0,  475136,        0,  512,  64 },
+    {  8,  10368000, 14745600,  720,  608, 5, 15000,  20000, 1835008,  2441216, 1024, 128 },
+    {  6,  47001600, 62668800, 1440, 1088, 8, 60000,  80000, 7340032,  9781248, 2048, 128 },
+    {  4,  62668800, 83558400, 1920, 1088, 8, 80000, 100000, 9781248, 12222464, 2048, 128 },
+    {  2, 125337600,        0, 1920, 1088, 8, 80000,      0, 9781248,        0, 2048, 128 },
+    { 0 }
+};
+#endif // HAVE_MPEG2 && !HIGH_BIT_DEPTH
+
 #undef ERROR
 #define ERROR(...)\
 {\
@@ -921,31 +933,50 @@ int x264_validate_levels( x264_t *h, int verbose )
                      h->sps->i_profile_idc==PROFILE_HIGH10 ? 12 :
                      h->sps->i_profile_idc==PROFILE_HIGH ? 5 : 4;
 
-    const x264_level_t *l = x264_levels;
-    while( l->level_idc != 0 && l->level_idc != h->param.i_level_idc )
-        l++;
-
-    if( l->frame_size < mbs
-        || l->frame_size*8 < h->sps->i_mb_width * h->sps->i_mb_width
-        || l->frame_size*8 < h->sps->i_mb_height * h->sps->i_mb_height )
-        ERROR( "frame MB size (%dx%d) > level limit (%d)\n",
-               h->sps->i_mb_width, h->sps->i_mb_height, l->frame_size );
-    if( dpb > l->dpb )
-        ERROR( "DPB size (%d frames, %d mbs) > level limit (%d frames, %d mbs)\n",
-                h->sps->vui.i_max_dec_frame_buffering, dpb, l->dpb / mbs, l->dpb );
-
 #define CHECK( name, limit, val ) \
     if( (val) > (limit) ) \
         ERROR( name " (%"PRId64") > level limit (%d)\n", (int64_t)(val), (limit) );
 
-    CHECK( "VBV bitrate", (l->bitrate * cbp_factor) / 4, h->param.rc.i_vbv_max_bitrate );
-    CHECK( "VBV buffer", (l->cpb * cbp_factor) / 4, h->param.rc.i_vbv_buffer_size );
-    CHECK( "MV range", l->mv_range, h->param.analyse.i_mv_range );
-    CHECK( "interlaced", !l->frame_only, h->param.b_interlaced );
-    CHECK( "fake interlaced", !l->frame_only, h->param.b_fake_interlaced );
+#if HAVE_MPEG2
+    if( MPEG2 )
+    {
+        const x264_level_mpeg2_t *l = x264_levels_mpeg2;
+        while( l->level_idc != 0 && l->level_idc != h->param.i_level_idc )
+            l++;
+        if( h->param.i_fps_den > 0 )
+            CHECK( "luminance sample rate", l->luma_main, h->param.i_width * h->param.i_height *
+                                                          h->param.i_fps_num / h->param.i_fps_den );
+        CHECK( "width", l->width, h->param.i_width );
+        CHECK( "height", l->height, h->param.i_height );
+        // CHECK( "max bitrate", l->bitrate, h->param.rc.i_vbv_max_bitrate );
+        // CHECK( "vbv size", l->vbv, h->param.rc.i_vbv_buffer_size );
+        CHECK( "Vertical MV range", l->mv_max_v >> h->param.b_interlaced, h->param.analyse.i_mv_range );
+    }
+    else
+#endif
+    {
+        const x264_level_t *l = x264_levels;
+        while( l->level_idc != 0 && l->level_idc != h->param.i_level_idc )
+            l++;
 
-    if( h->param.i_fps_den > 0 )
-        CHECK( "MB rate", l->mbps, (int64_t)mbs * h->param.i_fps_num / h->param.i_fps_den );
+        if( l->frame_size < mbs
+            || l->frame_size*8 < h->sps->i_mb_width * h->sps->i_mb_width
+            || l->frame_size*8 < h->sps->i_mb_height * h->sps->i_mb_height )
+            ERROR( "frame MB size (%dx%d) > level limit (%d)\n",
+                   h->sps->i_mb_width, h->sps->i_mb_height, l->frame_size );
+        if( dpb > l->dpb )
+            ERROR( "DPB size (%d frames, %d mbs) > level limit (%d frames, %d mbs)\n",
+                    h->sps->vui.i_max_dec_frame_buffering, dpb, l->dpb / mbs, l->dpb );
+
+        CHECK( "VBV bitrate", (l->bitrate * cbp_factor) / 4, h->param.rc.i_vbv_max_bitrate );
+        CHECK( "VBV buffer", (l->cpb * cbp_factor) / 4, h->param.rc.i_vbv_buffer_size );
+        CHECK( "MV range", l->mv_range, h->param.analyse.i_mv_range );
+        CHECK( "interlaced", !l->frame_only, h->param.b_interlaced );
+        CHECK( "fake interlaced", !l->frame_only, h->param.b_fake_interlaced );
+
+        if( h->param.i_fps_den > 0 )
+            CHECK( "MB rate", l->mbps, (int64_t)mbs * h->param.i_fps_num / h->param.i_fps_den );
+    }
 
     /* TODO check the rest of the limits */
     return ret;

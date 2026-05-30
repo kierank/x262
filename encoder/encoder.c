@@ -1242,28 +1242,60 @@ static int validate_parameters( x264_t *h, int b_open )
     if( b_open )
     {
         const x264_level_t *l = x264_levels;
+#if HAVE_MPEG2
+        const x264_level_mpeg2_t *m = x264_levels_mpeg2;
+#endif
         if( h->param.i_level_idc < 0 )
         {
             int maxrate_bak = h->param.rc.i_vbv_max_bitrate;
             if( h->param.rc.i_rc_method == X264_RC_ABR && h->param.rc.i_vbv_buffer_size <= 0 )
                 h->param.rc.i_vbv_max_bitrate = h->param.rc.i_bitrate * 2;
             x264_sps_init( h->sps, h->param.i_sps_id, &h->param );
-            do h->param.i_level_idc = l->level_idc;
-                while( l[1].level_idc && x264_validate_levels( h, 0 ) && l++ );
+#if HAVE_MPEG2
+            if( MPEG2 )
+            {
+                do h->param.i_level_idc = m->level_idc;
+                    while( m[1].level_idc && x264_validate_levels( h, 0 ) && m++ );
+            }
+            else
+#endif
+            {
+                do h->param.i_level_idc = l->level_idc;
+                    while( l[1].level_idc && x264_validate_levels( h, 0 ) && l++ );
+            }
             h->param.rc.i_vbv_max_bitrate = maxrate_bak;
         }
         else
         {
-            while( l->level_idc && l->level_idc != h->param.i_level_idc )
-                l++;
-            if( l->level_idc == 0 )
+#if HAVE_MPEG2
+            if( MPEG2 )
             {
-                x264_log( h, X264_LOG_ERROR, "invalid level_idc: %d\n", h->param.i_level_idc );
-                return -1;
+                while( m->level_idc && m->level_idc != h->param.i_level_idc )
+                    m++;
+                if( m->level_idc == 0 )
+                {
+                    x264_log( h, X264_LOG_ERROR, "invalid level\n" );
+                    return -1;
+                }
+            }
+            else
+#endif
+            {
+                while( l->level_idc && l->level_idc != h->param.i_level_idc )
+                    l++;
+                if( l->level_idc == 0 )
+                {
+                    x264_log( h, X264_LOG_ERROR, "invalid level_idc: %d\n", h->param.i_level_idc );
+                    return -1;
+                }
             }
         }
         if( h->param.analyse.i_mv_range <= 0 )
+#if HAVE_MPEG2
+            h->param.analyse.i_mv_range = ( MPEG2 ? m->mv_max_v : l->mv_range ) >> PARAM_INTERLACED;
+#else
             h->param.analyse.i_mv_range = l->mv_range >> PARAM_INTERLACED;
+#endif
         else
             h->param.analyse.i_mv_range = x264_clip3(h->param.analyse.i_mv_range, 32, 8192 >> PARAM_INTERLACED);
     }
@@ -1849,7 +1881,13 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
         fclose( f );
     }
 
-    const char *profile = h->sps->i_profile_idc == PROFILE_BASELINE ? "Constrained Baseline" :
+    const char *profile =
+#if HAVE_MPEG2
+                          h->sps->i_profile_idc == MPEG2_PROFILE_SIMPLE ? "Simple" :
+                          h->sps->i_profile_idc == MPEG2_PROFILE_MAIN ? "Main" :
+                          h->sps->i_profile_idc == MPEG2_PROFILE_HIGH ? "High" :
+#endif
+                          h->sps->i_profile_idc == PROFILE_BASELINE ? "Constrained Baseline" :
                           h->sps->i_profile_idc == PROFILE_MAIN ? "Main" :
                           h->sps->i_profile_idc == PROFILE_HIGH ? "High" :
                           h->sps->i_profile_idc == PROFILE_HIGH10 ?
@@ -1858,6 +1896,15 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
                               (h->sps->b_constraint_set3 ? "High 4:2:2 Intra" : "High 4:2:2") :
                           h->sps->b_constraint_set3 ? "High 4:4:4 Intra" : "High 4:4:4 Predictive";
     char level[16];
+#if HAVE_MPEG2
+    if( MPEG2 )
+        snprintf( level, sizeof(level), "%s", h->sps->i_level_idc == X264_MPEG2_LEVEL_LOW ? "Low" :
+                                              h->sps->i_level_idc == X264_MPEG2_LEVEL_MAIN ? "Main" :
+                                              h->sps->i_level_idc == X264_MPEG2_LEVEL_HIGH_1440 ? "High-1440" :
+                                              h->sps->i_level_idc == X264_MPEG2_LEVEL_HIGH ? "High" :
+                                              "HighP" );
+    else
+#endif
     if( h->sps->i_level_idc == 9 || ( h->sps->i_level_idc == 11 && h->sps->b_constraint_set3 &&
         (h->sps->i_profile_idc == PROFILE_BASELINE || h->sps->i_profile_idc == PROFILE_MAIN) ) )
         strcpy( level, "1b" );
@@ -1865,6 +1912,11 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
         snprintf( level, sizeof(level), "%d.%d", h->sps->i_level_idc / 10, h->sps->i_level_idc % 10 );
 
     static const char * const subsampling[4] = { "4:0:0", "4:2:0", "4:2:2", "4:4:4" };
+#if HAVE_MPEG2
+    if( MPEG2 )
+        x264_log( h, X264_LOG_INFO, "%s profile @ %s level\n", profile, level );
+    else
+#endif
     x264_log( h, X264_LOG_INFO, "profile %s, level %s, %s, %d-bit\n",
               profile, level, subsampling[CHROMA_FORMAT], BIT_DEPTH );
 
