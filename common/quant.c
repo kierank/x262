@@ -432,6 +432,25 @@ level_run(4)
 level_run(8)
 level_run(15)
 level_run(16)
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+static int coeff_level_run64( dctcoef *dct, x264_run_level_t *runlevel )
+{
+    int i_last = runlevel->last = coeff_last64(dct);
+    int i_total = 0;
+    int mask = 0;
+    do
+    {
+        int r = 0;
+        runlevel->level[i_total] = dct[i_last];
+        mask |= 1 << (i_last & 31);
+        while( --i_last >= 0 && dct[i_last] == 0 )
+            r++;
+        runlevel->run[i_total++] = r;
+    } while( i_last >= 0 );
+    runlevel->mask = mask;
+    return i_total;
+}
+#endif
 
 #if ARCH_X86_64
 #define INIT_TRELLIS(cpu)\
@@ -481,6 +500,7 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
     pf->dequant_mpeg2_intra = dequant_mpeg2_intra;
     pf->dequant_mpeg2_inter = dequant_mpeg2_inter;
+    pf->coeff_level_run[ DCT_LUMA_8x8] = coeff_level_run64;
 #endif
 
 #if HIGH_BIT_DEPTH

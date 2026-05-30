@@ -51,7 +51,8 @@ typedef struct
 {
     int32_t last;
     int32_t mask;
-    ALIGNED_16( dctcoef level[18] );
+    ALIGNED_16( dctcoef level[64] );
+    uint8_t run[64];
 } x264_run_level_t;
 
 typedef struct

@@ -495,6 +495,9 @@ struct x264_t
         // FIXME share memory?
         ALIGNED_64( dctcoef luma8x8[12][64] );
         ALIGNED_64( dctcoef luma4x4[16*3][16] );
+#if HAVE_MPEG2
+        ALIGNED_64( dctcoef mpeg2_8x8[8][64] );
+#endif
     } dct;
 
     /* MB table and cache for current frame/mb */
@@ -608,7 +611,10 @@ struct x264_t
         int     b_transform_8x8;
 
 #if HAVE_MPEG2
+        int     i_quant_scale_code;
         int     i_intra_dc_predictor[8];
+        int     i_dct_dc_size[8];
+        int     i_dct_dc_diff[8];
         int16_t mvp[2][2];
 #endif
 

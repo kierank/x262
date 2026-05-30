@@ -55,6 +55,9 @@ void x264_macroblock_encode      ( x264_t *h );
 void x264_macroblock_write_cabac ( x264_t *h, x264_cabac_t *cb );
 #define x264_macroblock_write_cavlc x264_template(macroblock_write_cavlc)
 void x264_macroblock_write_cavlc ( x264_t *h );
+#if HAVE_MPEG2
+void x264_macroblock_write_vlc_mpeg2( x264_t *h );
+#endif
 
 #define x264_macroblock_encode_p8x8 x264_template(macroblock_encode_p8x8)
 void x264_macroblock_encode_p8x8( x264_t *h, int i8 );
