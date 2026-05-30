@@ -468,7 +468,7 @@ void x264_frame_init_lowres( x264_t *h, x264_frame_t *frame )
     memcpy( src+i_stride*i_height, src+i_stride*(i_height-1), (i_width+1) * SIZEOF_PIXEL );
     h->mc.frame_init_lowres_core( src, frame->lowres[0], frame->lowres[1], frame->lowres[2], frame->lowres[3],
                                   i_stride, frame->i_stride_lowres, frame->i_width_lowres, frame->i_lines_lowres );
-    x264_frame_expand_border_lowres( frame );
+    x264_frame_expand_border_lowres( h, frame );
 
     memset( frame->i_cost_est, -1, sizeof(frame->i_cost_est) );
 

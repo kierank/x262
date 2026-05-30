@@ -229,7 +229,7 @@ void          x264_frame_expand_border( x264_t *h, x264_frame_t *frame, int mb_y
 #define x264_frame_expand_border_filtered x264_template(frame_expand_border_filtered)
 void          x264_frame_expand_border_filtered( x264_t *h, x264_frame_t *frame, int mb_y, int b_end );
 #define x264_frame_expand_border_lowres x264_template(frame_expand_border_lowres)
-void          x264_frame_expand_border_lowres( x264_frame_t *frame );
+void          x264_frame_expand_border_lowres( x264_t *h, x264_frame_t *frame );
 #define x264_frame_expand_border_chroma x264_template(frame_expand_border_chroma)
 void          x264_frame_expand_border_chroma( x264_t *h, x264_frame_t *frame, int plane );
 #define x264_frame_expand_border_mod16 x264_template(frame_expand_border_mod16)
