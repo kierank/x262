@@ -55,6 +55,22 @@ typedef struct
     uint8_t run[64];
 } x264_run_level_t;
 
+#if HAVE_MPEG2
+/* MPEG-2 */
+extern const vlc_t x264_mb_addr_inc[34];
+extern const vlc_t x264_cbp[64];
+extern const vlc_t x264_i_frame_mb_type[2];
+extern const vlc_t x264_i_mb_type[3][2];
+extern const vlc_t x264_p_mb_type[2][2][2];
+extern const vlc_t x264_b_mb_type[3][2][2];
+extern const vlc_large_t x264_dc_luma_code[12];
+extern const vlc_large_t x264_dc_chroma_code[12];
+extern const vlc_t x264_dmvector[3];
+extern const vlc_large_t x264_motion_code[33];
+extern const vlc_large_t dct_vlcs[2][41][32];
+extern const uint8_t dct_vlc_largest_run[41];
+#endif
+
 typedef struct
 {
     uint8_t *(*nal_escape)( uint8_t *dst, uint8_t *src, uint8_t *end );

@@ -103,6 +103,9 @@ typedef struct x264_frame
     int16_t (*lowres_mvs[2][X264_BFRAME_MAX+1])[2];
     uint8_t *field;
     uint8_t *effective_qp;
+#if HAVE_MPEG2
+    int16_t mv_fcode[2][2];
+#endif
 
     /* Stored as (lists_used << LOWRES_COST_SHIFT) + (cost).
      * Doesn't need special addressing for intra cost because

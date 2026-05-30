@@ -59,7 +59,7 @@ CONFIG := $(shell cat config.h)
 
 # Optional module sources
 ifneq ($(findstring HAVE_MPEG2 1, $(CONFIG)),)
-SRCS_8 += common/mpeg2vlc.c
+SRCS_8 += common/mpeg2vlc.c encoder/mpeg2vlc.c
 endif
 
 ifneq ($(findstring HAVE_AVS 1, $(CONFIG)),)

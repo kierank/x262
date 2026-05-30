@@ -168,7 +168,7 @@ static void slice_header_init( x264_t *h, x264_slice_header_t *sh,
                                 && h->param.i_bframe
                                 && ( h->param.rc.b_stat_write || !h->param.rc.b_stat_read );
 
-    if( !h->mb.b_direct_auto_read && sh->i_type == SLICE_TYPE_B )
+    if( !MPEG2 && !h->mb.b_direct_auto_read && sh->i_type == SLICE_TYPE_B )
     {
         if( h->fref[1][0]->i_poc_l0ref0 == h->fref[0][0]->i_poc )
         {
@@ -224,6 +224,16 @@ static void slice_header_init( x264_t *h, x264_slice_header_t *sh,
     sh->i_alpha_c0_offset = param->i_deblocking_filter_alphac0 * 2;
     sh->i_beta_offset = param->i_deblocking_filter_beta * 2;
 }
+
+#if HAVE_MPEG2
+static void slice_header_write_mpeg2( x264_t *h, bs_t *s, int i_mb_y )
+{
+    if( h->param.i_height > 2800 )
+       bs_write( s, 3, 0 ); // FIXME
+    bs_write( s, 5, h->mb.i_qp ); // quantiser_scale_code
+    bs_write1( s, 0 ); // extra_bit_slice
+}
+#endif
 
 static void slice_header_write( bs_t *s, x264_slice_header_t *sh, int i_nal_ref_idc )
 {
@@ -2956,7 +2966,8 @@ static intptr_t slice_write( x264_t *h )
     bs_realign( &h->out.bs );
 
     /* Slice */
-    nal_start( h, h->i_nal_type, h->i_nal_ref_idc );
+    if( !MPEG2 )
+        nal_start( h, h->i_nal_type, h->i_nal_ref_idc );
     h->out.nal[h->out.i_nal].i_first_mb = h->sh.i_first_mb;
 
     /* Slice header */
@@ -2968,7 +2979,8 @@ static intptr_t slice_write( x264_t *h )
     h->sh.i_qp = SPEC_QP( h->sh.i_qp );
     h->sh.i_qp_delta = h->sh.i_qp - h->pps->i_pic_init_qp;
 
-    slice_header_write( &h->out.bs, &h->sh, h->i_nal_ref_idc );
+    if( !MPEG2 )
+        slice_header_write( &h->out.bs, &h->sh, h->i_nal_ref_idc );
     if( h->param.b_cabac )
     {
         /* alignment needed */
@@ -3051,6 +3063,14 @@ static intptr_t slice_write( x264_t *h )
 
         x264_macroblock_analyse( h );
 
+#if HAVE_MPEG2
+        if( MPEG2 && i_mb_x == 0 )
+        {
+            nal_start( h, (i_mb_y % 175) + 1, h->i_nal_ref_idc );
+            slice_header_write_mpeg2( h, &h->out.bs, i_mb_y );
+        }
+#endif
+
         /* encode this macroblock -> be careful it can change the mb type to P_SKIP if needed */
 reencode:
         x264_macroblock_encode( h );
@@ -3069,6 +3089,31 @@ reencode:
                 x264_macroblock_write_cabac( h, &h->cabac );
             }
         }
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        else if( MPEG2 )
+        {
+#define bs_write_vlc(s,v) bs_write( s, (v).i_size, (v).i_bits )
+            if( IS_SKIP( h->mb.i_type ) )
+            {
+                i_skip++;
+                if( h->mb.i_type != B_SKIP )
+                    x264_reset_mv_predictor_mpeg2( h );
+            }
+            else
+            {
+                while( i_skip > 32 )
+                {
+                    bs_write_vlc( &h->out.bs, x264_mb_addr_inc[33] ); // macroblock_escape
+                    i_skip -= 33;
+                }
+                bs_write_vlc( &h->out.bs, x264_mb_addr_inc[i_skip] ); // macroblock_address_increment
+                i_skip = 0;
+
+                x264_macroblock_write_vlc_mpeg2( h );
+            }
+#undef bs_write_vlc
+        }
+#endif
         else
         {
             if( IS_SKIP( h->mb.i_type ) )
@@ -3248,7 +3293,17 @@ cont:
             x264_macroblock_deblock_strength( h );
 
         if( mb_xy == h->sh.i_last_mb )
+        {
+#if HAVE_MPEG2
+            if( MPEG2 )
+            {
+                bs_align_0( &h->out.bs );
+                if( nal_end( h ) )
+                    return -1;
+            }
+#endif
             break;
+        }
 
         if( SLICE_MBAFF )
         {
@@ -3261,6 +3316,14 @@ cont:
         {
             i_mb_y++;
             i_mb_x = 0;
+#if HAVE_MPEG2
+            if( MPEG2 )
+            {
+                bs_align_0( &h->out.bs );
+                if( nal_end( h ) )
+                    return -1;
+            }
+#endif
         }
     }
     if( h->sh.i_last_mb < h->sh.i_first_mb )
@@ -3273,7 +3336,7 @@ cont:
         x264_cabac_encode_flush( h, &h->cabac );
         h->out.bs.p = h->cabac.p;
     }
-    else
+    else if( !MPEG2 )
     {
         if( i_skip > 0 )
             bs_write_ue( &h->out.bs, i_skip );  /* last skip run */
@@ -3281,8 +3344,12 @@ cont:
         bs_rbsp_trailing( &h->out.bs );
         bs_flush( &h->out.bs );
     }
-    if( nal_end( h ) )
-        return -1;
+
+    if( !MPEG2 )
+    {
+        if( nal_end( h ) )
+            return -1;
+    }
 
     if( h->sh.i_last_mb == (h->i_threadslice_end * h->mb.i_mb_width - 1) )
     {
@@ -3916,7 +3983,7 @@ int     x264_encoder_encode( x264_t *h,
         h->fenc->extra_sei.sei_free = NULL;
     }
 
-    if( h->fenc->b_keyframe )
+    if( h->fenc->b_keyframe && !MPEG2 )
     {
         /* Avid's decoder strictly wants two SEIs for AVC-Intra so we can't insert the x264 SEI */
         if( h->param.b_repeat_headers && h->fenc->i_frame == 0 && !h->param.i_avcintra_class )
