@@ -44,6 +44,21 @@
 void x264_nal_encode( x264_t *h, uint8_t *dst, x264_nal_t *nal );
 void x264_macroblock_cache_load_progressive( x264_t *h, int i_mb_x, int i_mb_y );
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+const x264_fps_mpeg2_t x264_allowed_fps_mpeg2[] =
+{
+    { 1, 24000, 1001 },
+    { 2, 24, 1 },
+    { 3, 25, 1 },
+    { 4, 30000, 1001 },
+    { 5, 30, 1 },
+    { 6, 50, 1 },
+    { 7, 60000, 1001 },
+    { 8, 60, 1 },
+    { 0 }
+};
+#endif // HAVE_MPEG2 && !HIGH_BIT_DEPTH
+
 static int encoder_frame_end( x264_t *h, x264_t *thread_current,
                               x264_nal_t **pp_nal, int *pi_nal,
                               x264_picture_t *pic_out );
@@ -1590,6 +1605,41 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
 
     x264_reduce_fraction( &h->param.i_fps_num, &h->param.i_fps_den );
     x264_reduce_fraction( &h->param.i_timebase_num, &h->param.i_timebase_den );
+
+#if HAVE_MPEG2
+    if( MPEG2 )
+    {
+        if( h->param.b_vfr_input )
+        {
+            x264_log( h, X264_LOG_WARNING, "MPEG-2 + VFR is not allowed\n" );
+            h->param.b_vfr_input = 0;
+        }
+
+        const x264_fps_mpeg2_t *f = x264_allowed_fps_mpeg2;
+        if( !h->param.i_frame_rate_code )
+        {
+            while( f->fps_code != 0 && ( h->param.i_fps_num != (uint32_t)f->fps_num || h->param.i_fps_den != (uint32_t)f->fps_den ) )
+                f++;
+            if( !f->fps_code )
+            {
+                x264_log( h, X264_LOG_ERROR, "chosen fps not allowed in MPEG-2\n" );
+                return NULL;
+            }
+            h->param.i_frame_rate_code = f->fps_code;
+        }
+        else if( h->param.i_frame_rate_code < 1 || h->param.i_frame_rate_code > 8 )
+        {
+            x264_log( h, X264_LOG_ERROR, "invalid frame rate code specified\n" );
+            return NULL;
+        }
+        else if( ( (uint32_t)f[h->param.i_frame_rate_code - 1].fps_num != h->param.i_fps_num ||
+                   (uint32_t)f[h->param.i_frame_rate_code - 1].fps_den != h->param.i_fps_den ) && !h->param.b_pulldown )
+        {
+            x264_log( h, X264_LOG_ERROR, "frame rate code doesn't match specified fps\n" );
+            return NULL;
+        }
+    }
+#endif
 
     /* Init x264_t */
     h->i_frame = -1;

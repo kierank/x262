@@ -48,6 +48,8 @@ typedef struct
 
     int i_profile_idc;
     int i_level_idc;
+    int i_frame_rate_code; /* MPEG-2 */
+
     int b_constraint_set0;
     int b_constraint_set1;
     int b_constraint_set2;

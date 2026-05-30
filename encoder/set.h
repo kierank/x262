@@ -68,4 +68,15 @@ void x264_sei_write( bs_t *s, uint8_t *payload, int payload_size, int payload_ty
 #define x264_filler_write x264_template(filler_write)
 void x264_filler_write( x264_t *h, bs_t *s, int filler );
 
+#if HAVE_MPEG2
+typedef struct
+{
+    int fps_code;
+    int fps_num;
+    int fps_den;
+} x264_fps_mpeg2_t;
+
+extern const x264_fps_mpeg2_t x264_allowed_fps_mpeg2[];
+#endif
+
 #endif

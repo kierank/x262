@@ -588,6 +588,10 @@ typedef struct x264_param_t
     uint32_t i_fps_den;
     uint32_t i_timebase_num;    /* Timebase numerator */
     uint32_t i_timebase_den;    /* Timebase denominator */
+#if HAVE_MPEG2
+    int i_frame_rate_code;      /* MPEG-2: Explicitly sets the framerate in the sequence header.  Derived from
+                                 * i_fps_num/i_fps_den if not set. */
+#endif
 
     int b_tff;
 

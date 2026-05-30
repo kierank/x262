@@ -147,6 +147,9 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
     sps->b_constraint_set3  = 0;
 
     sps->i_level_idc = param->i_level_idc;
+#if HAVE_MPEG2
+    sps->i_frame_rate_code = param->i_frame_rate_code;
+#endif
     if( param->i_level_idc == 9 && ( sps->i_profile_idc == PROFILE_BASELINE || sps->i_profile_idc == PROFILE_MAIN ) )
     {
         sps->b_constraint_set3 = 1; /* level 1b with Baseline or Main profile is signalled via constraint_set3 */
@@ -943,6 +946,7 @@ int x264_validate_levels( x264_t *h, int verbose )
         const x264_level_mpeg2_t *l = x264_levels_mpeg2;
         while( l->level_idc != 0 && l->level_idc != h->param.i_level_idc )
             l++;
+        CHECK( "framerate", l->fps_code, h->sps->i_frame_rate_code );
         if( h->param.i_fps_den > 0 )
             CHECK( "luminance sample rate", l->luma_main, h->param.i_width * h->param.i_height *
                                                           h->param.i_fps_num / h->param.i_fps_den );
