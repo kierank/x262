@@ -164,6 +164,46 @@ static void dequant_4x4_dc( dctcoef dct[16], int dequant_mf[6][16], int i_qp )
     }
 }
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+static void dequant_mpeg2_inter( dctcoef dct[64], int dequant_mf[64] )
+{
+    int sign, sum = 0;
+    for( int i = 0; i < 64; i++ )
+    {
+        if( dct[i] )
+        {
+            sign = dct[i] >> 15;
+            dct[i] = ( dct[i] + sign ) ^ sign; // absval
+            dct[i] = ( ( (dct[i]<<1) + 1 ) * dequant_mf[i]) >> 6; // inter dequant
+            dct[i] = (dct[i] ^ sign) - sign; // sign restore
+            x264_clip3( dct[i], -2048, 2047 );
+            sum ^= dct[i];
+        }
+    }
+    /* mismatch control */
+    if( !(sum & 1) )
+        dct[63] ^= 1;
+}
+
+static void dequant_mpeg2_intra( dctcoef dct[64], int dequant_mf[64], int precision )
+{
+    int sign = 0;
+    int sum = dct[0] = dct[0] << ( 3 - precision ); // DC dequant
+    for( int i = 1; i < 64; i++ )
+    {
+        sign = dct[i] >> 15;
+        dct[i] = ( dct[i] + sign ) ^ sign; // absval
+        dct[i] = ( dct[i] * dequant_mf[i] ) >> 5; // AC dequant
+        dct[i] = (dct[i] ^ sign) - sign; // sign restore
+        x264_clip3( dct[i], -2048, 2047 );
+        sum ^= dct[i];
+    }
+    /* mismatch control */
+    if( !(sum & 1) )
+        dct[63] ^= 1;
+}
+#endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */
+
 #define IDCT_DEQUANT_2X4_START \
     int a0 = dct[0] + dct[1]; \
     int a1 = dct[2] + dct[3]; \
@@ -443,6 +483,11 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
     pf->coeff_level_run8 = coeff_level_run8;
     pf->coeff_level_run[  DCT_LUMA_AC] = coeff_level_run15;
     pf->coeff_level_run[ DCT_LUMA_4x4] = coeff_level_run16;
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    pf->dequant_mpeg2_intra = dequant_mpeg2_intra;
+    pf->dequant_mpeg2_inter = dequant_mpeg2_inter;
+#endif
 
 #if HIGH_BIT_DEPTH
 #if HAVE_MMX
