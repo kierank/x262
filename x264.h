@@ -114,7 +114,7 @@ enum nal_priority_e
 typedef struct x264_nal_t
 {
     int i_ref_idc;  /* nal_priority_e */
-    int i_type;     /* nal_unit_type_e */
+    int i_type;     /* nal_unit_type_e (H.264) / mpeg2_structure_type_e (MPEG-2) */
     int b_long_startcode;
     int i_first_mb; /* If this NAL is a slice, the index of the first MB in the slice. */
     int i_last_mb;  /* If this NAL is a slice, the index of the last MB in the slice. */
@@ -383,6 +383,7 @@ typedef struct x264_param_t
 
     int         b_interlaced;
     int         b_constrained_intra;
+    int         b_mpeg2;
 
     int         i_cqm_preset;
     char        *psz_cqm_file;      /* filename (in UTF-8) of CQM file, JM format */

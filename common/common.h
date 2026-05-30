@@ -56,14 +56,18 @@
  ****************************************************************************/
 #define X264_PCM_COST (FRAME_SIZE(256*BIT_DEPTH)+16)
 #define QP_BD_OFFSET (6*(BIT_DEPTH-8))
-#define QP_MAX_SPEC (51+QP_BD_OFFSET)
+#define QP_MAX_SPEC_H264 (51+QP_BD_OFFSET)
+#define QP_MAX_SPEC_MPEG2 31
+#define QP_MAX_SPEC QP_MAX_SPEC_H264
 #define QP_MAX (QP_MAX_SPEC+18)
 #define PIXEL_MAX ((1 << BIT_DEPTH)-1)
+#define LAMBDA_MAX (91 << (BIT_DEPTH-8))
 // arbitrary, but low because SATD scores are 1/4 normal
 #define X264_LOOKAHEAD_QP (12+QP_BD_OFFSET)
 #define SPEC_QP(x) X264_MIN((x), QP_MAX_SPEC)
 
 #define NALU_OVERHEAD 5 // startcode + NAL type costs 5 bytes per frame
+#define STRUCTURE_OVERHEAD 4 // startcode
 #define FILLER_OVERHEAD (NALU_OVERHEAD+1)
 #define SEI_OVERHEAD (NALU_OVERHEAD - (h->param.b_annexb && !h->param.i_avcintra_class && (h->out.i_nal-1)))
 
@@ -76,6 +80,14 @@
 #   define SLICE_MBAFF 0
 #   define PARAM_INTERLACED 0
 #endif
+
+#if HAVE_MPEG2
+#   define MPEG2 h->param.b_mpeg2
+#else
+#   define MPEG2 0
+#endif
+
+#define LOG2_16(x) (31 - x264_clz((x)|1))
 
 #ifdef CHROMA_FORMAT
 #    define CHROMA_H_SHIFT (CHROMA_FORMAT == CHROMA_420 || CHROMA_FORMAT == CHROMA_422)
@@ -266,6 +278,57 @@ typedef struct
     double f_ssim;
     int i_ssim_cnt;
 } x264_frame_stat_t;
+
+#if HAVE_MPEG2
+enum mpeg2_structure_type_e
+{
+    MPEG2_SEQ_HEADER           = 0xb0, // FIXME
+    MPEG2_USER_DATA,
+    MPEG2_SEQ_EXT,
+    MPEG2_SEQ_DISPLAY_EXT,
+    MPEG2_GOP_HEADER,
+    MPEG2_PICTURE_HEADER,
+    MPEG2_PICTURE_CODING_EXT,
+    MPEG2_PICTURE_DISPLAY_EXT,
+    MPEG2_QUANT_MATRIX_EXT,
+    MPEG2_COPYRIGHT_EXT,
+};
+
+enum mpeg2_start_code_e
+{
+    MPEG2_PICTURE_START_CODE    = 0x00,
+    MPEG2_USER_DATA_START_CODE  = 0xB2,
+    MPEG2_SEQ_HEADER_CODE       = 0xB3,
+    MPEG2_SEQ_ERROR_CODE        = 0xB4,
+    MPEG2_EXT_START_CODE        = 0xB5,
+    MPEG2_SEQ_END_CODE          = 0xB7,
+    MPEG2_GRP_START_CODE        = 0xB8,
+};
+
+static const uint8_t structure_to_start_code[] =
+{
+    [MPEG2_SEQ_HEADER]          = MPEG2_SEQ_HEADER_CODE,
+    [MPEG2_USER_DATA]           = MPEG2_USER_DATA_START_CODE,
+    [MPEG2_SEQ_EXT]             = MPEG2_EXT_START_CODE,
+    [MPEG2_SEQ_DISPLAY_EXT]     = MPEG2_EXT_START_CODE,
+    [MPEG2_GOP_HEADER]          = MPEG2_GRP_START_CODE,
+    [MPEG2_PICTURE_HEADER]      = MPEG2_PICTURE_START_CODE,
+    [MPEG2_PICTURE_CODING_EXT]  = MPEG2_EXT_START_CODE,
+    [MPEG2_PICTURE_DISPLAY_EXT] = MPEG2_EXT_START_CODE,
+    [MPEG2_QUANT_MATRIX_EXT]    = MPEG2_EXT_START_CODE,
+    [MPEG2_COPYRIGHT_EXT]       = MPEG2_EXT_START_CODE,
+};
+
+enum mpeg2_extension_id_e
+{
+    MPEG2_SEQ_EXT_ID          = 1,
+    MPEG2_SEQ_DISPLAY_EXT_ID  = 2,
+    MPEG2_QUANT_MATRIX_EXT_ID = 3,
+    MPEG2_COPYRIGHT_EXT_ID    = 4,
+    MPEG2_PIC_DISPLAY_EXT_ID  = 7,
+    MPEG2_PIC_CODING_EXT_ID   = 8,
+};
+#endif /* HAVE_MPEG2 */
 
 struct x264_t
 {
