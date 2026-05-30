@@ -231,6 +231,46 @@ typedef struct x264_nal_t
 #define X264_KEYINT_MIN_AUTO         0
 #define X264_KEYINT_MAX_INFINITE     (1<<30)
 
+/* Intra DC Precision */
+#define X264_INTRA_DC_8_BIT          0
+#define X264_INTRA_DC_9_BIT          1
+#define X264_INTRA_DC_10_BIT         2
+#define X264_INTRA_DC_11_BIT         3
+
+/* MPEG-2 Frame Rate Codes */
+#define X264_MPEG2_24FPS_NTSC        1
+#define X264_MPEG2_24FPS             2
+#define X264_MPEG2_25FPS             3
+#define X264_MPEG2_30FPS_NTSC        4
+#define X264_MPEG2_30FPS             5
+#define X264_MPEG2_50FPS             6
+#define X264_MPEG2_60FPS_NTSC        7
+#define X264_MPEG2_60FPS             8
+
+/* MPEG-2 Aspect Ratio Information */
+#define X264_MPEG2_DAR_AUTO          0
+#define X264_MPEG2_DAR_SQUARE        1
+#define X264_MPEG2_DAR_43            2
+#define X264_MPEG2_DAR_169           3
+#define X264_MPEG2_DAR_221           4
+
+enum mpeg2_level_e
+{
+    X264_MPEG2_LEVEL_LOW        = 10,
+    X264_MPEG2_LEVEL_MAIN       =  8,
+    X264_MPEG2_LEVEL_HIGH_1440  =  6,
+    X264_MPEG2_LEVEL_HIGH       =  4,
+    X264_MPEG2_LEVEL_HIGHP      =  2,
+};
+
+enum mpeg2_profile_e
+{
+    MPEG2_PROFILE_422    = 0,
+    MPEG2_PROFILE_HIGH   = 1,
+    MPEG2_PROFILE_MAIN   = 4,
+    MPEG2_PROFILE_SIMPLE = 5,
+};
+
 /* AVC-Intra flavors */
 #define X264_AVCINTRA_FLAVOR_PANASONIC 0
 #define X264_AVCINTRA_FLAVOR_SONY      1
@@ -395,6 +435,14 @@ typedef struct x264_param_t
     uint8_t     cqm_8py[64];
     uint8_t     cqm_8ic[64];
     uint8_t     cqm_8pc[64];
+
+#if HAVE_MPEG2
+    /* MPEG-2 only */
+    int         i_intra_dc_precision;
+    int         b_nonlinear_quant;
+    int         b_alt_intra_vlc;
+    int         b_alternate_scan;
+#endif
 
     /* Log */
     void        (*pf_log)( void *, int i_level, const char *psz, va_list );
@@ -651,6 +699,30 @@ typedef struct x264_level_t
 /* all of the levels defined in the standard, terminated by .level_idc=0 */
 X264_API extern const x264_level_t x264_levels[];
 
+#if HAVE_MPEG2
+/****************************************************************************
+ * MPEG-2 level restriction information
+ ****************************************************************************/
+
+typedef struct {
+    int level_idc;
+    int luma_main;    /* max luminance sample rate for main profile (samples/sec) */
+    int luma_high;    /* max luminance sample rate for high profile (samples/sec) */
+    int width;        /* max frame width (pixel/line) */
+    int height;       /* max frame height (lines/picture) */
+    int fps_code;     /* max frame_rate_code */
+    int bitrate_main; /* max bitrate (kbit/sec) */
+    int bitrate_high; /* max bitrate (kbit/sec) */
+    int vbv_buf_main; /* max vbv buffer for main profile (bit/sec) */
+    int vbv_buf_high; /* max vbv buffer for high profile (bit/sec) */
+    int mv_max_h;     /* max horizontal motion vector range (pixels) */
+    int mv_max_v;     /* max vertical motion vector range (pixels) */
+} x264_level_mpeg2_t;
+
+/* all of the levels defined in the standard, terminated by .level_idc=0 */
+X264_API extern const x264_level_mpeg2_t x264_levels_mpeg2[];
+#endif /* HAVE_MPEG2 */
+
 /****************************************************************************
  * Basic parameter handling functions
  ****************************************************************************/
@@ -732,7 +804,7 @@ X264_API void x264_param_apply_fastfirstpass( x264_param_t * );
 /* x264_param_apply_profile:
  *      Applies the restrictions of the given profile.
  *      Currently available profiles are, from most to least restrictive: */
-static const char * const x264_profile_names[] = { "baseline", "main", "high", "high10", "high422", "high444", 0 };
+static const char * const x264_profile_names[] = { "simple", "baseline", "main", "422", "high", "high10", "high422", "high444", 0 };
 
 /*      (can be NULL, in which case the function will do nothing)
  *
@@ -743,6 +815,16 @@ static const char * const x264_profile_names[] = { "baseline", "main", "high", "
  *
  *      returns 0 on success, negative on failure (e.g. invalid profile name). */
 X264_API int x264_param_apply_profile( x264_param_t *, const char *profile );
+
+#if HAVE_MPEG2
+/* x264_param_default_mpeg2:
+ *      fill x264_param_t with MPEG-2 default values and do CPU detection */
+X264_API void x264_param_default_mpeg2( x264_param_t * );
+
+/* x264_param_default_preset_mpeg2:
+ *      The same as x264_param_default_preset, but for MPEG-2. */
+X264_API int x264_param_default_preset_mpeg2( x264_param_t *, const char *preset, const char *tune );
+#endif
 
 /****************************************************************************
  * Picture structures and functions

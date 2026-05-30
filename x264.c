@@ -974,6 +974,11 @@ static void help( x264_param_t *defaults, int longhelp )
     x264_register_vid_filters();
     x264_vid_filter_help( longhelp );
     H0( "\n" );
+#if HAVE_MPEG2
+    H2( "MPEG-2 (H.262):\n" );
+    H0( "      --mpeg2                 Encode as MPEG-2 instead of H.264\n" );
+    H0( "\n" );
+#endif
 }
 
 typedef enum
@@ -1009,7 +1014,11 @@ typedef enum
     OPT_DTS_COMPRESSION,
     OPT_OUTPUT_CSP,
     OPT_INPUT_RANGE,
-    OPT_RANGE
+    OPT_RANGE,
+#if HAVE_MPEG2
+    OPT_MPEG2,
+    OPT_NO_MPEG2,
+#endif
 } OptionsOPT;
 
 static char short_options[] = "8A:B:b:f:hI:i:m:o:p:q:r:t:Vvw";
@@ -1046,6 +1055,10 @@ static struct option long_options[] =
     { "tff",                  no_argument,       NULL, OPT_INTERLACED },
     { "bff",                  no_argument,       NULL, OPT_INTERLACED },
     { "no-interlaced",        no_argument,       NULL, OPT_INTERLACED },
+#if HAVE_MPEG2
+    { "mpeg2",                no_argument,       NULL, OPT_MPEG2 },
+    { "no-mpeg2",             no_argument,       NULL, OPT_NO_MPEG2 },
+#endif
     { "constrained-intra",    no_argument,       NULL, 0 },
     { "cabac",                no_argument,       NULL, 0 },
     { "no-cabac",             no_argument,       NULL, 0 },
@@ -1530,6 +1543,14 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
             case OPT_INTERLACED:
                 b_user_interlaced = 1;
                 goto generic_option;
+#if HAVE_MPEG2
+            case OPT_MPEG2:
+                x264_param_default_mpeg2( param );
+                break;
+            case OPT_NO_MPEG2:
+                param->b_mpeg2 = 0;
+                break;
+#endif
             case OPT_TCFILE_IN:
                 tcfile_name = optarg;
                 break;
@@ -1909,6 +1930,48 @@ static void convert_cli_to_lib_pic( x264_picture_t *lib, cli_pic_t *cli )
     lib->i_pts = cli->pts;
 }
 
+#if HAVE_MPEG2
+static int write_frame_packing_mpeg2( x264_sei_t *extra_sei, int frame_packing )
+{
+    switch( frame_packing )
+    {
+        case -1:
+            return 0;
+        case 3: // S3D side by side
+        case 4: // S3D top and bottom
+        case 8: // 2D video
+            break;
+        default:
+            x264_cli_log( "x264", X264_LOG_ERROR, "unsupported frame packing %d\n", frame_packing );
+            return -1;
+    }
+
+    uint8_t *data = calloc( 8, 1 );
+    if( !data )
+        return -1;
+    memcpy( data, "JP3D", 4 ); // S3D_video_format_signaling_identifier
+    data[4] = 3;               // S3D_video_format_length
+    data[5] = (1 << 7);        // reserved_bit
+    data[5] |= frame_packing;  // S3D_video_format_type
+    data[6] = 4;               // reserved_data[0]
+    data[7] = 255;             // reserved_data[1]
+
+    extra_sei->num_payloads = 1;
+    extra_sei->sei_free = free;
+    extra_sei->payloads = malloc( extra_sei->num_payloads * sizeof(*extra_sei->payloads) );
+    if( !extra_sei->payloads )
+    {
+        free( data );
+        extra_sei->num_payloads = 0;
+        return -1;
+    }
+    extra_sei->payloads[0].payload_size = 8;
+    extra_sei->payloads[0].payload = data;
+
+    return 0;
+}
+#endif
+
 #define FAIL_IF_ERROR2( cond, ... )\
 do\
 {\
@@ -1992,6 +2055,12 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
             break;
         x264_picture_init( &pic );
         convert_cli_to_lib_pic( &pic, &cli_pic );
+
+#if HAVE_MPEG2
+        if( param->b_mpeg2 )
+            FAIL_IF_ERROR( write_frame_packing_mpeg2( &pic.extra_sei, param->i_frame_packing ),
+                           "error writing stereoscopic information\n" );
+#endif
 
         if( !param->b_vfr_input )
             pic.i_pts = i_frame;
