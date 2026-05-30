@@ -340,6 +340,6 @@ typedef struct
 } x264_mc_functions_t;
 
 #define x264_mc_init x264_template(mc_init)
-void x264_mc_init( uint32_t cpu, x264_mc_functions_t *pf, int cpu_independent );
+void x264_mc_init( uint32_t cpu, x264_mc_functions_t *pf, int cpu_independent, int b_mpeg2 );
 
 #endif

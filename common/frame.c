@@ -583,7 +583,7 @@ void x264_frame_expand_border( x264_t *h, x264_frame_t *frame, int mb_y )
             plane_expand_border( pix, stride*2, width, height, padh, padv, pad_top, pad_bot, h_shift );
             plane_expand_border( pix+stride, stride*2, width, height, padh, padv, pad_top, pad_bot, h_shift );
 
-            height = (pad_bot ? 16*(h->mb.i_mb_height - mb_y) : MPEG2 ? 16 : 32) >> v_shift;
+            height = (pad_bot ? 16*(h->mb.i_mb_height - mb_y) : 32) >> v_shift;
             if( b_end && !b_start )
                 height += 4 >> v_shift;
             pix = frame->plane[i] + (starty*stride >> v_shift);
