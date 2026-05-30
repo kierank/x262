@@ -3780,6 +3780,9 @@ int     x264_encoder_encode( x264_t *h,
         h->sh.i_type = SLICE_TYPE_I;
         reference_reset( h );
         h->frames.i_poc_last_open_gop = -1;
+#if HAVE_MPEG2
+        h->frames.i_last_temporal_ref = h->fenc->i_frame;
+#endif
     }
     else if( h->fenc->i_type == X264_TYPE_I )
     {
@@ -3789,6 +3792,12 @@ int     x264_encoder_encode( x264_t *h,
         reference_hierarchy_reset( h );
         if( h->param.b_open_gop )
             h->frames.i_poc_last_open_gop = h->fenc->b_keyframe ? h->fenc->i_poc : -1;
+#if HAVE_MPEG2
+        if( h->fenc->i_frame == h->fenc->i_coded )
+            h->frames.i_last_temporal_ref = h->fenc->i_frame;
+        else
+            h->frames.i_last_temporal_ref = -1;
+#endif
     }
     else if( h->fenc->i_type == X264_TYPE_P )
     {
@@ -3810,6 +3819,10 @@ int     x264_encoder_encode( x264_t *h,
         i_nal_type    = NAL_SLICE;
         i_nal_ref_idc = NAL_PRIORITY_DISPOSABLE;
         h->sh.i_type = SLICE_TYPE_B;
+#if HAVE_MPEG2
+        if( h->frames.i_poc_last_open_gop != -1 && h->frames.i_last_temporal_ref == -1 )
+            h->frames.i_last_temporal_ref = h->fenc->i_frame;
+#endif
     }
 
     h->fdec->i_type = h->fenc->i_type;
@@ -3917,6 +3930,84 @@ int     x264_encoder_encode( x264_t *h,
         }
     }
 
+#if HAVE_MPEG2
+    if( MPEG2 )
+    {
+        if( h->fenc->b_keyframe )
+        {
+            /* generate sequence header */
+            nal_start( h, MPEG2_SEQ_HEADER, NAL_PRIORITY_HIGHEST );
+            x264_seq_header_write_mpeg2( h, &h->out.bs );
+            if( nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+
+            /* generate sequence extension */
+            nal_start( h, MPEG2_SEQ_EXT, NAL_PRIORITY_HIGHEST );
+            x264_seq_extension_write_mpeg2( h, &h->out.bs );
+            if( nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+
+            /* generate sequence display extension */
+            if( h->sps->vui.i_vidformat != 5 || h->sps->vui.b_color_description_present ||
+                h->param.crop_rect.i_left || h->param.crop_rect.i_right ||
+                h->param.crop_rect.i_top || h->param.crop_rect.i_bottom )
+            {
+                nal_start( h, MPEG2_SEQ_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
+                x264_seq_disp_extension_write_mpeg2( h, &h->out.bs );
+                if( nal_end( h ) )
+                    return -1;
+                overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+            }
+
+            if( h->fenc->b_keyframe && h->fenc->i_frame == 0 )
+            {
+                /* identify ourself */
+                nal_start( h, MPEG2_USER_DATA, NAL_PRIORITY_HIGHEST );
+                if( x264_sei_version_write( h, &h->out.bs ) )
+                    return -1;
+                if( nal_end( h ) )
+                    return -1;
+                overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+            }
+
+            /* generate gop header */
+            nal_start( h, MPEG2_GOP_HEADER, NAL_PRIORITY_HIGHEST );
+            x264_gop_header_write_mpeg2( h, &h->out.bs );
+            if( nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+        }
+
+        /* generate picture header */
+        nal_start( h, MPEG2_PICTURE_HEADER, NAL_PRIORITY_HIGHEST );
+        x264_pic_header_write_mpeg2( h, &h->out.bs );
+        if( nal_end( h ) )
+            return -1;
+        overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+
+        /* generate picture coding extension */
+        nal_start( h, MPEG2_PICTURE_CODING_EXT, NAL_PRIORITY_HIGHEST );
+        x264_pic_coding_extension_write_mpeg2( h, &h->out.bs );
+        if( nal_end( h ) )
+            return -1;
+        overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+
+
+        /* generate picture display extension */
+        if( h->param.crop_rect.i_left || h->param.crop_rect.i_right ||
+            h->param.crop_rect.i_top || h->param.crop_rect.i_bottom )
+        {
+            nal_start( h, MPEG2_PICTURE_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
+            x264_pic_display_extension_write_mpeg2( h, &h->out.bs );
+            if( nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+        }
+    }
+    else
+#endif
     if( h->fenc->b_keyframe )
     {
         /* Write SPS and PPS */
@@ -3963,12 +4054,24 @@ int     x264_encoder_encode( x264_t *h,
     /* write extra sei */
     for( int i = 0; i < h->fenc->extra_sei.num_payloads; i++ )
     {
+#if HAVE_MPEG2
+        nal_start( h, MPEG2 ? MPEG2_USER_DATA : NAL_SEI, NAL_PRIORITY_DISPOSABLE );
+        if( MPEG2 )
+            x264_user_data_write_mpeg2( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size );
+        else
+            x264_sei_write( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size,
+                            h->fenc->extra_sei.payloads[i].payload_type );
+        if( nal_end( h ) )
+            return -1;
+        overhead += h->out.nal[h->out.i_nal-1].i_payload + ( MPEG2 ? STRUCTURE_OVERHEAD : SEI_OVERHEAD );
+#else
         nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         x264_sei_write( &h->out.bs, h->fenc->extra_sei.payloads[i].payload, h->fenc->extra_sei.payloads[i].payload_size,
                         h->fenc->extra_sei.payloads[i].payload_type );
         if( nal_end( h ) )
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + SEI_OVERHEAD;
+#endif
         if( h->fenc->extra_sei.sei_free )
         {
             h->fenc->extra_sei.sei_free( h->fenc->extra_sei.payloads[i].payload );
@@ -4035,7 +4138,7 @@ int     x264_encoder_encode( x264_t *h,
         }
     }
 
-    if( h->param.i_frame_packing >= 0 && (h->fenc->b_keyframe || h->param.i_frame_packing == 5) )
+    if( !MPEG2 && h->param.i_frame_packing >= 0 && (h->fenc->b_keyframe || h->param.i_frame_packing == 5) )
     {
         nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         x264_sei_frame_packing_write( h, &h->out.bs );
@@ -4045,7 +4148,7 @@ int     x264_encoder_encode( x264_t *h,
     }
 
     /* generate sei pic timing */
-    if( h->sps->vui.b_pic_struct_present || h->sps->vui.b_nal_hrd_parameters_present )
+    if( !MPEG2 && (h->sps->vui.b_pic_struct_present || h->sps->vui.b_nal_hrd_parameters_present) )
     {
         nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
         x264_sei_pic_timing_write( h, &h->out.bs );

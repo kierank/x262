@@ -969,6 +969,11 @@ typedef struct x264_picture_t
      *     use pic_struct_e for pic_struct inputs
      * Out: pic_struct element associated with frame */
     int     i_pic_struct;
+    /* In: MPEG-2 ONLY - top field first flag. */
+    int     b_tff;
+    /* In: MPEG-2 ONLY - repeat first field flag. Only valid for progressive input.
+     *     Used in combination with b_tff to signal pulldown pattern. */
+    int     b_rff;
     /* Out: whether this frame is a keyframe.  Important when using modes that result in
      * SEI recovery points being used instead of IDR frames. */
     int     b_keyframe;

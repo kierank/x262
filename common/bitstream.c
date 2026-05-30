@@ -58,6 +58,23 @@ void x264_nal_encode( x264_t *h, uint8_t *dst, x264_nal_t *nal )
     uint8_t *end = nal->p_payload + nal->i_payload;
     uint8_t *orig_dst = dst;
 
+#if HAVE_MPEG2
+    if( MPEG2 )
+    {
+        *dst++ = 0x00;
+        *dst++ = 0x00;
+        *dst++ = 0x01;
+        /* Write correct startcode if the structure is a slice*/
+        if( nal->i_type > 0 && nal->i_type < 0xb0 )
+            *dst++ = nal->i_type;
+        else
+            *dst++ = structure_to_start_code[nal->i_type];
+        memcpy( dst, src, nal->i_payload );
+        nal->i_payload += 4;
+    }
+    else
+#endif
+    {
     if( h->param.b_annexb )
     {
         if( nal->b_long_startcode )
@@ -99,8 +116,10 @@ void x264_nal_encode( x264_t *h, uint8_t *dst, x264_nal_t *nal )
     }
 
     nal->i_payload = size;
-    nal->p_payload = orig_dst;
     x264_emms();
+    } // !MPEG2
+
+    nal->p_payload = orig_dst;
 }
 
 void x264_bitstream_init( uint32_t cpu, x264_bitstream_function_t *pf )

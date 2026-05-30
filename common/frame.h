@@ -59,6 +59,10 @@ typedef struct x264_frame
     int     i_frame_num; /* 7.4.3 frame_num */
     int     b_kept_as_ref;
     int     i_pic_struct;
+#if HAVE_MPEG2
+    int     b_tff;
+    int     b_rff;
+#endif
     int     b_keyframe;
     uint8_t b_fdec;
     uint8_t b_last_minigop_bframe; /* this frame is the last b in a sequence of bframes */

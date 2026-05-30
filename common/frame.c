@@ -408,6 +408,11 @@ int x264_frame_copy_picture( x264_t *h, x264_frame_t *dst, x264_picture_t *src )
     dst->mb_info    = h->param.analyse.b_mb_info ? src->prop.mb_info : NULL;
     dst->mb_info_free = h->param.analyse.b_mb_info ? src->prop.mb_info_free : NULL;
 
+#if HAVE_MPEG2
+    dst->b_tff            = src->b_tff;
+    dst->b_rff            = src->b_rff;
+#endif
+
     uint8_t *pix[3];
     int stride[3];
     if( i_csp == X264_CSP_YUYV || i_csp == X264_CSP_UYVY )

@@ -2041,6 +2041,7 @@ do\
 static int encode( x264_param_t *param, cli_opt_t *opt )
 {
     x264_t *h = NULL;
+    x264_param_t p = {0};
     x264_picture_t pic;
     cli_pic_t cli_pic;
     const cli_pulldown_t *pulldown = NULL; // shut up gcc
@@ -2104,6 +2105,8 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
         fprintf( opt->tcfile_out, "# timecode format v2\n" );
 
     /* Encode frames */
+    if( param->b_mpeg2 )
+        x264_encoder_parameters( h, &p );
     for( ; !b_ctrl_c && (i_frame < param->i_frame_total || !param->i_frame_total); i_frame++ )
     {
         if( filter.get_frame( opt->hin, &cli_pic, i_frame + opt->i_seek ) )
@@ -2120,11 +2123,44 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
         if( !param->b_vfr_input )
             pic.i_pts = i_frame;
 
+        if( param->b_mpeg2 && !opt->i_pulldown )
+            pic.b_tff = param->b_tff;
+
         if( opt->i_pulldown && !param->b_vfr_input )
         {
-            pic.i_pic_struct = pulldown->pattern[ i_frame % pulldown->mod ];
-            pic.i_pts = (int64_t)( pulldown_pts + 0.5 );
-            pulldown_pts += pulldown_frame_duration[pic.i_pic_struct];
+            if( param->b_mpeg2 )
+            {
+                pic.param = &p;
+                switch( pulldown->pattern[ i_frame % pulldown->mod ] )
+                {
+                    case PIC_STRUCT_TOP_BOTTOM:
+                        pic.b_tff = 1 ^ !param->b_tff;
+                        pic.b_rff = 0;
+                        break;
+                    case PIC_STRUCT_BOTTOM_TOP:
+                        pic.b_tff = 0 ^ !param->b_tff;
+                        pic.b_rff = 0;
+                        break;
+                    case PIC_STRUCT_TOP_BOTTOM_TOP:
+                        pic.b_tff = 1 ^ !param->b_tff;
+                        pic.b_rff = 1;
+                        break;
+                    case PIC_STRUCT_BOTTOM_TOP_BOTTOM:
+                        pic.b_tff = 0 ^ !param->b_tff;
+                        pic.b_rff = 1;
+                        break;
+                    default:
+                        pic.b_tff = 0 ^ !param->b_tff;
+                        pic.b_rff = 0;
+                        assert("invalid pulldown pattern!");
+                }
+            }
+            else
+            {
+                pic.i_pic_struct = pulldown->pattern[ i_frame % pulldown->mod ];
+                pic.i_pts = (int64_t)( pulldown_pts + 0.5 );
+                pulldown_pts += pulldown_frame_duration[pic.i_pic_struct];
+            }
         }
         else if( opt->timebase_convert_multiplier )
             pic.i_pts = (int64_t)( pic.i_pts * opt->timebase_convert_multiplier + 0.5 );

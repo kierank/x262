@@ -654,7 +654,12 @@ int x264_sei_version_write( x264_t *h, bs_t *s )
              X264_BUILD, X264_VERSION, HAVE_GPL?"left":"right", opts );
     length = strlen(payload)+1;
 
-    x264_sei_write( s, (uint8_t *)payload, length, SEI_USER_DATA_UNREGISTERED );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
+        x264_user_data_write_mpeg2( s, (uint8_t *)payload, length );
+    else
+#endif
+        x264_sei_write( s, (uint8_t *)payload, length, SEI_USER_DATA_UNREGISTERED );
 
     x264_free( opts );
     x264_free( payload );
@@ -859,6 +864,340 @@ void x264_sei_dec_ref_pic_marking_write( x264_t *h, bs_t *s )
 
     x264_sei_write( s, tmp_buf, bs_pos( &q ) / 8, SEI_DEC_REF_PIC_MARKING );
 }
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+static void zigzag_scan_8x8_cqm( uint8_t level[64], const uint8_t dct[64] )
+{
+    static const uint8_t scan[64] = {
+         0, 1, 8,16, 9, 2, 3,10, 17,24,32,25,18,11, 4, 5,
+        12,19,26,33,40,48,41,34, 27,20,13, 6, 7,14,21,28,
+        35,42,49,56,57,50,43,36, 29,22,15,23,30,37,44,51,
+        58,59,52,45,38,31,39,46, 53,60,61,54,47,55,62,63
+    };
+    for( int i = 0; i < 64; i++ )
+        level[i] = dct[8*(scan[i]&7) + (scan[i]>>3)];
+}
+
+static void x264_write_cqm_mpeg2( x264_t *h, bs_t *s, int chroma )
+{
+    uint8_t temp[64];
+    int b_keyframe = h->fenc ? h->fenc->b_keyframe : 1;
+
+    if( chroma )
+    {
+        // load_chroma_intra_quantiser_matrix
+        if( b_keyframe &&
+            memcmp( h->sps->scaling_list[CQM_8IC],
+                    h->sps->scaling_list[CQM_8IY], 64*sizeof(uint8_t) ) )
+        {
+            bs_write1( s, 1 );
+            zigzag_scan_8x8_cqm( temp, h->sps->scaling_list[CQM_8IC] );
+            bs_write( s, 8, 8 ); // first value must be 8
+            for( int i = 1; i < 64; i++ )
+                bs_write( s, 8, temp[i] );
+        }
+        else
+            bs_write1( s, 0 );
+
+        // load_chroma_non_intra_quantiser_matrix
+        if( memcmp( h->sps->scaling_list[CQM_8PC],
+                    h->sps->scaling_list[CQM_8PY], 64*sizeof(uint8_t) ) )
+        {
+            bs_write1( s, 1 );
+            zigzag_scan_8x8_cqm( temp, h->sps->scaling_list[CQM_8PC] );
+            for( int i = 0; i < 64; i++ )
+                bs_write( s, 8, temp[i] );
+        }
+        else
+            bs_write1( s, 0 );
+    }
+    else
+    {
+        // load_intra_quantiser_matrix
+        if( b_keyframe &&
+            memcmp( h->sps->scaling_list[CQM_8IY], x264_cqm_intra_mpeg2, 64*sizeof(uint8_t) ) )
+        {
+            bs_write1( s, 1 );
+            zigzag_scan_8x8_cqm( temp, h->sps->scaling_list[CQM_8IY] );
+            bs_write( s, 8, 8 ); // first value must be 8
+            for( int i = 1; i < 64; i++ )
+                bs_write( s, 8, temp[i] );
+        }
+        else
+            bs_write1( s, 0 );
+
+        // load_non_intra_quantiser_matrix
+        if( memcmp( h->sps->scaling_list[CQM_8PY], x264_cqm_flat16, 64*sizeof(uint8_t) ) )
+        {
+            bs_write1( s, 1 );
+            zigzag_scan_8x8_cqm( temp, h->sps->scaling_list[CQM_8PY] );
+            for( int i = 0; i < 64; i++ )
+                bs_write( s, 8, temp[i] );
+        }
+        else
+            bs_write1( s, 0 );
+    }
+}
+
+void x264_seq_header_write_mpeg2( x264_t *h, bs_t *s )
+{
+    int i;
+    bs_realign( s );
+
+    bs_write( s, 12, h->param.i_width & 0xfff );  // horizontal_size_value
+    bs_write( s, 12, h->param.i_height & 0xfff ); // vertical_size_value
+    bs_write( s, 4, h->param.vui.i_aspect_ratio_information ); // aspect_ratio_information
+    bs_write( s, 4, h->sps->i_frame_rate_code ); // frame_rate_code
+
+    /* If vbv parameters are not set, choose a common value. */
+    if( h->param.rc.i_vbv_max_bitrate > 0 )
+        i = ((h->param.rc.i_vbv_max_bitrate * 1000 + 399) / 400) & 0x3ffff;
+    else if( h->param.i_width > 720 )
+        i = 48500; // ATSC A/53, (19400 * 1000 + 399) / 400
+    else
+        i = 24500; // DVD, (9800 * 1000 + 399) / 400
+    bs_write( s, 18, i ); // bit_rate_value
+
+    bs_write1( s, 1 ); // marker_bit
+
+    if( h->param.rc.i_vbv_buffer_size > 0 )
+        i = ((h->param.rc.i_vbv_buffer_size * 1000 + 16383) / 16384) & 0x3ff;
+    else if( h->param.i_width > 720 )
+        i = 488; // ATSC A/53, (7995 * 1000 + 16383) / 16384
+    else
+        i = 112; // DVD, (1835 * 1000 + 16383) / 16384
+    bs_write( s, 10, i ); // vbv_buffer_size_value
+
+    bs_write1( s, 0 ); // constrained_parameters_flag
+
+    x264_write_cqm_mpeg2( h, s, 0 );
+
+    bs_align_0( s );
+    bs_flush( s );
+}
+
+void x264_seq_extension_write_mpeg2( x264_t *h, bs_t *s )
+{
+    x264_sps_t *sps = h->sps;
+    bs_realign( s );
+
+    bs_write( s, 4, MPEG2_SEQ_EXT_ID );   // extension_start_code_identifier
+    bs_write1( s, 0 ); // escape bit
+    bs_write( s, 3, sps->i_profile_idc ); // profile identification
+    bs_write( s, 4, sps->i_level_idc ); // level identification
+
+    bs_write1( s, !( PARAM_INTERLACED || h->param.b_fake_interlaced ||
+                     h->param.b_pulldown ) ); // progressive_sequence
+    bs_write( s, 2, sps->i_chroma_format_idc ); // chroma_format
+    bs_write( s, 2, (h->param.i_width >> 12) & 0x3 );  // horizontal_size_extension
+    bs_write( s, 2, (h->param.i_height >> 12) & 0x3 ); // vertical_size_extension
+    bs_write( s, 12, (h->param.rc.i_vbv_max_bitrate * 1000 + 399) / 400 >> 18 & 0xfff );   // bit_rate_extension
+    bs_write1( s, 1 );   // marker_bit
+    bs_write( s, 8, (h->param.rc.i_vbv_buffer_size * 1000 + 16383) / 16384 >> 10 & 0xff ); // vbv_buffer_size_extension
+    bs_write1( s, !h->param.i_bframe ); // low_delay
+    bs_write( s, 2, 0 ); // frame_rate_extension_n
+    bs_write( s, 5, 0 ); // frame_rate_extension_d
+
+    bs_align_0( s );
+    bs_flush( s );
+}
+
+void x264_seq_disp_extension_write_mpeg2( x264_t *h, bs_t *s )
+{
+    x264_sps_t *sps = h->sps;
+    bs_realign( s );
+
+    bs_write( s, 4, MPEG2_SEQ_DISPLAY_EXT_ID ); // extension_start_code_identifier
+    bs_write( s, 3, sps->vui.i_vidformat );    // video_format
+    bs_write1( s, sps->vui.b_color_description_present ); // colour_description
+    if( sps->vui.b_color_description_present )
+    {
+        bs_write( s, 8, sps->vui.i_colorprim );
+        bs_write( s, 8, sps->vui.i_transfer );
+        bs_write( s, 8, sps->vui.i_colmatrix );
+    }
+    bs_write( s, 14, h->param.i_width - h->param.crop_rect.i_left - h->param.crop_rect.i_right ); // display_horizontal_size
+    bs_write1( s, 1 ); // marker_bit
+    bs_write( s, 14, h->param.i_height - h->param.crop_rect.i_top - h->param.crop_rect.i_bottom ); // display_vertical_size
+
+    bs_align_0( s );
+    bs_flush( s );
+}
+
+void x264_gop_header_write_mpeg2( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    int hrs, min, sec;
+    int frames = h->i_frame;
+    int fps = h->param.i_fps_num > 60 ? h->param.i_fps_num / 1000 : h->param.i_fps_num;
+
+    hrs = frames  / ( 60 * 60 * fps );
+    frames -= hrs * ( 60 * 60 * fps );
+    min = frames  / ( 60 * fps );
+    frames -= min * ( 60 * fps );
+    sec = frames  / ( fps );
+    frames -= sec * ( fps );
+
+    // timecode
+    bs_write1( s, 0 );   // drop_frame_flag
+    bs_write( s, 5, hrs % 24 ); // time_code_hours
+    bs_write( s, 6, min ); // time_code_minutes
+    bs_write1( s, 1 );   // marker_bit
+    bs_write( s, 6, sec ); // time_code_seconds
+    bs_write( s, 6, frames ); // time_code_pictures
+
+    bs_write1( s, h->fenc->i_frame == h->fenc->i_coded ); // closed_gop
+    bs_write1( s, 0 );   // broken_link
+
+    bs_align_0( s );
+    bs_flush( s );
+}
+
+void x264_pic_header_write_mpeg2( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    int temporal_ref;
+    if( IS_X264_TYPE_I( h->fenc->i_type ) )
+        temporal_ref = h->fenc->i_frame - h->fenc->i_coded;
+    else
+        temporal_ref = h->fenc->i_frame - h->frames.i_last_temporal_ref;
+    bs_write( s, 10, temporal_ref % 1024 ); // temporal_reference
+    bs_write( s, 3, IS_X264_TYPE_I( h->fenc->i_type ) ? 1 : h->fenc->i_type == X264_TYPE_P ? 2 : 3 ); // picture_coding_type
+    bs_write( s, 16, 0xffff ); // vbv_delay FIXME
+    if( !IS_X264_TYPE_I( h->fenc->i_type ) )
+    {
+        bs_write1( s, 0 );   // full_pel_forward_vector
+        bs_write( s, 3, 7 ); // forward_f_code
+
+        if( h->fenc->i_type == X264_TYPE_B )
+        {
+            bs_write1( s, 0 );   // full_pel_forward_vector
+            bs_write( s, 3, 7 ); // forward_f_code
+        }
+    }
+    bs_write1( s, 0 ); // extra_bit_picture
+
+    bs_align_0( s );
+    bs_flush( s );
+}
+
+void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s )
+{
+    x264_param_t *param = &h->param;
+
+    bs_realign( s );
+
+    bs_write( s, 4, MPEG2_PIC_CODING_EXT_ID ); // extension_start_code_identifier
+
+    // FIXME decide fcodes during lookahead
+    int fcode_max[2];
+    switch( param->i_level_idc )
+    {
+    case X264_MPEG2_LEVEL_LOW:
+        fcode_max[0] = 7;
+        fcode_max[1] = 4;
+        break;
+    case X264_MPEG2_LEVEL_MAIN:
+        fcode_max[0] = 8;
+        fcode_max[1] = 5;
+        break;
+    default:
+        fcode_max[0] = 9;
+        fcode_max[1] = 5;
+    }
+    h->fenc->mv_fcode[0][0] = h->fenc->mv_fcode[1][0] = fcode_max[0];
+    h->fenc->mv_fcode[0][1] = h->fenc->mv_fcode[1][1] = fcode_max[1];
+
+    // f_code[s][t]
+    if( IS_X264_TYPE_I( h->fenc->i_type ) )
+        bs_write( s, 16, 0xffff );
+    else if( h->fenc->i_type == X264_TYPE_P )
+    {
+        for( int i = 0; i < 2; i++ )
+            bs_write( s, 4, h->fenc->mv_fcode[0][i] );
+        bs_write( s, 8, 0xff );
+    }
+    else
+    {
+        for( int j = 0; j < 2; j++ )
+            for( int i = 0; i < 2; i++ )
+                bs_write( s, 4, h->fenc->mv_fcode[j][i] );
+    }
+    bs_write( s, 2, param->i_intra_dc_precision ); // intra_dc_precision
+    bs_write( s, 2, 3 ); // picture_structure (support for frame pictures only)
+    bs_write1( s, ( PARAM_INTERLACED || param->b_fake_interlaced  || param->b_pulldown ) ? h->fenc->b_tff : 0 ); // top_field_first
+    bs_write1( s, !( PARAM_INTERLACED || param->b_fake_interlaced ) ); // frame_pred_frame_dct
+    bs_write1( s, 0 ); // concealment_motion_vectors
+    bs_write1( s, param->b_nonlinear_quant ); // q_scale_type
+    bs_write1( s, param->b_alt_intra_vlc );   // intra_vlc_format
+    bs_write1( s, param->b_alternate_scan );  // alternate_scan
+    bs_write1( s, h->fenc->b_rff ); // repeat_first_field
+    bs_write1( s, CHROMA_FORMAT == CHROMA_420 ? !( PARAM_INTERLACED || param->b_fake_interlaced ) : 0 ); // chroma_420_type
+    bs_write1( s, !( PARAM_INTERLACED || param->b_fake_interlaced ) ); // progressive_frame
+    bs_write1( s, 0 ); // composite_display_flag
+
+    bs_align_0( s );
+    bs_flush( s );
+}
+
+void x264_quant_matrix_extension_write_mpeg2( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    bs_write( s, 4, MPEG2_QUANT_MATRIX_EXT_ID ); // extension_start_code_identifier
+
+    if( !h->fenc->b_keyframe )
+        x264_write_cqm_mpeg2( h, s, 0 );
+    else
+    {
+        bs_write1( s, 0 ); // load_intra_quantiser_matrix
+        bs_write1( s, 0 ); // load_non_intra_quantiser_matrix
+    }
+
+    bs_write1( s, 0 ); // load_chroma_intra_quantiser_matrix
+    bs_write1( s, 0 ); // load_chroma_non_intra_quantiser_matrix
+
+    bs_align_0( s );
+    bs_flush( s );
+}
+
+void x264_pic_display_extension_write_mpeg2( x264_t *h, bs_t *s )
+{
+    bs_realign( s );
+
+    bs_write( s, 4, MPEG2_PIC_DISPLAY_EXT_ID ); // extension_start_code_identifier
+
+    int progressive_sequence = !( PARAM_INTERLACED || h->param.b_fake_interlaced || h->param.b_pulldown );
+    int offsets = progressive_sequence ? h->fenc->b_rff ? h->fenc->b_tff ? 3 : 2 : 1 :
+                  h->fenc->b_rff ? 3 : 2;
+
+    int cx = h->param.i_width / 2;
+    int cy = h->param.i_height / 2;
+    for( int i = 0; i < offsets; i++ )
+    {
+        bs_write( s, 16, ( cx - h->param.crop_rect.i_left ) * 16 ); // frame_centre_horizontal_offset
+        bs_write1( s, 1 ); // marker_bit
+        bs_write( s, 16, ( cy - h->param.crop_rect.i_top ) * 16 ); // frame_centre_vertical_offset
+        bs_write1( s, 1 ); // marker_bit
+    }
+
+    bs_align_0( s );
+    bs_flush( s );
+}
+
+void x264_user_data_write_mpeg2( bs_t *s, uint8_t *payload, int payload_size )
+{
+    bs_realign( s );
+
+    for( int i = 0; i < payload_size; i++ ) // payload cannot contain a start code
+        bs_write( s, 8, payload[i] );
+
+    bs_align_0( s );
+    bs_flush( s );
+}
+#endif // HAVE_MPEG2 && !HIGH_BIT_DEPTH
 
 int x264_sei_avcintra_umid_write( x264_t *h, bs_t *s )
 {
