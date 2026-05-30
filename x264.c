@@ -980,6 +980,9 @@ static void help( x264_param_t *defaults, int longhelp )
 #if HAVE_MPEG2
     H2( "MPEG-2 (H.262):\n" );
     H0( "      --mpeg2                 Encode as MPEG-2 instead of H.264\n" );
+    H2( "      --dc <integer>          Specify intra DC precision to use (8 to 11) [%d]\n", defaults->i_intra_dc_precision + 8);
+    H2( "      --linear-quant          Use MPEG-2 linear quantization table\n" );
+    H2( "      --no-altintra           Use MPEG-1 VLCs (Table B.14) for intra blocks\n" );
     H0( "\n" );
 #endif
 }
@@ -1061,6 +1064,11 @@ static struct option long_options[] =
 #if HAVE_MPEG2
     { "mpeg2",                no_argument,       NULL, OPT_MPEG2 },
     { "no-mpeg2",             no_argument,       NULL, OPT_NO_MPEG2 },
+    { "dc",             required_argument,       NULL, 0 },
+    { "linear-quant",         no_argument,       NULL, 0 },
+    { "no-linear-quant",      no_argument,       NULL, 0 },
+    { "altintra",             no_argument,       NULL, 0 },
+    { "no-altintra",          no_argument,       NULL, 0 },
 #endif
     { "constrained-intra",    no_argument,       NULL, 0 },
     { "cabac",                no_argument,       NULL, 0 },

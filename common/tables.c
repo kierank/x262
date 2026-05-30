@@ -2566,5 +2566,37 @@ const vlc_t x264_run_before_init[7][16] =
     },
 };
 
+#if HAVE_MPEG2
+/* MPEG-2 uses a flat 8x8 quantization matrix: all AC coefficients have
+ * the same weight, only DC (index 0) has a non-zero entry. */
+#define W(i) (i==0 ? FIX8(0.25) : 0)
+const uint32_t x264_mpeg2_weight_tab[64] = {
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0)
+};
+#undef W
+
+#define W(i) (i==0 ? FIX8(0.015625) : 0)
+const uint32_t x264_mpeg2_weight2_tab[64] = {
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0),
+    W(0), W(0), W(0), W(0),  W(0), W(0), W(0), W(0)
+};
+#undef W
+#endif
+
 /* psy_trellis_init() has the largest size requirement of 16*FDEC_STRIDE*SIZEOF_PIXEL */
 ALIGNED_64( uint8_t x264_zero[1024] ) = { 0 };

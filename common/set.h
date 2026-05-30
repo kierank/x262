@@ -189,6 +189,8 @@ static const uint8_t x264_cqm_intra_mpeg2[64] =
     34,37,38,40,48,58,69,83
 };
 
+int  x264_cqm_init_mpeg2( x264_t *h );
+
 #endif /* HAVE_MPEG2 */
 
 #define x264_cqm_init x264_template(cqm_init)

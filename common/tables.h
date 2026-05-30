@@ -74,6 +74,10 @@ extern const uint32_t x264_dct4_weight_tab[16];
 extern const uint32_t x264_dct8_weight_tab[64];
 extern const uint32_t x264_dct4_weight2_tab[16];
 extern const uint32_t x264_dct8_weight2_tab[64];
+#if HAVE_MPEG2
+extern const uint32_t x264_mpeg2_weight_tab[64];
+extern const uint32_t x264_mpeg2_weight2_tab[64];
+#endif
 
 extern const int8_t   x264_cabac_context_init_I[1024][2];
 extern const int8_t   x264_cabac_context_init_PB[3][1024][2];

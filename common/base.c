@@ -1115,6 +1115,12 @@ REALIGN_STACK int x264_param_parse( x264_param_t *p, const char *name, const cha
 #if HAVE_MPEG2
     OPT("mpeg2")
         p->b_mpeg2 = atobool(value);
+    OPT("dc")
+        p->i_intra_dc_precision = atoi(value) - 8;
+    OPT("linear-quant")
+        p->b_nonlinear_quant = !atobool(value);
+    OPT("altintra")
+        p->b_alt_intra_vlc = atobool(value);
 #endif /* HAVE_MPEG2 */
     OPT("bluray-compat")
         p->b_bluray_compat = atobool(value);

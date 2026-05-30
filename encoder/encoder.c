@@ -1584,6 +1584,14 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
 
     h->chroma_qp_table = i_chroma_qp_table + 12 + h->pps->i_chroma_qp_index_offset;
 
+#if HAVE_MPEG2
+    if( MPEG2 )
+    {
+        if( x264_cqm_init_mpeg2( h ) < 0 )
+            goto fail;
+    }
+    else
+#endif
     if( x264_cqm_init( h ) < 0 )
         goto fail;
 
