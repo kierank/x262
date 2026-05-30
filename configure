@@ -33,6 +33,7 @@ Configuration options:
   --disable-thread         disable multithreaded encoding
   --disable-win32thread    disable win32threads (windows only)
   --disable-interlaced     disable interlaced encoding support
+  --enable-mpeg2           enable MPEG-2 encoding support
   --bit-depth=BIT_DEPTH    set output bit depth (8, 10, all) [all]
   --chroma-format=FORMAT   output chroma format (400, 420, 422, 444, all) [all]
 
@@ -392,6 +393,7 @@ thread="auto"
 swscale="auto"
 asm="auto"
 interlaced="yes"
+mpeg2="no"
 lto="no"
 debug="no"
 gprof="no"
@@ -422,7 +424,7 @@ NL="
 
 # list of all preprocessor HAVE values we can define
 CONFIG_HAVE="MALLOC_H ALTIVEC ALTIVEC_H MMX ARMV6 ARMV6T2 NEON AARCH64 BEOSTHREAD POSIXTHREAD WIN32THREAD THREAD LOG2F SWSCALE \
-             LAVF FFMS GPAC AVS GPL VECTOREXT INTERLACED CPU_COUNT OPENCL THP LSMASH X86_INLINE_ASM AS_FUNC INTEL_DISPATCHER \
+             LAVF FFMS GPAC AVS GPL VECTOREXT INTERLACED CPU_COUNT OPENCL THP LSMASH X86_INLINE_ASM AS_FUNC INTEL_DISPATCHER MPEG2 \
              MSA LSX MMAP WINRT VSX ARM_INLINE_ASM STRTOK_R CLOCK_GETTIME BITDEPTH8 BITDEPTH10 ELF_AUX_INFO GETAUXVAL \
              SYSCONF SYNC_FETCH_AND_ADD \
              DOTPROD I8MM SVE SVE2 \
@@ -475,6 +477,9 @@ for opt do
             ;;
         --disable-interlaced)
             interlaced="no"
+            ;;
+        --enable-mpeg2)
+            mpeg2="yes"
             ;;
         --disable-avs)
             avs="no"
@@ -1491,6 +1496,11 @@ fi
 
 [ $interlaced = yes ] && define HAVE_INTERLACED && x264_interlaced=1 || x264_interlaced=0
 
+# MPEG-2 is 8-bit only; 4:4:4 is not part of any MPEG-2 profile
+[ "$bit_depth" = "10" ] && mpeg2="no"
+[ "$chroma_format" = "444" ] && mpeg2="no"
+[ $mpeg2 = yes ] && define HAVE_MPEG2 && x264_mpeg2=1 || x264_mpeg2=0
+
 libdl=""
 if [ "$opencl" = "yes" ]; then
     opencl="no"
@@ -1520,6 +1530,7 @@ cat > x264_config.h << EOF
 #define X264_INTERLACED    $x264_interlaced
 #define X264_BIT_DEPTH     $config_bit_depth
 #define X264_CHROMA_FORMAT $config_chroma_format
+#define X264_MPEG2         $x264_mpeg2
 EOF
 
 ${SRCPATH}/version.sh >> x264_config.h
@@ -1744,6 +1755,7 @@ static:         $static
 bashcompletion: $bashcompletion
 asm:            $asm
 interlaced:     $interlaced
+mpeg2:          $mpeg2
 avs:            $avs
 lavf:           $lavf
 ffms:           $ffms
