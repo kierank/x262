@@ -911,9 +911,18 @@ REALIGN_STACK int x264_param_apply_profile( x264_param_t *param, const char *pro
 #if HAVE_MPEG2
     if( param->b_mpeg2 )
     {
-        if( p == MPEG2_PROFILE_SIMPLE )
+        if( p == MPEG2_PROFILE_HIGH )
+            param->b_high_profile = 1;
+        else if( p == MPEG2_PROFILE_MAIN )
+        {
+            param->b_main_profile = 1;
+            param->i_intra_dc_precision = x264_clip3( param->i_intra_dc_precision,
+                                                      X264_INTRA_DC_8_BIT, X264_INTRA_DC_10_BIT );
+        }
+        else if( p == MPEG2_PROFILE_SIMPLE )
         {
             param->i_bframe = 0;
+            param->i_intra_dc_precision = X264_INTRA_DC_8_BIT;
             if( param->b_interlaced || param->b_fake_interlaced )
             {
                 x264_log_internal( X264_LOG_ERROR, "simple profile doesn't support interlacing\n" );

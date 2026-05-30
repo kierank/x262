@@ -113,6 +113,18 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
                                csp >= X264_CSP_I420 ? CHROMA_420 : CHROMA_400;
 
     sps->b_qpprime_y_zero_transform_bypass = param->rc.i_rc_method == X264_RC_CQP && param->rc.i_qp_constant == 0;
+#if HAVE_MPEG2
+    if( param->b_mpeg2 )
+    {
+        if( param->i_intra_dc_precision > X264_INTRA_DC_10_BIT || param->b_high_profile )
+            sps->i_profile_idc = MPEG2_PROFILE_HIGH;
+        else if( param->b_main_profile || param->i_bframe > 0 || param->b_fake_interlaced || param->b_interlaced )
+            sps->i_profile_idc = MPEG2_PROFILE_MAIN;
+        else
+            sps->i_profile_idc = MPEG2_PROFILE_SIMPLE;
+    }
+    else
+#endif
     if( sps->b_qpprime_y_zero_transform_bypass || sps->i_chroma_format_idc == CHROMA_444 )
         sps->i_profile_idc  = PROFILE_HIGH444_PREDICTIVE;
     else if( sps->i_chroma_format_idc == CHROMA_422 )
@@ -271,8 +283,21 @@ void x264_sps_init_scaling_list( x264_sps_t *sps, x264_param_t *param )
     case X264_CQM_FLAT:
         for( int i = 0; i < 8; i++ )
             sps->scaling_list[i] = x264_cqm_flat16;
+#if HAVE_MPEG2
+        if( param->b_mpeg2 )
+        {
+            sps->scaling_list[CQM_8IY] = x264_cqm_intra_mpeg2;
+            sps->scaling_list[CQM_8IC] = x264_cqm_intra_mpeg2;
+        }
+#endif
         break;
     case X264_CQM_JVT:
+#if HAVE_MPEG2
+        if( param->b_mpeg2 )
+            for( int i = 0; i < 4; i++ )
+                sps->scaling_list[i] = x264_cqm_jvt[i+4];
+        else
+#endif
         for( int i = 0; i < 8; i++ )
             sps->scaling_list[i] = x264_cqm_jvt[i];
         break;
@@ -294,6 +319,20 @@ void x264_sps_init_scaling_list( x264_sps_t *sps, x264_param_t *param )
         sps->scaling_list[CQM_8PY+4] = param->cqm_8py;
         sps->scaling_list[CQM_8IC+4] = param->cqm_8ic;
         sps->scaling_list[CQM_8PC+4] = param->cqm_8pc;
+#if HAVE_MPEG2
+        if( param->b_mpeg2 )
+        {
+            sps->scaling_list[CQM_8IY] = param->cqm_8iy;
+            sps->scaling_list[CQM_8PY] = param->cqm_8py;
+            sps->scaling_list[CQM_8IC] = param->cqm_8ic;
+            sps->scaling_list[CQM_8PC] = param->cqm_8pc;
+            for( int i = 0; i < 4; i++ )
+                for( int j = 0; j < 64; j++ )
+                    if( sps->scaling_list[i][j] < 4 )
+                        sps->scaling_list[i] = x264_cqm_flat16;
+        }
+        else
+#endif
         for( int i = 0; i < 8; i++ )
             for( int j = 0; j < (i < 4 ? 16 : 64); j++ )
                 if( sps->scaling_list[i][j] == 0 )
