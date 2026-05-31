@@ -41,6 +41,9 @@ typedef struct
     uint32_t i_timebase_num;
     uint32_t i_timebase_den;
 
+#if HAVE_MPEG2
+    int b_mpeg2;
+#endif
 } mkv_hnd_t;
 
 static int open_file( char *psz_filename, hnd_t *p_handle, cli_output_opt_t *opt )
@@ -72,6 +75,10 @@ static int set_param( hnd_t handle, x264_param_t *p_param )
     mkv_hnd_t *p_mkv = handle;
     int64_t dw, dh;
 
+#if HAVE_MPEG2
+    p_mkv->b_mpeg2 = p_param->b_mpeg2;
+#endif
+
     if( p_param->i_fps_num > 0 && !p_param->b_vfr_input )
     {
         p_mkv->frame_duration = (int64_t)p_param->i_fps_den *
@@ -92,6 +99,14 @@ static int set_param( hnd_t handle, x264_param_t *p_param )
         dw /= stereo_w_div[p_param->i_frame_packing];
         dh /= stereo_h_div[p_param->i_frame_packing];
     }
+#if HAVE_MPEG2
+    if( p_mkv->b_mpeg2 )
+    {
+        dw = p_param->vui.i_sar_width;
+        dh = p_param->vui.i_sar_height;
+    }
+    else
+#endif
     if( p_param->vui.i_sar_width && p_param->vui.i_sar_height
         && p_param->vui.i_sar_width != p_param->vui.i_sar_height )
     {
@@ -113,7 +128,7 @@ static int set_param( hnd_t handle, x264_param_t *p_param )
     return 0;
 }
 
-static int write_headers( hnd_t handle, x264_nal_t *p_nal )
+static int write_headers_h264( hnd_t handle, x264_nal_t *p_nal )
 {
     mkv_hnd_t *p_mkv = handle;
 
@@ -177,6 +192,57 @@ static int write_headers( hnd_t handle, x264_nal_t *p_nal )
         return -1;
 
     return sei_size + sps_size + pps_size;
+}
+
+#if HAVE_MPEG2
+static int write_headers_mpeg2( hnd_t handle, x264_nal_t *p_nal )
+{
+    mkv_hnd_t *p_mkv = handle;
+
+    int mpeg2_size = p_nal[0].i_payload;
+
+    int ret;
+    uint8_t *mpeg2C;
+
+    if( !p_mkv->width || !p_mkv->height ||
+        !p_mkv->d_width || !p_mkv->d_height )
+        return -1;
+
+    mpeg2C = malloc( mpeg2_size );
+    if( !mpeg2C )
+        return -1;
+
+    memcpy( mpeg2C, p_nal[0].p_payload, mpeg2_size );
+
+    ret = mk_write_header( p_mkv->w, "x264" X264_VERSION, "V_MPEG2", mpeg2C, mpeg2_size,
+                           p_mkv->frame_duration, 50000,
+                           p_mkv->width, p_mkv->height,
+                           p_mkv->d_width, p_mkv->d_height, p_mkv->display_size_units, p_mkv->stereo_mode );
+    if( ret < 0 )
+        return ret;
+
+    free( mpeg2C );
+
+    if( !p_mkv->b_writing_frame )
+    {
+        if( mk_start_frame( p_mkv->w ) < 0 )
+            return -1;
+        p_mkv->b_writing_frame = 1;
+    }
+
+    return mpeg2_size;
+}
+#endif
+
+static int write_headers( hnd_t handle, x264_nal_t *p_nal )
+{
+#if HAVE_MPEG2
+    mkv_hnd_t *p_mkv = handle;
+    return p_mkv->b_mpeg2 ? write_headers_mpeg2( handle, p_nal ) :
+                            write_headers_h264( handle, p_nal );
+#else
+    return write_headers_h264( handle, p_nal );
+#endif
 }
 
 static int write_frame( hnd_t handle, uint8_t *p_nalu, int i_size, x264_picture_t *p_picture )
