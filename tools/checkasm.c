@@ -97,6 +97,9 @@ static const char *intra_predict_8x8c_names[7] = { "dc", "h", "v", "p", "dcl", "
 static const char *intra_predict_4x4_names[12] = { "v", "h", "dc", "ddl", "ddr", "vr", "hd", "vl", "hu", "dcl", "dct", "dc8" };
 static const char **intra_predict_8x8_names = intra_predict_4x4_names;
 static const char **intra_predict_8x16c_names = intra_predict_8x8c_names;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+static const char *intra_predict_8x8_mpeg2_names[1] = { "dc" };
+#endif
 
 #define set_func_name(...) snprintf( func_name, sizeof(func_name), __VA_ARGS__ )
 
@@ -2538,6 +2541,9 @@ static int check_intra( uint32_t cpu_ref, uint32_t cpu_new )
         x264_predict8x8_t   predict_8x8[9+3];
         x264_predict_t      predict_4x4[9+3];
         x264_predict_8x8_filter_t predict_8x8_filter;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        x264_predict_mpeg2_t      predict_8x8_mpeg2[1];
+#endif
     } ip_c, ip_ref, ip_a;
 
     x264_predict_16x16_init( 0, ip_c.predict_16x16 );
@@ -2545,18 +2551,27 @@ static int check_intra( uint32_t cpu_ref, uint32_t cpu_new )
     x264_predict_8x16c_init( 0, ip_c.predict_8x16c );
     x264_predict_8x8_init( 0, ip_c.predict_8x8, &ip_c.predict_8x8_filter );
     x264_predict_4x4_init( 0, ip_c.predict_4x4 );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    x264_predict_8x8_mpeg2_init( 0, ip_c.predict_8x8_mpeg2 );
+#endif
 
     x264_predict_16x16_init( cpu_ref, ip_ref.predict_16x16 );
     x264_predict_8x8c_init( cpu_ref, ip_ref.predict_8x8c );
     x264_predict_8x16c_init( cpu_ref, ip_ref.predict_8x16c );
     x264_predict_8x8_init( cpu_ref, ip_ref.predict_8x8, &ip_ref.predict_8x8_filter );
     x264_predict_4x4_init( cpu_ref, ip_ref.predict_4x4 );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    x264_predict_8x8_mpeg2_init( cpu_ref, ip_ref.predict_8x8_mpeg2 );
+#endif
 
     x264_predict_16x16_init( cpu_new, ip_a.predict_16x16 );
     x264_predict_8x8c_init( cpu_new, ip_a.predict_8x8c );
     x264_predict_8x16c_init( cpu_new, ip_a.predict_8x16c );
     x264_predict_8x8_init( cpu_new, ip_a.predict_8x8, &ip_a.predict_8x8_filter );
     x264_predict_4x4_init( cpu_new, ip_a.predict_4x4 );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    x264_predict_8x8_mpeg2_init( cpu_new, ip_a.predict_8x8_mpeg2 );
+#endif
 
     memcpy( fdec, pbuf1, 32*20 * SIZEOF_PIXEL );\
 
@@ -2615,6 +2630,9 @@ static int check_intra( uint32_t cpu_ref, uint32_t cpu_new )
         INTRA_TEST( predict_16x16, i, 16, 16, 16, );
     for( int i = 0; i < 12; i++ )
         INTRA_TEST(   predict_8x8, i,  8,  8,  8, , edge );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    INTRA_TEST( predict_8x8_mpeg2, 0,  8,  8,  8, , pbuf1[0] );
+#endif
 
     set_func_name("intra_predict_8x8_filter");
     if( ip_a.predict_8x8_filter != ip_ref.predict_8x8_filter )

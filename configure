@@ -1499,7 +1499,7 @@ fi
 # MPEG-2 is 8-bit only; 4:4:4 is not part of any MPEG-2 profile
 [ "$bit_depth" = "10" ] && mpeg2="no"
 [ "$chroma_format" = "444" ] && mpeg2="no"
-[ $mpeg2 = yes ] && define HAVE_MPEG2 && x264_mpeg2=1 || x264_mpeg2=0
+[ $mpeg2 = yes ] && define HAVE_MPEG2 && ASFLAGS="$ASFLAGS -DHAVE_MPEG2=1" && x264_mpeg2=1 || x264_mpeg2=0
 
 libdl=""
 if [ "$opencl" = "yes" ]; then

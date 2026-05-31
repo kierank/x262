@@ -253,4 +253,9 @@ void x264_predict_4x4_ddr_avx( uint16_t *src );
 #define x264_predict_4x4_hu_mmx2 x264_template(predict_4x4_hu_mmx2)
 void x264_predict_4x4_hu_mmx2( pixel *src );
 
+#if HAVE_MPEG2
+#define x264_predict_8x8_mpeg2_mmx2 x264_template(predict_8x8_mpeg2_mmx2)
+void x264_predict_8x8_mpeg2_mmx2( uint8_t *src, int predicted_dc );
+#endif
+
 #endif

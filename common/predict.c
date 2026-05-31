@@ -912,6 +912,11 @@ void x264_reset_mv_predictor_mpeg2( x264_t *h )
 void x264_predict_8x8_mpeg2_init( int cpu, x264_predict_mpeg2_t *pf )
 {
     pf[0] = x264_predict_8x8_mpeg2_c;
+#if HAVE_MMX
+    if( !(cpu&X264_CPU_MMX) )
+        return;
+    pf[0] = x264_predict_8x8_mpeg2_mmx2;
+#endif
 }
 #endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */
 

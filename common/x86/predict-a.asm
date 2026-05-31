@@ -2179,3 +2179,20 @@ PREDICT_16x16_DC
 INIT_XMM avx2
 PREDICT_16x16_DC
 %endif
+
+%if HAVE_MPEG2 && HIGH_BIT_DEPTH == 0
+;-----------------------------------------------------------------------------
+; void predict_8x8_mpeg2( pixel *src, int predicted_dc )
+;-----------------------------------------------------------------------------
+%macro PREDICT_8x8_MPEG2 0
+cglobal predict_8x8_mpeg2, 2,2
+    movd       m0, r1d
+    punpcklbw  m0, m0
+    SPLATW     m0, m0
+    STORE8     m0
+    RET
+%endmacro
+
+INIT_MMX mmx2
+PREDICT_8x8_MPEG2
+%endif
