@@ -422,8 +422,9 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
         int i_fpel_border = 6; // umh: 1 for diamond, 2 for octagon, 2 for hpel
 
         /* Calculate max allowed MV range */
-        h->mb.mv_min[0] = 4*( -16*h->mb.i_mb_x - 24 );
-        h->mb.mv_max[0] = 4*( 16*( h->mb.i_mb_width - h->mb.i_mb_x - 1 ) + 24 );
+        int padding = MPEG2 ? 6 : 24;
+        h->mb.mv_min[0] = 4*( -16*h->mb.i_mb_x - padding );
+        h->mb.mv_max[0] = 4*( 16*( h->mb.i_mb_width - h->mb.i_mb_x - 1 ) + padding );
         h->mb.mv_min_spel[0] = X264_MAX( h->mb.mv_min[0], -i_fmv_range );
         h->mb.mv_max_spel[0] = X264_MIN( h->mb.mv_max[0], i_fmv_range-1 );
         if( h->param.b_intra_refresh && h->sh.i_type == SLICE_TYPE_P )
@@ -3146,6 +3147,8 @@ skip_analysis:
             /* Set up MVs for future predictors */
             for( int i = 0; i < h->mb.pic.i_fref[0]; i++ )
                 M32( h->mb.mvr[0][i][h->mb.i_mb_xy] ) = 0;
+            if( MPEG2 )
+                M32( analysis.l0.me16x16.mv ) = 0;
         }
         else
         {
@@ -4009,6 +4012,28 @@ static void analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
                 h->mb.i_intra16x16_pred_mode = a->i_predict16x16;
                 mb_analyse_intra_chroma( h, a );
             }
+        }
+    }
+#endif
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    // FIXME Hack to clamp MPEG-2 motion vectors within the frame
+    if( MPEG2 && !IS_INTRA(h->mb.i_type) )
+    {
+        int x_1 = h->mb.i_mb_x * -16*4;
+        int x_2 = ( h->mb.i_mb_width - h->mb.i_mb_x - 1 ) * 16*4;
+        int y_1 = h->mb.i_mb_y * -16*4;
+        int y_2 = ( h->mb.i_mb_height - h->mb.i_mb_y - 1 ) * 16*4;
+
+        a->l0.me16x16.mv[0] = x264_clip3( a->l0.me16x16.mv[0], x_1, x_2 );
+        a->l0.me16x16.mv[1] = x264_clip3( a->l0.me16x16.mv[1], y_1, y_2 );
+        x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 0, a->l0.me16x16.mv );
+
+        if( h->mb.i_type != P_L0 )
+        {
+            a->l1.me16x16.mv[0] = x264_clip3( a->l1.me16x16.mv[0], x_1, x_2 );
+            a->l1.me16x16.mv[1] = x264_clip3( a->l1.me16x16.mv[1], y_1, y_2 );
+            x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 1, a->l1.me16x16.mv );
         }
     }
 #endif
