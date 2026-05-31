@@ -650,6 +650,55 @@ GET_REF(cache64_ssse3)
 GET_REF(cache64_ssse3_atom)
 #endif // !HIGH_BIT_DEPTH
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+#define GET_REF_MPEG2(name)\
+static pixel *get_ref_mpeg2_##name( pixel *dst,   intptr_t *i_dst_stride,\
+                                    pixel *src[4], intptr_t i_src_stride,\
+                                    int mvx, int mvy,\
+                                    int i_width, int i_height, const x264_weight_t *weight )\
+{\
+    mvx >>= 1;\
+    mvy >>= 1;\
+    pixel *src1 = src[0] + (mvy>>1)*i_src_stride + (mvx>>1);\
+    pixel *srcp = src1 + i_src_stride;\
+    pixel *dst_bak = dst;\
+    if( !((mvx|mvy)&1) )\
+    {\
+        *i_dst_stride = i_src_stride;\
+        return src1;\
+    }\
+    else if( (mvx&mvy)&1 ) /* centre hpel positions */\
+    {\
+        for( int y = 0; y < i_height; y++ )\
+        {\
+            for( int x = 0; x < i_width; x++ )\
+                dst[x] = ( src1[x] + src1[x+1] + srcp[x] + srcp[x+1] + 2 ) >> 2;\
+            dst  += *i_dst_stride;\
+            src1  = srcp;\
+            srcp += i_src_stride;\
+        }\
+    }\
+    else if( mvx&1 ) /* horizontal hpel positions */\
+    {\
+        pixel *src2 = src1 + 1;\
+        pixel_avg_wtab_##name[i_width>>2](\
+                dst, *i_dst_stride, src1, i_src_stride,\
+                src2, i_height );\
+    }\
+    else /* vertical hpel positions */\
+    {\
+        pixel_avg_wtab_##name[i_width>>2](\
+                dst, *i_dst_stride, src1, i_src_stride,\
+                srcp, i_height );\
+    }\
+    return dst_bak;\
+}
+
+GET_REF_MPEG2(mmx2)
+GET_REF_MPEG2(sse2)
+GET_REF_MPEG2(avx2)
+#endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */
+
 #define x264_hpel_filter_avx x264_template(hpel_filter_avx)
 #define x264_hpel_filter_avx2 x264_template(hpel_filter_avx2)
 #define x264_hpel_filter_c_mmx2 x264_template(hpel_filter_c_mmx2)
@@ -1141,3 +1190,23 @@ void x264_mc_init_mmx( uint32_t cpu, x264_mc_functions_t *pf )
     pf->mbtree_fix8_pack      = x264_mbtree_fix8_pack_avx512;
     pf->mbtree_fix8_unpack    = x264_mbtree_fix8_unpack_avx512;
 }
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+void x264_mc_init_mmx_mpeg2( uint32_t cpu, x264_mc_functions_t *pf )
+{
+    if( !(cpu&X264_CPU_MMX) )
+        return;
+
+    pf->get_ref = get_ref_mpeg2_mmx2;
+
+    if( !(cpu&X264_CPU_SSE2) )
+        return;
+
+    pf->get_ref = get_ref_mpeg2_sse2;
+
+    if( !(cpu&X264_CPU_AVX2) )
+        return;
+
+    pf->get_ref = get_ref_mpeg2_avx2;
+}
+#endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */
