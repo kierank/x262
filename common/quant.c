@@ -648,6 +648,10 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->coeff_level_run[ DCT_LUMA_4x4] = x264_coeff_level_run16_neon;
 
         pf->denoise_dct = x264_denoise_dct_neon;
+#if HAVE_MPEG2
+        pf->dequant_mpeg2_inter = x264_dequant_mpeg2_inter_neon;
+        pf->dequant_mpeg2_intra = x264_dequant_mpeg2_intra_neon;
+#endif
     }
 
 #endif // HAVE_AARCH64
@@ -864,6 +868,10 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->decimate_score15 = x264_decimate_score15_neon;
         pf->decimate_score16 = x264_decimate_score16_neon;
         pf->decimate_score64 = x264_decimate_score64_neon;
+#if HAVE_MPEG2
+        pf->dequant_mpeg2_inter = x264_dequant_mpeg2_inter_neon;
+        pf->dequant_mpeg2_intra = x264_dequant_mpeg2_intra_neon;
+#endif
     }
 #endif
 #if HAVE_AARCH64

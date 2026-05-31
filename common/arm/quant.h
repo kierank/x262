@@ -68,4 +68,11 @@ int x264_coeff_last64_neon( int16_t * );
 #define x264_denoise_dct_neon x264_template(denoise_dct_neon)
 void x264_denoise_dct_neon( dctcoef *, uint32_t *, udctcoef *, int );
 
+#if HAVE_MPEG2
+#define x264_dequant_mpeg2_inter_neon x264_template(dequant_mpeg2_inter_neon)
+void x264_dequant_mpeg2_inter_neon( dctcoef dct[64], int dequant_mf[64] );
+#define x264_dequant_mpeg2_intra_neon x264_template(dequant_mpeg2_intra_neon)
+void x264_dequant_mpeg2_intra_neon( dctcoef dct[64], int dequant_mf[64], int precision );
+#endif
+
 #endif
