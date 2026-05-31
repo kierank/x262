@@ -62,6 +62,12 @@ extern const int x264_lambda2_tab_exp_mpeg2[QP_MAX_MAX+1];
 extern const uint16_t x264_lambda_tab_exp_mpeg2[QP_MAX_MAX+1];
 extern const int x264_lambda2_tab_lin_mpeg2[QP_MAX_MAX+1];
 extern const uint16_t x264_lambda_tab_lin_mpeg2[QP_MAX_MAX+1];
+#undef x264_macroblock_probe_pskip
+#undef x264_macroblock_probe_bskip
+#define x264_macroblock_probe_pskip( h )\
+    ( MPEG2 ? x264_macroblock_probe_skip_mpeg2( h, 0 ) : x264_macroblock_probe_skip( h, 0 ) )
+#define x264_macroblock_probe_bskip( h )\
+    ( MPEG2 ? x264_macroblock_probe_skip_mpeg2( h, 1 ) : x264_macroblock_probe_skip( h, 1 ) )
 #endif
 
 #define x264_macroblock_encode_p8x8 x264_template(macroblock_encode_p8x8)
