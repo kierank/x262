@@ -677,6 +677,17 @@ static void mb_analyse_intra_chroma( x264_t *h, x264_mb_analysis_t *a )
     if( a->i_satd_chroma < COST_MAX )
         return;
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
+    {
+        h->predict_8x8_mpeg2( h->mb.pic.p_fdec[1], 0 );
+        h->predict_8x8_mpeg2( h->mb.pic.p_fdec[2], 0 );
+        a->i_satd_chroma = h->pixf.mbcmp[PIXEL_8x8]( h->mb.pic.p_fdec[1], FDEC_STRIDE, h->mb.pic.p_fenc[1], FENC_STRIDE ) +
+                           h->pixf.mbcmp[PIXEL_8x8]( h->mb.pic.p_fdec[2], FDEC_STRIDE, h->mb.pic.p_fenc[2], FENC_STRIDE );
+        return;
+    }
+#endif
+
     if( CHROMA444 )
     {
         if( !h->mb.b_chroma_me )
@@ -773,6 +784,24 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
 
     int idx;
     int lambda = a->i_lambda;
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
+    {
+        int i_satd = 0;
+        pixel *p_src, *p_dst;
+        for( int i = 0; i < 4; i++ )
+        {
+            p_src = &h->mb.pic.p_fenc[0][8 * (i&1) + 8 * (i>>1) * FENC_STRIDE];
+            p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
+            h->predict_8x8_mpeg2( p_dst, 0 );
+            i_satd += h->pixf.mbcmp[PIXEL_8x8]( p_dst, FDEC_STRIDE, p_src, FENC_STRIDE );
+        }
+
+        COPY1_IF_LT( a->i_satd_i16x16, i_satd );
+        return;
+    }
+#endif
 
     /*---------------- Try all mode and calculate their score ---------------*/
     /* Disabled i16x16 for AVC-Intra compat */
@@ -1081,6 +1110,9 @@ static void intra_rd( x264_t *h, x264_mb_analysis_t *a, int i_satd_thresh )
     }
     else
         a->i_satd_i16x16 = COST_MAX;
+
+    if( MPEG2 )
+        return;
 
     if( a->i_satd_i4x4 < i_satd_thresh )
     {
@@ -3033,10 +3065,10 @@ intra_analysis:
         h->mb.i_type = I_16x16;
         COPY2_IF_LT( i_cost, analysis.i_satd_i4x4, h->mb.i_type, I_4x4 );
         COPY2_IF_LT( i_cost, analysis.i_satd_i8x8, h->mb.i_type, I_8x8 );
-        if( analysis.i_satd_pcm < i_cost )
+        if( !MPEG2 && analysis.i_satd_pcm < i_cost )
             h->mb.i_type = I_PCM;
 
-        else if( analysis.i_mbrd >= 2 )
+        else if( !MPEG2 && analysis.i_mbrd >= 2 )
             intra_rd_refine( h, &analysis );
     }
     else if( h->sh.i_type == SLICE_TYPE_P )
@@ -3310,7 +3342,8 @@ skip_analysis:
             COPY2_IF_LT( i_cost, analysis.i_satd_i16x16, i_type, I_16x16 );
             COPY2_IF_LT( i_cost, analysis.i_satd_i8x8, i_type, I_8x8 );
             COPY2_IF_LT( i_cost, analysis.i_satd_i4x4, i_type, I_4x4 );
-            COPY2_IF_LT( i_cost, analysis.i_satd_pcm, i_type, I_PCM );
+            if( !MPEG2 )
+                COPY2_IF_LT( i_cost, analysis.i_satd_pcm, i_type, I_PCM );
 
             h->mb.i_type = i_type;
 
@@ -3334,7 +3367,7 @@ skip_analysis:
 
             if( analysis.i_mbrd >= 2 && h->mb.i_type != I_PCM )
             {
-                if( IS_INTRA( h->mb.i_type ) )
+                if( !MPEG2 && IS_INTRA( h->mb.i_type ) )
                 {
                     intra_rd_refine( h, &analysis );
                 }
@@ -3710,7 +3743,7 @@ skip_analysis:
             h->mb.i_type = i_type;
             h->mb.i_partition = i_partition;
 
-            if( analysis.i_mbrd >= 2 && IS_INTRA( i_type ) && i_type != I_PCM )
+            if( !MPEG2 && analysis.i_mbrd >= 2 && IS_INTRA( i_type ) && i_type != I_PCM )
                 intra_rd_refine( h, &analysis );
             if( h->mb.i_subpel_refine >= 5 )
                 refine_bidir( h, &analysis );
@@ -3837,7 +3870,8 @@ static void analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
             mb_analyse_intra_chroma( h, a );
             break;
         case I_16x16:
-            h->mb.i_intra16x16_pred_mode = a->i_predict16x16;
+            if( !MPEG2 )
+                h->mb.i_intra16x16_pred_mode = a->i_predict16x16;
             mb_analyse_intra_chroma( h, a );
             break;
 
