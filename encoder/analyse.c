@@ -2197,9 +2197,24 @@ static void mb_analyse_inter_b16x16( x264_t *h, x264_mb_analysis_t *a )
     }
 
     /* mb type cost */
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
+    {
+        int quant = h->mb.i_last_qp != a->i_qp && h->mb.i_mb_x;
+        int coded = !!( h->mb.i_cbp_luma | h->mb.i_cbp_chroma | h->mb.i_cbp_chroma422 );
+        if( quant && !coded )
+            quant = 0;
+        a->i_cost16x16bi   += a->i_lambda * x264_b_mb_type[2][coded][quant].i_size;
+        a->l0.me16x16.cost += a->i_lambda * x264_b_mb_type[0][coded][quant].i_size;
+        a->l1.me16x16.cost += a->i_lambda * x264_b_mb_type[1][coded][quant].i_size;
+    }
+    else
+#endif
+    {
     a->i_cost16x16bi   += a->i_lambda * i_mb_b_cost_table[B_BI_BI];
     a->l0.me16x16.cost += a->i_lambda * i_mb_b_cost_table[B_L0_L0];
     a->l1.me16x16.cost += a->i_lambda * i_mb_b_cost_table[B_L1_L1];
+    }
 }
 
 static inline void mb_cache_mv_p8x8( x264_t *h, x264_mb_analysis_t *a, int i )
@@ -2788,6 +2803,9 @@ static void mb_analyse_b_rd( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter 
         analyse_update_cache( h, a );
         a->i_rd16x16bi = rd_cost_mb( h, a->i_lambda2 );
     }
+
+    if( MPEG2 )
+        return;
 
     /* 8x8 */
     if( a->i_cost8x8bi < thresh && a->i_rd8x8bi == COST_MAX )
