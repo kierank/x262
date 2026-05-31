@@ -337,6 +337,12 @@ void x264_copy_column8( pixel *dst, pixel *src );
  *      h->mb. need only valid values from other blocks */
 #define x264_mb_predict_mv_16x16 x264_template(mb_predict_mv_16x16)
 void x264_mb_predict_mv_16x16( x264_t *h, int i_list, int i_ref, int16_t mvp[2] );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* x264_mb_predict_mv_16x8_mpeg2:
+ *      set mvp with predicted mv for D_16x8 block
+ *      h->mb. need only valid values from other blocks */
+void x264_mb_predict_mv_16x8_mpeg2( x264_t *h, int i_list, int i_ref, int16_t mvp[2], int field );
+#endif
 /* x264_mb_predict_mv_pskip:
  *      set mvp with predicted mv for P_SKIP
  *      h->mb. need only valid values from other blocks */

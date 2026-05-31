@@ -131,7 +131,7 @@ void x264_mb_predict_mv_16x16( x264_t *h, int i_list, int i_ref, int16_t mvp[2] 
 #if HAVE_MPEG2
     if( MPEG2 )
     {
-        CP32( mvp, h->mb.mvp[i_list] );
+        CP32( mvp, h->mb.mvp[0][i_list] );
         return;
     }
 #endif
@@ -170,6 +170,15 @@ median:
         goto median;
 }
 
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+void x264_mb_predict_mv_16x8_mpeg2( x264_t *h, int i_list, int i_ref, int16_t mvp[2], int field )
+{
+    CP32( mvp, h->mb.mvp[field][i_list] );
+    mvp[1] = ( mvp[1] >> 2 ) << 1;
+    return;
+}
+#endif
 
 void x264_mb_predict_mv_pskip( x264_t *h, int16_t mv[2] )
 {

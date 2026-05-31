@@ -52,14 +52,14 @@ static NOINLINE void mb_mc_0xywh( x264_t *h, int x, int y, int width, int height
     {
         int v_shift = CHROMA_V_SHIFT;
         // Chroma in 4:2:0 is offset if MCing from a field of opposite parity
-        if( v_shift & MB_INTERLACED & i_ref )
+        if( v_shift & MB_INTERLACED & i_ref & !MPEG2 )
             mvy += (h->mb.i_mb_y & 1)*4 - 2;
 
-        int offset = (4*FDEC_STRIDE>>v_shift)*y + 2*x;
+        int offset = ( MPEG2 & MB_INTERLACED ) ? (FDEC_STRIDE>>v_shift)*y : (4*FDEC_STRIDE>>v_shift)*y + 2*x;
         height = 4*height >> v_shift;
 
         h->mc.mc_chroma( &h->mb.pic.p_fdec[1][offset],
-                         &h->mb.pic.p_fdec[2][offset], FDEC_STRIDE,
+                         &h->mb.pic.p_fdec[2][offset], FDEC_STRIDE << ( MPEG2 & MB_INTERLACED ),
                          h->mb.pic.p_fref[0][i_ref][4], h->mb.pic.i_stride[1],
                          mvx, 2*mvy>>v_shift, 2*width, height );
 
@@ -90,12 +90,12 @@ static NOINLINE void mb_mc_1xywh( x264_t *h, int x, int y, int width, int height
     else if( CHROMA_FORMAT )
     {
         int v_shift = CHROMA_V_SHIFT;
-        if( v_shift & MB_INTERLACED & i_ref )
+        if( v_shift & MB_INTERLACED & i_ref & !MPEG2 )
             mvy += (h->mb.i_mb_y & 1)*4 - 2;
 
-        int offset = (4*FDEC_STRIDE>>v_shift)*y + 2*x;
+        int offset = ( MPEG2 & MB_INTERLACED ) ? (FDEC_STRIDE>>v_shift)*y : (4*FDEC_STRIDE>>v_shift)*y + 2*x;
         h->mc.mc_chroma( &h->mb.pic.p_fdec[1][offset],
-                         &h->mb.pic.p_fdec[2][offset], FDEC_STRIDE,
+                         &h->mb.pic.p_fdec[2][offset], FDEC_STRIDE << ( MPEG2 & MB_INTERLACED ),
                          h->mb.pic.p_fref[1][i_ref][4], h->mb.pic.i_stride[1],
                          mvx, 2*mvy>>v_shift, 2*width, 4*height>>v_shift );
     }
@@ -135,9 +135,9 @@ static NOINLINE void mb_mc_01xywh( x264_t *h, int x, int y, int width, int heigh
     else if( CHROMA_FORMAT )
     {
         int v_shift = CHROMA_V_SHIFT;
-        if( v_shift & MB_INTERLACED & i_ref0 )
+        if( v_shift & MB_INTERLACED & i_ref0 & !MPEG2 )
             mvy0 += (h->mb.i_mb_y & 1)*4 - 2;
-        if( v_shift & MB_INTERLACED & i_ref1 )
+        if( v_shift & MB_INTERLACED & i_ref1 & !MPEG2 )
             mvy1 += (h->mb.i_mb_y & 1)*4 - 2;
 
         h->mc.mc_chroma( tmp0, tmp0+8, 16, h->mb.pic.p_fref[0][i_ref0][4], h->mb.pic.i_stride[1],
@@ -146,9 +146,9 @@ static NOINLINE void mb_mc_01xywh( x264_t *h, int x, int y, int width, int heigh
                          mvx1, 2*mvy1>>v_shift, 2*width, 4*height>>v_shift );
 
         int chromapix = h->luma2chroma_pixel[i_mode];
-        int offset = (4*FDEC_STRIDE>>v_shift)*y + 2*x;
-        h->mc.avg[chromapix]( &h->mb.pic.p_fdec[1][offset], FDEC_STRIDE, tmp0,   16, tmp1,   16, weight );
-        h->mc.avg[chromapix]( &h->mb.pic.p_fdec[2][offset], FDEC_STRIDE, tmp0+8, 16, tmp1+8, 16, weight );
+        int offset = ( MPEG2 & MB_INTERLACED ) ? (FDEC_STRIDE>>v_shift)*y : (4*FDEC_STRIDE>>v_shift)*y + 2*x;
+        h->mc.avg[chromapix]( &h->mb.pic.p_fdec[1][offset], FDEC_STRIDE << ( MPEG2 & MB_INTERLACED ), tmp0,   16, tmp1,   16, weight );
+        h->mc.avg[chromapix]( &h->mb.pic.p_fdec[2][offset], FDEC_STRIDE << ( MPEG2 & MB_INTERLACED ), tmp0+8, 16, tmp1+8, 16, weight );
     }
 }
 
@@ -571,7 +571,7 @@ static ALWAYS_INLINE void macroblock_load_pic_pointers( x264_t *h, int mb_x, int
     int height = b_chroma ? 16 >> CHROMA_V_SHIFT : 16;
     int i_stride = h->fdec->i_stride[i];
     int i_stride2 = i_stride << mb_interlaced;
-    int i_pix_offset = mb_interlaced
+    int i_pix_offset = ( mb_interlaced && !MPEG2 )
                      ? 16 * mb_x + height * (mb_y&~1) * i_stride + (mb_y&1) * i_stride
                      : 16 * mb_x + height * mb_y * i_stride;
     pixel *plane_fdec = &h->fdec->plane[i][i_pix_offset];
@@ -580,12 +580,15 @@ static ALWAYS_INLINE void macroblock_load_pic_pointers( x264_t *h, int mb_x, int
     int ref_pix_offset[2] = { i_pix_offset, i_pix_offset };
     /* ref_pix_offset[0] references the current field and [1] the opposite field. */
     if( mb_interlaced )
-        ref_pix_offset[1] += ( 1-2*(mb_y&1) ) * i_stride;
+        ref_pix_offset[1] += MPEG2 ? i_stride : ( 1-2*(mb_y&1) ) * i_stride;
     h->mb.pic.i_stride[i] = i_stride2;
     h->mb.pic.p_fenc_plane[i] = &h->fenc->plane[i][i_pix_offset];
     if( b_chroma )
     {
-        h->mc.load_deinterleave_chroma_fenc( h->mb.pic.p_fenc[1], h->mb.pic.p_fenc_plane[1], i_stride2, height );
+        if( MPEG2 && mb_interlaced )
+            h->mc.load_deinterleave_chroma_fenc( h->mb.pic.p_fenc[1], h->mb.pic.p_fenc_plane[1], i_stride, height );
+        else
+            h->mc.load_deinterleave_chroma_fenc( h->mb.pic.p_fenc[1], h->mb.pic.p_fenc_plane[1], i_stride2, height );
         memcpy( h->mb.pic.p_fdec[1]-FDEC_STRIDE, intra_fdec, 8*sizeof(pixel) );
         memcpy( h->mb.pic.p_fdec[2]-FDEC_STRIDE, intra_fdec+8, 8*sizeof(pixel) );
         h->mb.pic.p_fdec[1][-FDEC_STRIDE-1] = intra_fdec[-1-8];
@@ -593,7 +596,13 @@ static ALWAYS_INLINE void macroblock_load_pic_pointers( x264_t *h, int mb_x, int
     }
     else
     {
-        h->mc.copy[PIXEL_16x16]( h->mb.pic.p_fenc[i], FENC_STRIDE, h->mb.pic.p_fenc_plane[i], i_stride2, 16 );
+        if( MPEG2 && mb_interlaced )
+        {
+            h->mc.copy[PIXEL_16x16]( h->mb.pic.p_fenc[i],                 FENC_STRIDE, h->mb.pic.p_fenc_plane[i],          i_stride2, 8 );
+            h->mc.copy[PIXEL_16x16]( h->mb.pic.p_fenc[i]+(8*FENC_STRIDE), FENC_STRIDE, h->mb.pic.p_fenc_plane[i]+i_stride, i_stride2, 8 );
+        }
+        else
+            h->mc.copy[PIXEL_16x16]( h->mb.pic.p_fenc[i], FENC_STRIDE, h->mb.pic.p_fenc_plane[i], i_stride2, 16 );
         memcpy( h->mb.pic.p_fdec[i]-FDEC_STRIDE, intra_fdec, 24*sizeof(pixel) );
         h->mb.pic.p_fdec[i][-FDEC_STRIDE-1] = intra_fdec[-1];
     }
@@ -673,7 +682,7 @@ static const x264_left_table_t left_indices[4] =
 static ALWAYS_INLINE void macroblock_cache_load_neighbours( x264_t *h, int mb_x, int mb_y, int b_interlaced )
 {
     const int mb_interlaced = b_interlaced && MB_INTERLACED;
-    int top_y = mb_y - (1 << mb_interlaced);
+    int top_y = mb_y - ( MPEG2 ? 1 : 1 << mb_interlaced );
     int top = top_y * h->mb.i_mb_stride + mb_x;
 
     h->mb.i_mb_x = mb_x;
@@ -710,10 +719,22 @@ static ALWAYS_INLINE void macroblock_cache_load_neighbours( x264_t *h, int mb_x,
 
     if( b_interlaced )
     {
-        h->mb.i_mb_top_mbpair_xy = h->mb.i_mb_xy - 2 * h->mb.i_mb_stride;
+        h->mb.i_mb_top_mbpair_xy = h->mb.i_mb_xy - ( MPEG2 ? 1 : 2 ) * h->mb.i_mb_stride;
         h->mb.i_mb_topleft_y = -1;
         h->mb.i_mb_topright_y = -1;
 
+        if( MPEG2 )
+        {
+            if( mb_x && mb_interlaced != h->mb.field[h->mb.i_mb_xy-1] )
+            {
+                if( mb_interlaced )
+                    h->mb.left_index_table = &left_indices[2];
+                else
+                    h->mb.left_index_table = &left_indices[0];
+            }
+
+        }
+        else
         if( mb_y&1 )
         {
             if( mb_x && mb_interlaced != h->mb.field[h->mb.i_mb_xy-1] )
@@ -1285,6 +1306,8 @@ static ALWAYS_INLINE void macroblock_cache_load( x264_t *h, int mb_x, int mb_y, 
                 (mb_y&1) && IS_SKIP(h->mb.type[h->mb.i_mb_xy - h->mb.i_mb_stride]) )
                 h->mb.b_allow_skip = 0;
         }
+        else if( MB_INTERLACED )
+            h->mb.b_allow_skip = 0;
     }
 
     if( h->param.b_cabac )
@@ -1636,14 +1659,27 @@ static ALWAYS_INLINE void macroblock_store_pic( x264_t *h, int mb_x, int mb_y, i
     int height = b_chroma ? 16>>CHROMA_V_SHIFT : 16;
     int i_stride = h->fdec->i_stride[i];
     int i_stride2 = i_stride << (b_mbaff && MB_INTERLACED);
-    int i_pix_offset = (b_mbaff && MB_INTERLACED)
+    int i_pix_offset = (b_mbaff && MB_INTERLACED && !MPEG2)
                      ? 16 * mb_x + height * (mb_y&~1) * i_stride + (mb_y&1) * i_stride
                      : 16 * mb_x + height * mb_y * i_stride;
 
-    if( b_chroma )
-        h->mc.store_interleave_chroma( &h->fdec->plane[1][i_pix_offset], i_stride2, h->mb.pic.p_fdec[1], h->mb.pic.p_fdec[2], height );
+    if( !(MPEG2 && b_mbaff && MB_INTERLACED) )
+    {
+        if( b_chroma )
+            h->mc.store_interleave_chroma( &h->fdec->plane[1][i_pix_offset], i_stride2, h->mb.pic.p_fdec[1], h->mb.pic.p_fdec[2], height );
+        else
+            h->mc.copy[PIXEL_16x16]( &h->fdec->plane[i][i_pix_offset], i_stride2, h->mb.pic.p_fdec[i], FDEC_STRIDE, 16 );
+    }
     else
-        h->mc.copy[PIXEL_16x16]( &h->fdec->plane[i][i_pix_offset], i_stride2, h->mb.pic.p_fdec[i], FDEC_STRIDE, 16 );
+    {
+        if( b_chroma )
+            h->mc.store_interleave_chroma( &h->fdec->plane[1][i_pix_offset], i_stride, h->mb.pic.p_fdec[1], h->mb.pic.p_fdec[2], height );
+        else
+        {
+            h->mc.copy[PIXEL_16x16]( &h->fdec->plane[i][i_pix_offset],            i_stride2, h->mb.pic.p_fdec[i],                   FDEC_STRIDE, 8 );
+            h->mc.copy[PIXEL_16x16]( &h->fdec->plane[i][i_pix_offset] + i_stride, i_stride2, h->mb.pic.p_fdec[i] + (8*FDEC_STRIDE), FDEC_STRIDE, 8 );
+        }
+    }
 }
 
 static ALWAYS_INLINE void macroblock_backup_intra( x264_t *h, int mb_x, int mb_y, int b_mbaff )

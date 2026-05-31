@@ -75,10 +75,14 @@
 #   define MB_INTERLACED h->mb.b_interlaced
 #   define SLICE_MBAFF h->sh.b_mbaff
 #   define PARAM_INTERLACED h->param.b_interlaced
+#   define MPEG2_MBAFF (PARAM_INTERLACED & MPEG2)
+#   define PLANE_MBAFF (SLICE_MBAFF | MPEG2_MBAFF)
 #else
 #   define MB_INTERLACED 0
 #   define SLICE_MBAFF 0
 #   define PARAM_INTERLACED 0
+#   define MPEG2_MBAFF 0
+#   define PLANE_MBAFF 0
 #endif
 
 #if HAVE_MPEG2
@@ -619,7 +623,7 @@ struct x264_t
         int     i_dct_dc_size[8];
         int     i_dct_dc_diff[8];
         int     i_bskip_type;
-        int16_t mvp[2][2];
+        int16_t mvp[2][2][2];
         int     i_cbp_chroma422;
 #endif
 
