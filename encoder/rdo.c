@@ -72,6 +72,12 @@ static uint16_t cabac_size_5ones[128];
         sizeof(int) + (CHROMA444 ? 1024+12 : 460) )
 #define COPY_CABAC_PART( pos, size ) memcpy( &cb->state[pos], &h->cabac.state[pos], size )
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* MPEG-2: redirect VLC write functions to bit-counting stubs */
+#define x264_macroblock_write_vlc_mpeg2  static x264_macroblock_size_vlc_mpeg2
+#include "mpeg2vlc.c"
+#endif
+
 static ALWAYS_INLINE uint64_t cached_hadamard( x264_t *h, int size, int x, int y )
 {
     static const uint8_t hadamard_shift_x[4] = {4,   4,   3,   3};
@@ -165,6 +171,16 @@ static int rd_cost_mb( x264_t *h, int i_lambda2 )
     int i_ssd;
     int i_bits;
     int type_bak = h->mb.i_type;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    int i_intra_dc_predictor_bak[8];
+    int16_t mvp[2][2][2];
+    if( MPEG2 )
+    {
+        memcpy( i_intra_dc_predictor_bak, h->mb.i_intra_dc_predictor, sizeof(i_intra_dc_predictor_bak) );
+        CP64( mvp[0], h->mb.mvp[0] );
+        CP64( mvp[1], h->mb.mvp[1] );
+    }
+#endif
 
     x264_macroblock_encode( h );
 
@@ -173,6 +189,25 @@ static int rd_cost_mb( x264_t *h, int i_lambda2 )
 
     i_ssd = ssd_mb( h );
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
+    {
+        if( IS_SKIP( h->mb.i_type ) )
+        {
+            // TODO
+            i_bits = 0;
+        }
+        else
+        {
+            x264_macroblock_size_vlc_mpeg2( h );
+            i_bits = ( h->out.bs.i_bits_encoded * i_lambda2 + 128 ) >> 8; // FIXME
+        }
+        memcpy( h->mb.i_intra_dc_predictor, i_intra_dc_predictor_bak, sizeof(i_intra_dc_predictor_bak) );
+        CP64( h->mb.mvp[0], mvp[0] );
+        CP64( h->mb.mvp[1], mvp[1] );
+    }
+    else
+#endif
     if( IS_SKIP( h->mb.i_type ) )
     {
         i_bits = (1 * i_lambda2 + 128) >> 8;
@@ -235,7 +270,7 @@ uint64_t x264_rd_cost_part( x264_t *h, int i_lambda2, int i4, int i_pixel )
     uint64_t i_ssd, i_bits;
     int i8 = i4 >> 2;
 
-    if( i_pixel == PIXEL_16x16 )
+    if( i_pixel == PIXEL_16x16 || MPEG2 )
     {
         int i_cost = rd_cost_mb( h, i_lambda2 );
         return i_cost;
