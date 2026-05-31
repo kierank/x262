@@ -874,6 +874,10 @@ void x264_mc_init( uint32_t cpu, x264_mc_functions_t *pf, int cpu_independent, i
         pf->get_ref   = get_ref_mpeg2;
         pf->hpel_filter = NULL;
         pf->frame_init_lowres_core = frame_init_lowres_core_mpeg2;
+
+#if HAVE_MMX
+        x264_mc_init_mmx_mpeg2( cpu, pf );
+#endif
     }
 #endif
 
