@@ -57,6 +57,10 @@ void x264_macroblock_write_cabac ( x264_t *h, x264_cabac_t *cb );
 void x264_macroblock_write_cavlc ( x264_t *h );
 #if HAVE_MPEG2
 void x264_macroblock_write_vlc_mpeg2( x264_t *h );
+extern const int x264_lambda2_tab_exp_mpeg2[QP_MAX_MAX+1];
+extern const uint16_t x264_lambda_tab_exp_mpeg2[QP_MAX_MAX+1];
+extern const int x264_lambda2_tab_lin_mpeg2[QP_MAX_MAX+1];
+extern const uint16_t x264_lambda_tab_lin_mpeg2[QP_MAX_MAX+1];
 #endif
 
 #define x264_macroblock_encode_p8x8 x264_template(macroblock_encode_p8x8)

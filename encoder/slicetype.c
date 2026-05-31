@@ -45,7 +45,13 @@ void x264_weights_analyse( x264_t *h, x264_frame_t *fenc, x264_frame_t *ref, int
 static void lowres_context_init( x264_t *h, x264_mb_analysis_t *a )
 {
     a->i_qp = X264_LOOKAHEAD_QP;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    a->i_lambda = MPEG2 ? ( h->param.b_nonlinear_quant ? x264_lambda_tab_exp_mpeg2[ a->i_qp ]
+                                                        : x264_lambda_tab_lin_mpeg2[ a->i_qp ] )
+                        : x264_lambda_tab[ a->i_qp ];
+#else
     a->i_lambda = x264_lambda_tab[ a->i_qp ];
+#endif
     mb_analyse_load_costs( h, a );
     if( h->param.analyse.i_subpel_refine > 1 )
     {

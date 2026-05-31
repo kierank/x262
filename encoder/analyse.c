@@ -140,13 +140,81 @@ static const uint8_t i_sub_mb_p_cost_table[4] =
 
 static void analyse_update_cache( x264_t *h, x264_mb_analysis_t *a );
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* lambda = pow(2,qp/8+1) */
+const uint16_t x264_lambda_tab_exp_mpeg2[QP_MAX_MAX+1] = {
+    0,    2,    2,    3,    3,    3,    3,    4, /*  0- 7 */
+    4,    4,    5,    5,    6,    6,    7,    7, /*  8-15 */
+    8,    9,   10,   10,   11,   12,   13,   15, /* 16-23 */
+   16,   17,   19,   21,   23,   25,   27,   29, /* 24-31 */
+   32,   35,   38,   41,   45,   49,   54,   59, /* 32-39 */
+   64,   70,   76,   83,   91,   99,  108,  117, /* 40-47 */
+  128,  140,  152,  166,  181,  197,  215,  235, /* 48-55 */
+  256,  279,  304,  332,  362,  395,  431,  470, /* 56-63 */
+  512,  559,  609,  664,  724,  789,  861,  939, /* 64-71 */
+ 1024, 1117, 1218, 1328, 1448, 1579, 1722, 1878, /* 72-79 */
+ 2048, 2233,                                     /* 80-81 */
+};
+
+/* lambda2 = pow(lambda,2) * .9 * 256 */
+const int x264_lambda2_tab_exp_mpeg2[QP_MAX_MAX+1] = {
+        0,     1095,     1303,     1549,     1843,     2191,    2606,    3099, /*  0- 7 */
+     3686,     4383,     5213,     6199,     7372,     8767,   10426,   12399, /*  8-15 */
+    14745,    17535,    20853,    24799,    29491,    35071,   41706,   49598, /* 16-23 */
+    58982,    70142,    83413,    99196,   117964,   140284,  166827,  198392, /* 24-31 */
+   235930,   280569,   333655,   396785,   471859,   561138,  667310,  793569, /* 32-39 */
+   943718,  1122277,  1334619,  1587139,  1887437,  2244553, 2669239, 3174278, /* 40-47 */
+  3774874,  4489107,  5338477,  6348555,  7549747,  8978213,10676955,12697111, /* 48-55 */
+ 15099494, 17956426, 21353910, 25394221, 30198989, 35912852,42707820,50788443, /* 56-63 */
+ 60397978, 71825705, 85415639,101576886,120795955,134217727,                   /* 64-69 */
+134217727,134217727,134217727,134217727,134217727,134217727,                   /* 70-75 */
+134217727,134217727,134217727,134217727,134217727,134217727,                   /* 76-81 */
+};
+
+/* lambda = qp/2+2 */
+const uint16_t x264_lambda_tab_lin_mpeg2[QP_MAX_MAX+1] = {
+  0,   3,   3,   4,   4,   5,   5,   6, /*  0- 7 */
+  6,   7,   7,   8,   8,   9,   9,  10, /*  8-15 */
+ 10,  11,  11,  12,  12,  13,  13,  14, /* 16-23 */
+ 14,  15,  15,  16,  16,  17,  17,  18, /* 24-31 */
+ 18,  19,  19,  20,  20,  21,  21,  22, /* 32-39 */
+ 22,  23,  23,  24,  24,  25,  25,  26, /* 40-47 */
+ 26,  27,  27,  28,  28,  29,  29,  30, /* 48-55 */
+ 30,  31,  31,  32,  32,  33,  33,  34, /* 56-63 */
+ 34,  35,  35,  36,  36,  37,  37,  38, /* 64-71 */
+ 38,  39,  39,  40,  40,  41,  41,  42, /* 72-79 */
+ 42,  43,                               /* 80-81 */
+};
+
+/* lambda2 = pow(lambda,2) * .9 * 256 */
+const int x264_lambda2_tab_lin_mpeg2[QP_MAX_MAX+1] = {
+      0,   1440,   2073,   2822,   3686,   4665,   5760,   6969, /*  0- 7 */
+   8294,   9734,  11289,  12960,  14745,  16646,  18662,  20793, /*  8-15 */
+  23040,  25401,  27878,  30470,  33177,  36000,  38937,  41990, /* 16-23 */
+  45158,  48441,  51840,  55353,  58982,  62726,  66585,  70560, /* 24-31 */
+  74650,  78854,  83174,  87610,  92160,  96826, 101606, 106502, /* 32-39 */
+ 111514, 116640, 121882, 127238, 132710, 138298, 144000, 149818, /* 40-47 */
+ 155750, 161798, 167962, 174240, 180634, 187142, 193766, 200506, /* 48-55 */
+ 207360, 214330, 221414, 228614, 235930, 243360, 250906, 258566, /* 56-63 */
+ 266342, 274264, 282240, 290362, 298598, 306950, 315418, 324000, /* 64-71 */
+ 332698, 341510, 350438, 359482, 368640, 377914, 387302, 396806, /* 72-79 */
+ 406426, 416160,                                                 /* 80-81 */
+};
+#endif
+
 static int init_costs( x264_t *h, float *logs, int qp )
 {
     if( h->cost_mv[qp] )
         return 0;
 
     int mv_range = h->param.analyse.i_mv_range << PARAM_INTERLACED;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    int lambda = MPEG2 ? ( h->param.b_nonlinear_quant ? x264_lambda_tab_exp_mpeg2[qp]
+                                                       : x264_lambda_tab_lin_mpeg2[qp] )
+                       : x264_lambda_tab[qp];
+#else
     int lambda = x264_lambda_tab[qp];
+#endif
     /* factor of 4 from qpel, 2 from sign, and 2 because mv can be opposite from mvp */
     CHECKED_MALLOC( h->cost_mv[qp], (4*4*mv_range + 1) * sizeof(uint16_t) );
     h->cost_mv[qp] += 2*4*mv_range;
@@ -155,6 +223,15 @@ static int init_costs( x264_t *h, float *logs, int qp )
         h->cost_mv[qp][-i] =
         h->cost_mv[qp][i]  = X264_MIN( (int)(lambda * logs[i] + .5f), UINT16_MAX );
     }
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
+    {
+        for( int i = 0; i < 3; i++ )
+            for( int j = 0; j < 33; j++ )
+                h->cost_table->ref[qp][i][j] = 0;
+    }
+    else
+#endif
     for( int i = 0; i < 3; i++ )
         for( int j = 0; j < 33; j++ )
             h->cost_table->ref[qp][i][j] = i ? X264_MIN( lambda * bs_size_te( i, j ), UINT16_MAX ) : 0;
@@ -255,8 +332,20 @@ static void mb_analyse_load_costs( x264_t *h, x264_mb_analysis_t *a )
 static void mb_analyse_init_qp( x264_t *h, x264_mb_analysis_t *a, int qp )
 {
     int effective_chroma_qp = h->chroma_qp_table[SPEC_QP(qp)] + X264_MAX( qp - QP_MAX_SPEC, 0 );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
+    {
+        a->i_lambda  = h->param.b_nonlinear_quant ? x264_lambda_tab_exp_mpeg2[qp]
+                                                  : x264_lambda_tab_lin_mpeg2[qp];
+        a->i_lambda2 = h->param.b_nonlinear_quant ? x264_lambda2_tab_exp_mpeg2[qp]
+                                                  : x264_lambda2_tab_lin_mpeg2[qp];
+    }
+    else
+#endif
+    {
     a->i_lambda = x264_lambda_tab[qp];
     a->i_lambda2 = x264_lambda2_tab[qp];
+    }
 
     h->mb.b_trellis = h->param.analyse.i_trellis > 1 && a->i_mbrd;
     if( h->param.analyse.i_trellis )
