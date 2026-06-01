@@ -44,6 +44,9 @@
 
 #include <signal.h>
 #include <getopt.h>
+#if HAVE_MPEG2
+#include <libgen.h>
+#endif
 #include "input/input.h"
 #include "output/output.h"
 #include "filters/filters.h"
@@ -1437,10 +1440,50 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
     if( preset && !strcasecmp( preset, "placebo" ) )
         b_turbo = 0;
 
+    x264_param_default( &defaults );
+#if HAVE_MPEG2
+    /* MPEG-2 defaults must be applied before the preset. */
+    defaults.b_mpeg2 = param->b_mpeg2 = 0;
+    {
+        char *cli_name = strdup( argv[0] );
+        if( !cli_name )
+            return -1;
+        char *cli_ext = strrchr( cli_name, '.' );
+        if( cli_ext )
+            *cli_ext = 0;
+        if( !strcasecmp( basename( cli_name ), "x262" ) )
+        {
+            defaults.b_mpeg2 = param->b_mpeg2 = 1;
+            x264_param_default_mpeg2( &defaults );
+            x264_param_default_mpeg2( param );
+        }
+        free( cli_name );
+    }
+
+    /* Handle --mpeg2/--no-mpeg2 before the preset so the preset adjusts on top. */
+    for( optind = 0;; )
+    {
+        int c = getopt_long( argc, argv, short_options, long_options, NULL );
+        if( c == -1 )
+            break;
+        if( c == OPT_MPEG2 )
+        {
+            param->b_mpeg2 = 1;
+            x264_param_default_mpeg2( param );
+        }
+        else if( c == OPT_NO_MPEG2 )
+        {
+            param->b_mpeg2 = 0;
+            x264_param_default( param );
+        }
+        else if( c == '?' )
+            return -1;
+    }
+#endif
+
     if( (preset || tune) && x264_param_default_preset( param, preset, tune ) < 0 )
         return -1;
 
-    x264_param_default( &defaults );
     cli_log_level = defaults.i_log_level;
 
     memset( &input_opt, 0, sizeof(cli_input_opt_t) );
@@ -1545,7 +1588,8 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
                 goto generic_option;
 #if HAVE_MPEG2
             case OPT_MPEG2:
-                x264_param_default_mpeg2( param );
+                /* MPEG-2 defaults already applied before the preset; just flag it. */
+                param->b_mpeg2 = 1;
                 break;
             case OPT_NO_MPEG2:
                 param->b_mpeg2 = 0;

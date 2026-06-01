@@ -298,6 +298,11 @@ endif
 .PHONY: all default fprofiled clean distclean install install-* uninstall cli lib-* checkasm etags
 
 cli: x264$(EXE)
+ifneq ($(findstring HAVE_MPEG2 1, $(CONFIG)),)
+cli: x262$(EXE)
+x262$(EXE): x264$(EXE)
+	ln -sf x264$(EXE) x262$(EXE)
+endif
 lib-static: $(LIBX264)
 lib-shared: $(SONAME)
 
@@ -431,7 +436,7 @@ endif
 
 clean:
 	rm -f $(OBJS) $(OBJASM) $(OBJCLI) $(OBJSO) $(GENERATED) TAGS
-	rm -f $(SONAME) *.a *.lib *.exp *.pdb x264$(EXE) x264_lookahead.clbin
+	rm -f $(SONAME) *.a *.lib *.exp *.pdb x264$(EXE) x262$(EXE) x264_lookahead.clbin
 	rm -f checkasm8$(EXE) checkasm10$(EXE) $(OBJCHK) $(OBJCHK_8) $(OBJCHK_10)
 	rm -f example$(EXE) $(OBJEXAMPLE)
 	rm -f $(OBJPROF:%.o=%.gcda) $(OBJPROF:%.o=%.gcno) *.dyn pgopti.dpi pgopti.dpi.lock *.pgd *.pgc
@@ -475,7 +480,7 @@ endif
 
 uninstall:
 	rm -f $(DESTDIR)$(includedir)/x264.h $(DESTDIR)$(includedir)/x264_config.h $(DESTDIR)$(libdir)/libx264.a
-	rm -f $(DESTDIR)$(bindir)/x264$(EXE) $(DESTDIR)$(libdir)/pkgconfig/x264.pc
+	rm -f $(DESTDIR)$(bindir)/x264$(EXE) $(DESTDIR)$(bindir)/x262$(EXE) $(DESTDIR)$(libdir)/pkgconfig/x264.pc
 ifneq ($(IMPLIBNAME),)
 	rm -f $(DESTDIR)$(bindir)/$(SONAME) $(DESTDIR)$(libdir)/$(IMPLIBNAME)
 else ifneq ($(SONAME),)
