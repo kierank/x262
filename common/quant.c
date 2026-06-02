@@ -173,7 +173,7 @@ static void dequant_mpeg2_inter( dctcoef dct[64], int dequant_mf[64] )
         if( dct[i] )
         {
             sign = dct[i] >> 15;
-            dct[i] = (( (dct[i]<<1) + (sign|1) ) * dequant_mf[i] + (sign & 63)) >> 6;
+            dct[i] = (( dct[i] * 2 + (sign|1) ) * dequant_mf[i] + (sign & 63)) >> 6;
             dct[i] = x264_clip3( dct[i], -2048, 2047 );
             sum ^= dct[i];
         }
@@ -185,7 +185,8 @@ static void dequant_mpeg2_inter( dctcoef dct[64], int dequant_mf[64] )
 static void dequant_mpeg2_intra( dctcoef dct[64], int dequant_mf[64], int precision )
 {
     int sign = 0;
-    int sum = dct[0] = dct[0] << ( 3 - precision ); // DC dequant
+    /* DC dequant. Not UB since dct[0] cannot be negative. */
+    int sum = dct[0] = dct[0] << ( 3 - precision );
     for( int i = 1; i < 64; i++ )
     {
         sign = dct[i] >> 15;
@@ -442,7 +443,7 @@ static int coeff_level_run64( dctcoef *dct, x264_run_level_t *runlevel )
     {
         int r = 0;
         runlevel->level[i_total] = dct[i_last];
-        mask |= 1 << (i_last & 31);
+        mask |= 1U << (i_last & 31);
         while( --i_last >= 0 && dct[i_last] == 0 )
             r++;
         runlevel->run[i_total++] = r;

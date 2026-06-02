@@ -530,8 +530,8 @@ static inline void jpeg_fdct_islow( dctcoef *data )
         tmp11 = tmp1 + tmp2;
         tmp12 = tmp1 - tmp2;
 
-        dataptr[0] = (dctcoef) ((tmp10 + tmp11) << PASS1_BITS);
-        dataptr[4] = (dctcoef) ((tmp10 - tmp11) << PASS1_BITS);
+        dataptr[0] = (dctcoef) ((uint32_t)(tmp10 + tmp11) << PASS1_BITS);
+        dataptr[4] = (dctcoef) ((uint32_t)(tmp10 - tmp11) << PASS1_BITS);
 
         z1 = (tmp12 + tmp13) * FIX_0_541196100;
         dataptr[2] = (dctcoef) DESCALE(z1 + tmp13 *   FIX_0_765366865,  CONST_BITS - PASS1_BITS);
@@ -659,15 +659,15 @@ static void idctrow( dctcoef *blk )
 {
     int_fast32_t X0, X1, X2, X3, X4, X5, X6, X7, X8;
 
-    if( !( (X1 = blk[4] << 11) | (X2 = blk[6]) | (X3 = blk[2]) |
-           (X4 = blk[1])       | (X5 = blk[7]) | (X6 = blk[5]) | (X7 = blk[3]) ) )
+    if( !( (X1 = blk[4] * 2048) | (X2 = blk[6]) | (X3 = blk[2]) |
+           (X4 = blk[1])        | (X5 = blk[7]) | (X6 = blk[5]) | (X7 = blk[3]) ) )
     {
         blk[0] = blk[1] = blk[2] = blk[3] = blk[4] = blk[5] = blk[6] =
-        blk[7] = blk[0] << 3;
+        blk[7] = blk[0] * 8;
         return;
     }
 
-    X0 = (blk[0] << 11) + 128; /* for proper rounding in the fourth stage  */
+    X0 = blk[0] * 2048 + 128; /* for proper rounding in the fourth stage  */
 
     /* first stage */
     X8 = W7 * (X4 + X5);
@@ -712,9 +712,9 @@ static void idctcol( dctcoef *blk )
     int_fast32_t X0, X1, X2, X3, X4, X5, X6, X7, X8;
 
     /* shortcut */
-    if( !( (X1 = (blk[8 * 4] << 8)) | (X2 = blk[8 * 6]) |
-           (X3 =  blk[8 * 2])       | (X4 = blk[8 * 1]) |
-           (X5 =  blk[8 * 7])       | (X6 = blk[8 * 5]) | (X7 = blk[8 * 3]) ) )
+    if( !( (X1 = blk[8 * 4] * 256) | (X2 = blk[8 * 6]) |
+           (X3 =  blk[8 * 2])      | (X4 = blk[8 * 1]) |
+           (X5 =  blk[8 * 7])      | (X6 = blk[8 * 5]) | (X7 = blk[8 * 3]) ) )
     {
         blk[8 * 0] = blk[8 * 1] = blk[8 * 2] =
         blk[8 * 3] = blk[8 * 4] = blk[8 * 5] =
@@ -722,7 +722,7 @@ static void idctcol( dctcoef *blk )
         return;
     }
 
-    X0 = (blk[8 * 0] << 8) + 8192;
+    X0 = blk[8 * 0] * 256 + 8192;
 
     /* first stage */
     X8 = W7 * (X4 + X5) + 4;

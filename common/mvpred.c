@@ -175,7 +175,7 @@ median:
 void x264_mb_predict_mv_16x8_mpeg2( x264_t *h, int i_list, int i_ref, int16_t mvp[2], int field )
 {
     CP32( mvp, h->mb.mvp[field][i_list] );
-    mvp[1] = ( mvp[1] >> 2 ) << 1;
+    mvp[1] = ( mvp[1] >> 1 ) & ~1;
     return;
 }
 #endif
