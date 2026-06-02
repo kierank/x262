@@ -2484,7 +2484,7 @@ static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
     ALIGNED_ARRAY_16( pixel, pix0,[16*16] );
     ALIGNED_ARRAY_16( pixel, pix1,[16*16] );
     pixel *src0, *src1;
-    intptr_t stride0 = 16, stride1 = 16;
+    intptr_t stride0, stride1;
     int i_ref, i_mvc;
     ALIGNED_4( int16_t mvc[9][2] );
     int i_halfpel_thresh[2] = {INT_MAX, INT_MAX};
@@ -2541,6 +2541,7 @@ static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
                     + REF_COST( 1, a->l1.me16x8[0].i_ref ) + REF_COST( 0, a->l1.me16x8[1].i_ref );
     for( int idx_16x8 = 0; idx_16x8 < 2; idx_16x8++ )
     {
+        stride0 = 16; stride1 = 16;
         src0 = h->mc.get_ref( pix0, &stride0,
                               h->mb.pic.p_fref[0][a->l0.me16x8[idx_16x8].i_ref], h->mb.pic.i_stride[0],
                               a->l0.me16x8[idx_16x8].mv[0], a->l0.me16x8[idx_16x8].mv[1], 16, 8, x264_weight_none );
