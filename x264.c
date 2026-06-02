@@ -317,6 +317,9 @@ static void print_version_info( void )
 #else
     printf( "x264 0.%d.X\n", X264_BUILD );
 #endif
+#ifdef X262_POINTVER
+    printf( "x262 "X262_POINTVER"\n" );
+#endif
 #if HAVE_SWSCALE
     printf( "(libswscale %d.%d.%d)\n", LIBSWSCALE_VERSION_MAJOR, LIBSWSCALE_VERSION_MINOR, LIBSWSCALE_VERSION_MICRO );
 #endif

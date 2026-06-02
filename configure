@@ -1499,7 +1499,14 @@ fi
 # MPEG-2 is 8-bit only; 4:4:4 is not part of any MPEG-2 profile
 [ "$bit_depth" = "10" ] && mpeg2="no"
 [ "$chroma_format" = "444" ] && mpeg2="no"
-[ $mpeg2 = yes ] && define HAVE_MPEG2 && ASFLAGS="$ASFLAGS -DHAVE_MPEG2=1" && x264_mpeg2=1 || x264_mpeg2=0
+if [ $mpeg2 = yes ]; then
+    define HAVE_MPEG2
+    ASFLAGS="$ASFLAGS -DHAVE_MPEG2=1"
+    x264_mpeg2=1
+else
+    ASFLAGS="$ASFLAGS -DHAVE_MPEG2=0"
+    x264_mpeg2=0
+fi
 
 libdl=""
 if [ "$opencl" = "yes" ]; then
@@ -1533,7 +1540,8 @@ cat > x264_config.h << EOF
 #define X264_MPEG2         $x264_mpeg2
 EOF
 
-${SRCPATH}/version.sh >> x264_config.h
+[ $mpeg2 = yes ] && version_mpeg2="--mpeg2" || version_mpeg2=""
+${SRCPATH}/version.sh $version_mpeg2 >> x264_config.h
 
 if [ "$shared" = "yes" ]; then
     CFLAGSSO="$CFLAGSSO -DX264_API_EXPORTS"
