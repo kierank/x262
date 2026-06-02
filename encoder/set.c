@@ -118,6 +118,8 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
     {
         if( param->i_intra_dc_precision > X264_INTRA_DC_10_BIT || param->b_high_profile )
             sps->i_profile_idc = MPEG2_PROFILE_HIGH;
+        else if( param->b_422_profile || sps->i_chroma_format_idc == CHROMA_422 )
+            sps->i_profile_idc = MPEG2_PROFILE_422;
         else if( param->b_main_profile || param->i_bframe > 0 || param->b_fake_interlaced || param->b_interlaced )
             sps->i_profile_idc = MPEG2_PROFILE_MAIN;
         else
@@ -149,6 +151,14 @@ void x264_sps_init( x264_sps_t *sps, int i_id, x264_param_t *param )
     sps->i_level_idc = param->i_level_idc;
 #if HAVE_MPEG2
     sps->i_frame_rate_code = param->i_frame_rate_code;
+    if( sps->i_profile_idc == MPEG2_PROFILE_422 )
+    {
+        // 4:2:2 Profile only has Main and High levels
+        if( sps->i_level_idc == X264_MPEG2_LEVEL_LOW )
+            sps->i_level_idc = X264_MPEG2_LEVEL_MAIN;
+        else if( sps->i_level_idc < X264_MPEG2_LEVEL_MAIN )
+            sps->i_level_idc = X264_MPEG2_LEVEL_HIGH;
+    }
 #endif
     if( param->i_level_idc == 9 && ( sps->i_profile_idc == PROFILE_BASELINE || sps->i_profile_idc == PROFILE_MAIN ) )
     {
@@ -982,9 +992,15 @@ void x264_seq_extension_write_mpeg2( x264_t *h, bs_t *s )
     bs_realign( s );
 
     bs_write( s, 4, MPEG2_SEQ_EXT_ID );   // extension_start_code_identifier
-    bs_write1( s, 0 ); // escape bit
+    bs_write1( s, sps->i_profile_idc == MPEG2_PROFILE_422 ); // escape bit
     bs_write( s, 3, sps->i_profile_idc ); // profile identification
-    bs_write( s, 4, sps->i_level_idc ); // level identification
+
+    int level;
+    if( sps->i_profile_idc == MPEG2_PROFILE_422 )
+        level = sps->i_level_idc == X264_MPEG2_LEVEL_HIGH ? 2 : 5;
+    else
+        level = sps->i_level_idc;
+    bs_write( s, 4, level ); // level identification
 
     bs_write1( s, !( PARAM_INTERLACED || h->param.b_fake_interlaced ||
                      h->param.b_pulldown ) ); // progressive_sequence
@@ -1156,8 +1172,13 @@ void x264_quant_matrix_extension_write_mpeg2( x264_t *h, bs_t *s )
         bs_write1( s, 0 ); // load_non_intra_quantiser_matrix
     }
 
-    bs_write1( s, 0 ); // load_chroma_intra_quantiser_matrix
-    bs_write1( s, 0 ); // load_chroma_non_intra_quantiser_matrix
+    if( CHROMA_FORMAT == CHROMA_422 )
+        x264_write_cqm_mpeg2( h, s, 1 );
+    else
+    {
+        bs_write1( s, 0 ); // load_chroma_intra_quantiser_matrix
+        bs_write1( s, 0 ); // load_chroma_non_intra_quantiser_matrix
+    }
 
     bs_align_0( s );
     bs_flush( s );
@@ -1286,9 +1307,24 @@ int x264_validate_levels( x264_t *h, int verbose )
         while( l->level_idc != 0 && l->level_idc != h->param.i_level_idc )
             l++;
         CHECK( "framerate", l->fps_code, h->sps->i_frame_rate_code );
-        if( h->param.i_fps_den > 0 )
-            CHECK( "luminance sample rate", l->luma_main, h->param.i_width * h->param.i_height *
-                                                          h->param.i_fps_num / h->param.i_fps_den );
+        if( h->sps->i_profile_idc == MPEG2_PROFILE_422 )
+        {
+            if( h->param.i_level_idc != X264_MPEG2_LEVEL_MAIN &&
+                h->param.i_level_idc != X264_MPEG2_LEVEL_HIGH )
+                ERROR( "4:2:2 profile only defines Main and High levels\n" )
+            else if( h->param.i_fps_den > 0 )
+                CHECK( "luminance sample rate",
+                       h->param.i_level_idc == X264_MPEG2_LEVEL_MAIN ? 11059200 : 62668800,
+                       (int64_t)h->param.i_width * h->param.i_height *
+                       h->param.i_fps_num / h->param.i_fps_den );
+        }
+        else if( h->sps->i_profile_idc == MPEG2_PROFILE_HIGH && !l->luma_high )
+            ERROR( "High profile does not define this level\n" )
+        else if( h->param.i_fps_den > 0 )
+            CHECK( "luminance sample rate",
+                   h->sps->i_profile_idc == MPEG2_PROFILE_HIGH ? l->luma_high : l->luma_main,
+                   (int64_t)h->param.i_width * h->param.i_height *
+                   h->param.i_fps_num / h->param.i_fps_den );
         CHECK( "width", l->width, h->param.i_width );
         CHECK( "height", l->height, h->param.i_height );
         // CHECK( "max bitrate", l->bitrate, h->param.rc.i_vbv_max_bitrate );

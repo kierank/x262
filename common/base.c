@@ -913,6 +913,8 @@ REALIGN_STACK int x264_param_apply_profile( x264_param_t *param, const char *pro
     {
         if( p == MPEG2_PROFILE_HIGH )
             param->b_high_profile = 1;
+        else if( p == MPEG2_PROFILE_422 )
+            param->b_422_profile = 1;
         else if( p == MPEG2_PROFILE_MAIN )
         {
             param->b_main_profile = 1;
@@ -1105,21 +1107,23 @@ REALIGN_STACK int x264_param_parse( x264_param_t *p, const char *name, const cha
     {
         if( !strcmp(value, "1b") )
             p->i_level_idc = 9;
-        else if( atof(value) < 7 )
-            p->i_level_idc = (int)(10*atof(value)+.5);
-        else
-            p->i_level_idc = atoi(value);
 #if HAVE_MPEG2
         /* MPEG-2 named levels */
-        if( !strcmp(value, "low") )
+        else if( !strcmp(value, "low") )
             { p->i_level_idc = X264_MPEG2_LEVEL_LOW;       p->b_mpeg2 = 1; }
         else if( !strcmp(value, "main") )
             { p->i_level_idc = X264_MPEG2_LEVEL_MAIN;      p->b_mpeg2 = 1; }
         else if( !strcmp(value, "high-1440") )
             { p->i_level_idc = X264_MPEG2_LEVEL_HIGH_1440; p->b_mpeg2 = 1; }
+        else if( !strcmp(value, "high") )
+            { p->i_level_idc = X264_MPEG2_LEVEL_HIGH;      p->b_mpeg2 = 1; }
         else if( !strcmp(value, "highp") )
             { p->i_level_idc = X264_MPEG2_LEVEL_HIGHP;     p->b_mpeg2 = 1; }
 #endif
+        else if( atof(value) < 7 )
+            p->i_level_idc = (int)(10*atof(value)+.5);
+        else
+            p->i_level_idc = atoi(value);
     }
 #if HAVE_MPEG2
     OPT("mpeg2")

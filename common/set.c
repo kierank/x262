@@ -300,7 +300,7 @@ int x264_cqm_init_mpeg2( x264_t *h )
 {
     const uint8_t *qscale = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
     int j;
-    int matrices = 2;
+    int matrices = CHROMA_FORMAT == CHROMA_422 ? 4 : 2;
     int deadzone[2] = { 32 - h->param.analyse.i_luma_deadzone[1],
                         32 - h->param.analyse.i_luma_deadzone[0] };
     int intra_mf = j = 1 << ( 10 + h->param.i_intra_dc_precision );
@@ -363,7 +363,7 @@ void x264_cqm_delete( x264_t *h )
 {
     if( !MPEG2 )
         CQM_DELETE( 4, 4 );
-    CQM_DELETE( 8, CHROMA444 ? 4 : 2 );
+    CQM_DELETE( 8, CHROMA444 || ( MPEG2 && CHROMA_FORMAT == CHROMA_422 ) ? 4 : 2 );
     x264_free( h->nr_offset_emergency );
 }
 
@@ -438,6 +438,12 @@ int x264_cqm_parse_file( x264_t *h, const char *filename )
                 intra[8*i+j] = x264_cqm_intra_mpeg2[8*j+i];
         b_error |= cqm_parse_jmlist( h, buf, "INTRA_LUMA", h->param.cqm_8iy, intra, 64 );
         b_error |= cqm_parse_jmlist( h, buf, "INTER_LUMA", h->param.cqm_8py, x264_cqm_flat16, 64 );
+        int csp = h->param.i_csp & X264_CSP_MASK;
+        if( csp >= X264_CSP_I422 && csp < X264_CSP_I444 )
+        {
+            b_error |= cqm_parse_jmlist( h, buf, "INTRA_CHROMA", h->param.cqm_8ic, h->param.cqm_8iy, 64 );
+            b_error |= cqm_parse_jmlist( h, buf, "INTER_CHROMA", h->param.cqm_8pc, h->param.cqm_8py, 64 );
+        }
     }
     else
 #endif

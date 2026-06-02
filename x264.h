@@ -446,7 +446,8 @@ typedef struct x264_param_t
     int         b_alt_intra_vlc;
     int         b_alternate_scan;
     int         b_high_profile;     /* Force a higher MPEG-2 profile than required. */
-    int         b_main_profile;     /* Alternatively, use x264_param_apply_profile. */
+    int         b_422_profile;      /* Alternatively, use x264_param_apply_profile. */
+    int         b_main_profile;
 #endif
 
     /* Log */

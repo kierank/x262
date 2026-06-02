@@ -1289,6 +1289,13 @@ static int validate_parameters( x264_t *h, int b_open )
             {
                 do h->param.i_level_idc = m->level_idc;
                     while( m[1].level_idc && x264_validate_levels( h, 0 ) && m++ );
+                if( h->sps->i_profile_idc == MPEG2_PROFILE_422 )
+                {
+                    if( h->param.i_level_idc == X264_MPEG2_LEVEL_LOW )
+                        h->param.i_level_idc = X264_MPEG2_LEVEL_MAIN;
+                    else if( h->param.i_level_idc < X264_MPEG2_LEVEL_MAIN )
+                        h->param.i_level_idc = X264_MPEG2_LEVEL_HIGH;
+                }
             }
             else
 #endif
@@ -2008,6 +2015,7 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
                           h->sps->i_profile_idc == MPEG2_PROFILE_SIMPLE ? "Simple" :
                           h->sps->i_profile_idc == MPEG2_PROFILE_MAIN ? "Main" :
                           h->sps->i_profile_idc == MPEG2_PROFILE_HIGH ? "High" :
+                          h->sps->i_profile_idc == MPEG2_PROFILE_422 ? "4:2:2" :
 #endif
                           h->sps->i_profile_idc == PROFILE_BASELINE ? "Constrained Baseline" :
                           h->sps->i_profile_idc == PROFILE_MAIN ? "Main" :
@@ -3994,6 +4002,19 @@ int     x264_encoder_encode( x264_t *h,
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
 
+        /* generate quant matrix extension */
+        if( h->fenc->b_keyframe && CHROMA_FORMAT == CHROMA_422 &&
+            ( memcmp( h->sps->scaling_list[CQM_8IC],
+                      h->sps->scaling_list[CQM_8IY], 64*sizeof(uint8_t) ) ||
+              memcmp( h->sps->scaling_list[CQM_8PC],
+                      h->sps->scaling_list[CQM_8PY], 64*sizeof(uint8_t) ) ) )
+        {
+            nal_start( h, MPEG2_QUANT_MATRIX_EXT, NAL_PRIORITY_HIGHEST );
+            x264_quant_matrix_extension_write_mpeg2( h, &h->out.bs );
+            if( nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+        }
 
         /* generate picture display extension */
         if( h->param.crop_rect.i_left || h->param.crop_rect.i_right ||

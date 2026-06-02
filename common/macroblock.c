@@ -1763,7 +1763,11 @@ void x264_macroblock_cache_save( x264_t *h )
     {
         if( MPEG2 && !h->mb.i_mb_x )
             h->mb.i_last_qp = h->mb.i_qp;
-        if( h->mb.i_type != I_16x16 && h->mb.i_cbp_luma == 0 && h->mb.i_cbp_chroma == 0 )
+        if( h->mb.i_type != I_16x16 && h->mb.i_cbp_luma == 0 && h->mb.i_cbp_chroma == 0
+#if HAVE_MPEG2
+            && h->mb.i_cbp_chroma422 == 0
+#endif
+          )
             h->mb.i_qp = h->mb.i_last_qp;
         h->mb.qp[i_mb_xy] = h->mb.i_qp;
         h->mb.i_last_dqp = h->mb.i_qp - h->mb.i_last_qp;

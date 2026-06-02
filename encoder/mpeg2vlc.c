@@ -98,7 +98,7 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
 #endif
 
     int cbp420 = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma;
-    int cbp = cbp420;
+    int cbp = cbp420 << 2 | h->mb.i_cbp_chroma422;
     int coded = !!cbp;
     int quant = h->mb.i_last_qp != h->mb.i_qp && h->mb.i_mb_x;
     int mcoded = !!M32( h->mb.cache.mv[0][X264_SCAN8_0] );
@@ -188,6 +188,8 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
     else if( cbp )
     {
         bs_write_vlc( s, x264_cbp[cbp420] ); // coded_block_pattern_420
+        if( CHROMA_FORMAT == CHROMA_422 )
+            bs_write( s, 2, cbp & 0x3 );     // coded_block_pattern_1
 
         for( int i = 0; i < 8; i++ )
         {
