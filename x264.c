@@ -317,6 +317,9 @@ static void print_version_info( void )
 #else
     printf( "x264 0.%d.X\n", X264_BUILD );
 #endif
+#ifdef X262_POINTVER
+    printf( "x262 "X262_POINTVER"\n" );
+#endif
 #if HAVE_SWSCALE
     printf( "(libswscale %d.%d.%d)\n", LIBSWSCALE_VERSION_MAJOR, LIBSWSCALE_VERSION_MINOR, LIBSWSCALE_VERSION_MICRO );
 #endif
@@ -490,8 +493,11 @@ static void help( x264_param_t *defaults, int longhelp )
 #define H0 printf
 #define H1 if( longhelp >= 1 ) printf
 #define H2 if( longhelp == 2 ) printf
-    H0( "x264 core:%d%s\n"
-        "Syntax: x264 [options] -o outfile infile\n"
+    H0( "x264 core:%d%s\n", X264_BUILD, X264_VERSION );
+#if HAVE_MPEG2
+    H0( "x262 core:%d%s\n", X262_BUILD, X262_VERSION );
+#endif
+    H0( "Syntax: x264 [options] -o outfile infile\n"
         "\n"
         "Infile can be raw (in which case resolution is required),\n"
         "  or YUV4MPEG (*.y4m),\n"
@@ -510,7 +516,6 @@ static void help( x264_param_t *defaults, int longhelp )
         "      --longhelp              List more options\n"
         "      --fullhelp              List all options\n"
         "\n",
-        X264_BUILD, X264_VERSION,
 #if HAVE_AVS
         "yes",
 #else

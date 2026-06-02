@@ -46,6 +46,9 @@ extern "C" {
 #include "x264_config.h"
 
 #define X264_BUILD 165
+#if X264_MPEG2
+#define X262_BUILD 1
+#endif
 
 #ifdef _WIN32
 #   define X264_DLL_IMPORT __declspec(dllimport)
