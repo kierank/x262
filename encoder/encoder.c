@@ -228,6 +228,7 @@ static void slice_header_init( x264_t *h, x264_slice_header_t *sh,
 #if HAVE_MPEG2
 static void slice_header_write_mpeg2( x264_t *h, bs_t *s, int i_mb_y )
 {
+    bs_realign( s );
     if( h->param.i_height > 2800 )
        bs_write( s, 3, 0 ); // FIXME
     bs_write( s, 5, h->mb.i_qp ); // quantiser_scale_code

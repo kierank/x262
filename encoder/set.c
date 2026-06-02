@@ -983,7 +983,6 @@ void x264_seq_header_write_mpeg2( x264_t *h, bs_t *s )
     x264_write_cqm_mpeg2( h, s, 0 );
 
     bs_align_0( s );
-    bs_flush( s );
 }
 
 void x264_seq_extension_write_mpeg2( x264_t *h, bs_t *s )
@@ -1015,7 +1014,6 @@ void x264_seq_extension_write_mpeg2( x264_t *h, bs_t *s )
     bs_write( s, 5, 0 ); // frame_rate_extension_d
 
     bs_align_0( s );
-    bs_flush( s );
 }
 
 void x264_seq_disp_extension_write_mpeg2( x264_t *h, bs_t *s )
@@ -1037,7 +1035,6 @@ void x264_seq_disp_extension_write_mpeg2( x264_t *h, bs_t *s )
     bs_write( s, 14, h->param.i_height - h->param.crop_rect.i_top - h->param.crop_rect.i_bottom ); // display_vertical_size
 
     bs_align_0( s );
-    bs_flush( s );
 }
 
 void x264_gop_header_write_mpeg2( x264_t *h, bs_t *s )
@@ -1067,7 +1064,6 @@ void x264_gop_header_write_mpeg2( x264_t *h, bs_t *s )
     bs_write1( s, 0 );   // broken_link
 
     bs_align_0( s );
-    bs_flush( s );
 }
 
 void x264_pic_header_write_mpeg2( x264_t *h, bs_t *s )
@@ -1096,7 +1092,6 @@ void x264_pic_header_write_mpeg2( x264_t *h, bs_t *s )
     bs_write1( s, 0 ); // extra_bit_picture
 
     bs_align_0( s );
-    bs_flush( s );
 }
 
 void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s )
@@ -1155,7 +1150,6 @@ void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s )
     bs_write1( s, 0 ); // composite_display_flag
 
     bs_align_0( s );
-    bs_flush( s );
 }
 
 void x264_quant_matrix_extension_write_mpeg2( x264_t *h, bs_t *s )
@@ -1181,7 +1175,6 @@ void x264_quant_matrix_extension_write_mpeg2( x264_t *h, bs_t *s )
     }
 
     bs_align_0( s );
-    bs_flush( s );
 }
 
 void x264_pic_display_extension_write_mpeg2( x264_t *h, bs_t *s )
@@ -1205,7 +1198,6 @@ void x264_pic_display_extension_write_mpeg2( x264_t *h, bs_t *s )
     }
 
     bs_align_0( s );
-    bs_flush( s );
 }
 
 void x264_user_data_write_mpeg2( bs_t *s, uint8_t *payload, int payload_size )
@@ -1216,7 +1208,6 @@ void x264_user_data_write_mpeg2( bs_t *s, uint8_t *payload, int payload_size )
         bs_write( s, 8, payload[i] );
 
     bs_align_0( s );
-    bs_flush( s );
 }
 #endif // HAVE_MPEG2 && !HIGH_BIT_DEPTH
 
