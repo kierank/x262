@@ -2183,6 +2183,7 @@ int x264_encoder_reconfig( x264_t *h, x264_param_t *param )
  ****************************************************************************/
 void x264_encoder_parameters( x264_t *h, x264_param_t *param )
 {
+    x264_param_cleanup( param );
     memcpy( param, &h->thread[h->i_thread_phase]->param, sizeof(x264_param_t) );
     param->opaque = NULL;
 }
