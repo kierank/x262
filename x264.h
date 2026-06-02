@@ -850,6 +850,10 @@ X264_API int x264_param_default_preset_mpeg2( x264_param_t *, const char *preset
  *      there are no restrictions. */
 X264_API extern const int x264_chroma_format;
 
+/* x264_mpeg2:
+ *      Non-zero if this library was compiled with MPEG-2 encoding support. */
+X264_API extern const int x264_mpeg2;
+
 enum pic_struct_e
 {
     PIC_STRUCT_AUTO              = 0, // automatically decide (default)
