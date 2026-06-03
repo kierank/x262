@@ -501,6 +501,10 @@ static int validate_parameters( x264_t *h, int b_open )
         return -1;
     }
 #endif
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && h->param.b_alternate_scan < 0 )
+        h->param.b_alternate_scan = PARAM_INTERLACED;
+#endif
 
 #define MAX_RESOLUTION 16384
     if( h->param.i_width <= 0 || h->param.i_height <= 0 ||
