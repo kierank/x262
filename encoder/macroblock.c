@@ -672,16 +672,32 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
 
     if( nz )
     {
-        if( idx < 4 )
-            h->mb.i_cbp_luma |= 1<<(3-idx);
-        else if( idx < 6 )
-            h->mb.i_cbp_chroma |= 1<<(5-idx);
-        else
-            h->mb.i_cbp_chroma422 |= 1<<(7-idx);
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
         h->quantf.dequant_mpeg2_intra( dct8x8, h->dequant8_mf[CQM_8IY+chroma422][i_qp],
                                        h->param.i_intra_dc_precision );
+        pixel saved[64];
+        for( int y = 0; y < 8; y++ )
+            memcpy( saved + 8*y, p_dst + y*FDEC_STRIDE, 8 * sizeof(pixel) );
         h->dctf.add8x8_idct8( p_dst, dct8x8 );
+        int diff = 0;
+        for( int y = 0; y < 8; y++ )
+            for( int col = 0; col < 8; col++ )
+                diff |= saved[8*y+col] ^ p_dst[y*FDEC_STRIDE+col];
+        if( diff )
+        {
+            if( idx < 4 )
+                h->mb.i_cbp_luma |= 1<<(3-idx);
+            else if( idx < 6 )
+                h->mb.i_cbp_chroma |= 1<<(5-idx);
+            else
+                h->mb.i_cbp_chroma422 |= 1<<(7-idx);
+        }
+        else
+        {
+            h->mb.i_intra_dc_predictor[idx] = cur_dc_predictor;
+            h->mb.i_dct_dc_size[idx] = 0;
+            memset( h->dct.mpeg2_8x8[idx], 0, 64 * sizeof(dctcoef) );
+        }
     }
 }
 #endif // HAVE_MPEG2 && !HIGH_BIT_DEPTH
@@ -722,15 +738,25 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
                                           h->quant8_bias[CQM_8PY+chroma422][i_qp] );
     if( nz )
     {
-        if( idx < 4 )
-            h->mb.i_cbp_luma |= 1<<(3-idx);
-        else if( idx < 6 )
-            h->mb.i_cbp_chroma |= 1<<(5-idx);
-        else
-            h->mb.i_cbp_chroma422 |= 1<<(7-idx);
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
         h->quantf.dequant_mpeg2_inter( dct8x8, h->dequant8_mf[CQM_8PY+chroma422][i_qp] );
+        pixel saved[64];
+        for( int y = 0; y < 8; y++ )
+            memcpy( saved + 8*y, p_dst + y*FDEC_STRIDE, 8 * sizeof(pixel) );
         h->dctf.add8x8_idct8( p_dst, dct8x8 );
+        int diff = 0;
+        for( int y = 0; y < 8; y++ )
+            for( int col = 0; col < 8; col++ )
+                diff |= saved[8*y+col] ^ p_dst[y*FDEC_STRIDE+col];
+        if( diff )
+        {
+            if( idx < 4 )
+                h->mb.i_cbp_luma |= 1<<(3-idx);
+            else if( idx < 6 )
+                h->mb.i_cbp_chroma |= 1<<(5-idx);
+            else
+                h->mb.i_cbp_chroma422 |= 1<<(7-idx);
+        }
     }
 }
 #endif // HAVE_MPEG2 && !HIGH_BIT_DEPTH
