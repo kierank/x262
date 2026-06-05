@@ -616,6 +616,38 @@ void x264_predict_lossless_16x16( x264_t *h, int p, int i_mode )
  * x264_macroblock_encode:
  *****************************************************************************/
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* Walk dct8x8 in reverse zigzag order; if every non-zero coefficient from the
+ * last coded position down to stop is ±1, zero them all and return 1.
+ * stop=1 for intra (protects DC at position 0), stop=0 for inter. */
+static int mpeg2_decimate_trailing_ones( dctcoef dct[64], int b_intra, int b_interlaced )
+{
+    const uint8_t *zigzag_to_flat = b_interlaced ? x264_zigzag_field_mpeg2_to_flat : x264_zigzag_frame_to_flat;
+    int stop = b_intra ? 1 : 0;
+    int idx = 63;
+    int last_nz = -1;
+
+    while( idx >= stop && dct[zigzag_to_flat[idx]] == 0 )
+        idx--;
+    while( idx >= stop )
+    {
+        int coeff = dct[zigzag_to_flat[idx]];
+
+        if( (unsigned)(coeff + 1) > 2 )
+            return 0;
+
+        if( last_nz < 0 )
+            last_nz = idx;
+        idx--;
+
+        while( idx >= stop && dct[zigzag_to_flat[idx]] == 0 )
+            idx--;
+    }
+
+    for( int i = last_nz; i >= stop; i-- )
+        dct[zigzag_to_flat[i]] = 0;
+    return 1;
+}
+
 static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
 {
     pixel *p_src;
@@ -624,8 +656,6 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
     int nz, cur_dc_predictor, dc_diff, size;
     int chroma422 = ( CHROMA_FORMAT == CHROMA_422 && idx > 3 ) ? 2 : 0;
     int chroma = idx > 3 ? 1 : 0;
-
-    // TODO decimation
 
     int x = idx&1;
     if( idx < 4 )
@@ -656,6 +686,9 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
 
     nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8IY+chroma422][i_qp],
                               h->quant8_bias[CQM_8IY+chroma422][i_qp] );
+
+    if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 1, h->mb.b_interlaced ) )
+        nz = !!dct8x8[0];
 
     // DC prediction
     dc_diff = dct8x8[0] - cur_dc_predictor;
@@ -736,6 +769,8 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
 
     int nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8PY+chroma422][i_qp],
                                           h->quant8_bias[CQM_8PY+chroma422][i_qp] );
+    if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 0, h->mb.b_interlaced ) )
+        nz = 0;
     if( nz )
     {
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
