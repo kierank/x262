@@ -616,13 +616,30 @@ void x264_predict_lossless_16x16( x264_t *h, int p, int i_mode )
  * x264_macroblock_encode:
  *****************************************************************************/
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* VLC bit costs for level=1 at each run length, scored 0-3 (from B.14/B.15).
+ * <=4 bits->3, 5-6 bits->2, 7-10 bits->1, >10 bits->0. */
+static const uint8_t mpeg2_decimate_table_inter[64] = {
+    3,3,3,2,2,2,2,2, 1,1,1,1,1,1,1,1,
+    1,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+};
+static const uint8_t mpeg2_decimate_table_intra[64] = {
+    3,3,2,2,2,2,1,1, 1,1,1,1,1,1,1,1,
+    1,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+};
+
 /* Walk dct8x8 in reverse zigzag order; if every non-zero coefficient from the
  * last coded position down to stop is ±1, zero them all and return 1.
  * stop=1 for intra (protects DC at position 0), stop=0 for inter. */
 static int mpeg2_decimate_trailing_ones( dctcoef dct[64], int b_intra, int b_interlaced )
 {
     const uint8_t *zigzag_to_flat = b_interlaced ? x264_zigzag_field_mpeg2_to_flat : x264_zigzag_frame_to_flat;
+    const uint8_t *ds_table = b_intra ? mpeg2_decimate_table_intra : mpeg2_decimate_table_inter;
     int stop = b_intra ? 1 : 0;
+    int i_score = 0;
     int idx = 63;
     int last_nz = -1;
 
@@ -631,6 +648,7 @@ static int mpeg2_decimate_trailing_ones( dctcoef dct[64], int b_intra, int b_int
     while( idx >= stop )
     {
         int coeff = dct[zigzag_to_flat[idx]];
+        int i_run;
 
         if( (unsigned)(coeff + 1) > 2 )
             return 0;
@@ -639,9 +657,17 @@ static int mpeg2_decimate_trailing_ones( dctcoef dct[64], int b_intra, int b_int
             last_nz = idx;
         idx--;
 
+        i_run = 0;
         while( idx >= stop && dct[zigzag_to_flat[idx]] == 0 )
+        {
             idx--;
+            i_run++;
+        }
+        i_score += ds_table[i_run];
     }
+
+    if( i_score >= 3 )
+        return 0;
 
     for( int i = last_nz; i >= stop; i-- )
         dct[zigzag_to_flat[i]] = 0;
