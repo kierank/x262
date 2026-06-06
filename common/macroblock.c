@@ -507,7 +507,7 @@ void x264_macroblock_thread_init( x264_t *h )
     h->mb.b_chroma_me = h->param.analyse.b_chroma_me &&
                         ((h->sh.i_type == SLICE_TYPE_P && h->mb.i_subpel_refine >= 5) ||
                          (h->sh.i_type == SLICE_TYPE_B && h->mb.i_subpel_refine >= 9));
-    h->mb.b_dct_decimate = h->sh.i_type == SLICE_TYPE_B ||
+    h->mb.b_dct_decimate = (!MPEG2 && h->sh.i_type == SLICE_TYPE_B) ||
                           (h->param.analyse.b_dct_decimate && h->sh.i_type != SLICE_TYPE_I);
     h->mb.i_mb_prev_xy = -1;
 
