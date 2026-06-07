@@ -468,6 +468,8 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
                 {
                     int j = i == 2;
                     mb_y = (h->mb.i_mb_y >> j) + (i == 1);
+                    /* The row arrays keep the H.264 padding (24); for MPEG-2 the
+                     * per-MB tightening below constrains them to the frame edge. */
                     h->mb.mv_miny_row[i] = 4*( -16*mb_y - 24 );
                     h->mb.mv_maxy_row[i] = 4*( 16*( (h->mb.i_mb_height>>j) - mb_y - 1 ) + 24 );
                     h->mb.mv_miny_spel_row[i] = X264_MAX( h->mb.mv_miny_row[i], -i_fmv_range );
@@ -478,8 +480,8 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
             }
             else
             {
-                h->mb.mv_min[1] = 4*( -16*mb_y - 24 );
-                h->mb.mv_max[1] = 4*( 16*( h->mb.i_mb_height - mb_y - 1 ) + 24 );
+                h->mb.mv_min[1] = 4*( -16*mb_y - padding );
+                h->mb.mv_max[1] = 4*( 16*( h->mb.i_mb_height - mb_y - 1 ) + padding );
                 h->mb.mv_min_spel[1] = X264_MAX( h->mb.mv_min[1], -i_fmv_range );
                 h->mb.mv_max_spel[1] = X264_MIN3( h->mb.mv_max[1], i_fmv_range-1, 4*thread_mvy_range );
                 h->mb.mv_limit_fpel[0][1] = (h->mb.mv_min_spel[1]>>2) + i_fpel_border;
@@ -495,6 +497,28 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
             h->mb.mv_max_spel[1] = h->mb.mv_maxy_spel_row[i];
             h->mb.mv_limit_fpel[0][1] = h->mb.mv_miny_fpel_row[i];
             h->mb.mv_limit_fpel[1][1] = h->mb.mv_maxy_fpel_row[i];
+        }
+
+        if( MPEG2 )
+        {
+            /* MPEG-2 MVs must reference only pixels inside the coded picture.
+             * Tighten the spel search bounds to the true frame edge so ME never
+             * evaluates an out-of-frame MV (X264_MAX/MIN keeps i_fpel_border).
+             * Field MBs use field coordinates: a 16-pel MB row is 32 spel. */
+            int mvy_scale = MB_INTERLACED ? 32 : 64;
+            h->mb.mv_min_spel[0] = X264_MAX( h->mb.mv_min_spel[0], -64*h->mb.i_mb_x );
+            h->mb.mv_max_spel[0] = X264_MIN( h->mb.mv_max_spel[0], 64*(h->mb.i_mb_width-h->mb.i_mb_x-1) );
+            h->mb.mv_min_spel[1] = X264_MAX( h->mb.mv_min_spel[1], -mvy_scale*h->mb.i_mb_y );
+            h->mb.mv_max_spel[1] = X264_MIN( h->mb.mv_max_spel[1], mvy_scale*(h->mb.i_mb_height-h->mb.i_mb_y-1) );
+            /* Round spel inward to even so a clamp to the bound can never be odd. */
+            h->mb.mv_min_spel[0] = (h->mb.mv_min_spel[0] + 1) & ~1;
+            h->mb.mv_max_spel[0] = h->mb.mv_max_spel[0] & ~1;
+            h->mb.mv_min_spel[1] = (h->mb.mv_min_spel[1] + 1) & ~1;
+            h->mb.mv_max_spel[1] = h->mb.mv_max_spel[1] & ~1;
+            h->mb.mv_limit_fpel[0][0] = X264_MAX( h->mb.mv_limit_fpel[0][0], h->mb.mv_min_spel[0]>>2 );
+            h->mb.mv_limit_fpel[1][0] = X264_MIN( h->mb.mv_limit_fpel[1][0], h->mb.mv_max_spel[0]>>2 );
+            h->mb.mv_limit_fpel[0][1] = X264_MAX( h->mb.mv_limit_fpel[0][1], h->mb.mv_min_spel[1]>>2 );
+            h->mb.mv_limit_fpel[1][1] = X264_MIN( h->mb.mv_limit_fpel[1][1], h->mb.mv_max_spel[1]>>2 );
         }
 
         a->l0.me16x16.cost =
@@ -1459,6 +1483,10 @@ static void mb_analyse_inter_p16x16( x264_t *h, x264_mb_analysis_t *a )
             && x264_macroblock_probe_pskip( h ) )
         {
             h->mb.i_type = P_SKIP;
+            /* me16x16.mv can be stale here; commit the correct zero skip MV so
+             * the cache (read by the bitstream writer) stays inside the picture. */
+            if( MPEG2 )
+                M32( a->l0.me16x16.mv ) = 0;
             analyse_update_cache( h, a );
             assert( h->mb.cache.pskip_mv[1] <= h->mb.mv_max_spel[1] || h->i_thread_frames == 1 );
             return;
@@ -2888,7 +2916,7 @@ static void mb_analyse_p_rd( x264_t *h, x264_mb_analysis_t *a, int i_satd )
     h->mb.i_type = P_L0;
     if( a->l0.i_rd16x16 == COST_MAX && (!a->b_early_terminate || a->l0.me16x16.cost <= i_satd * 3/2) )
     {
-        h->mb.i_partition = D_16x16;
+        h->mb.i_partition = ( MPEG2 && MB_INTERLACED ) ? D_16x8 : D_16x16;
         analyse_update_cache( h, a );
         a->l0.i_rd16x16 = rd_cost_mb( h, a->i_lambda2 );
     }
@@ -4352,49 +4380,25 @@ static void analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
 #endif
 
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
-    // FIXME Hack to clamp MPEG-2 motion vectors within the frame
+    /* Commit the chosen MVs to h->mb.cache.mv, which the bitstream writer reads.
+     * MVs are already inside the picture from the search bounds. */
     if( MPEG2 && !IS_INTRA(h->mb.i_type) )
     {
-        int x_1 = h->mb.i_mb_x * -16*4;
-        int x_2 = ( h->mb.i_mb_width - h->mb.i_mb_x - 1 ) * 16*4;
-        int y_1 = h->mb.i_mb_y * -16*4;
-        int y_2 = ( h->mb.i_mb_height - h->mb.i_mb_y - 1 ) * 16*4;
-
         if( MB_INTERLACED )
         {
-            y_1 = h->mb.i_mb_y * -8*4;
-            y_2 = ( h->mb.i_mb_height - h->mb.i_mb_y - 1 ) * 8*4;
-
-            a->l0.me16x8[0].mv[0] = x264_clip3( a->l0.me16x8[0].mv[0], x_1, x_2 );
-            a->l0.me16x8[0].mv[1] = x264_clip3( a->l0.me16x8[0].mv[1], y_1, y_2 );
-            a->l0.me16x8[1].mv[0] = x264_clip3( a->l0.me16x8[1].mv[0], x_1, x_2 );
-            a->l0.me16x8[1].mv[1] = x264_clip3( a->l0.me16x8[1].mv[1], y_1, y_2 );
-
             x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 2, 0, a->l0.me16x8[0].mv );
             x264_macroblock_cache_mv_ptr( h, 0, 2, 4, 2, 0, a->l0.me16x8[1].mv );
-
             if( h->mb.i_type != P_L0 )
             {
-                a->l1.me16x8[0].mv[0] = x264_clip3( a->l1.me16x8[0].mv[0], x_1, x_2 );
-                a->l1.me16x8[0].mv[1] = x264_clip3( a->l1.me16x8[0].mv[1], y_1, y_2 );
-                a->l1.me16x8[1].mv[0] = x264_clip3( a->l1.me16x8[1].mv[0], x_1, x_2 );
-                a->l1.me16x8[1].mv[1] = x264_clip3( a->l1.me16x8[1].mv[1], y_1, y_2 );
                 x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 2, 1, a->l1.me16x8[0].mv );
                 x264_macroblock_cache_mv_ptr( h, 0, 2, 4, 2, 1, a->l1.me16x8[1].mv );
             }
         }
         else
         {
-            a->l0.me16x16.mv[0] = x264_clip3( a->l0.me16x16.mv[0], x_1, x_2 );
-            a->l0.me16x16.mv[1] = x264_clip3( a->l0.me16x16.mv[1], y_1, y_2 );
             x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 0, a->l0.me16x16.mv );
-
             if( h->mb.i_type != P_L0 )
-            {
-                a->l1.me16x16.mv[0] = x264_clip3( a->l1.me16x16.mv[0], x_1, x_2 );
-                a->l1.me16x16.mv[1] = x264_clip3( a->l1.me16x16.mv[1], y_1, y_2 );
                 x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 1, a->l1.me16x16.mv );
-            }
         }
     }
 #endif

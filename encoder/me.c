@@ -771,6 +771,12 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
         break;
     }
 
+    if( MPEG2 )
+    {
+        bmx = x264_clip3( bmx, h->mb.mv_min_spel[0]>>2, h->mb.mv_max_spel[0]>>2 );
+        bmy = x264_clip3( bmy, h->mb.mv_min_spel[1]>>2, h->mb.mv_max_spel[1]>>2 );
+    }
+
     /* -> qpel mv */
     uint32_t bmv = pack16to32_mask(bmx,bmy);
     uint32_t bmv_spel = SPELx2(bmv);
@@ -934,6 +940,13 @@ static void refine_subpel( x264_t *h, x264_me_t *m, int hpel_iters, int qpel_ite
             bcost &= ~63;
         }
         bcost >>= 6;
+        if( MPEG2 )
+        {
+            /* Keep the hpel result inside the tightened MPEG-2 search bounds
+             * (see mb_analyse_init). */
+            bmx = x264_clip3( bmx, h->mb.mv_min_spel[0], h->mb.mv_max_spel[0] );
+            bmy = x264_clip3( bmy, h->mb.mv_min_spel[1], h->mb.mv_max_spel[1] );
+        }
     }
 
     if( !b_refine_qpel && (h->pixf.mbcmp_unaligned[0] != h->pixf.fpelcmp[0] || b_chroma_me) )
@@ -957,6 +970,8 @@ static void refine_subpel( x264_t *h, x264_me_t *m, int hpel_iters, int qpel_ite
             *p_halfpel_thresh = bcost;
     }
 
+    int offset = MPEG2 ? 2 : 1;
+
     /* quarterpel diamond search */
     if( h->mb.i_subpel_refine != 1 )
     {
@@ -976,9 +991,9 @@ static void refine_subpel( x264_t *h, x264_me_t *m, int hpel_iters, int qpel_ite
         }
     }
     /* Special simplified case for subme=1 */
-    else if( bmy > h->mb.mv_min_spel[1] && bmy < h->mb.mv_max_spel[1] && bmx > h->mb.mv_min_spel[0] && bmx < h->mb.mv_max_spel[0] )
+    else if( bmy > h->mb.mv_min_spel[1] + offset - 1 && bmy < h->mb.mv_max_spel[1] - offset + 1 &&
+             bmx > h->mb.mv_min_spel[0] + offset - 1 && bmx < h->mb.mv_max_spel[0] - offset + 1 )
     {
-        int offset = MPEG2 ? 2 : 1;
         int omx = bmx, omy = bmy;
         /* We have to use mc_luma because all strides must be the same to use fpelcmp_x4 */
         h->mc.mc_luma( pix   , 64, m->p_fref, m->i_stride[0], omx, omy-offset, bw, bh, &m->weight[0] );
@@ -995,8 +1010,8 @@ static void refine_subpel( x264_t *h, x264_me_t *m, int hpel_iters, int qpel_ite
         COPY1_IF_LT( bcost, (costs[1]<<4)+3 );
         COPY1_IF_LT( bcost, (costs[2]<<4)+4 );
         COPY1_IF_LT( bcost, (costs[3]<<4)+12 );
-        bmx -= (int32_t)((uint32_t)bcost<<28)>>30;
-        bmy -= (int32_t)((uint32_t)bcost<<30)>>30;
+        bmx -= ((int32_t)((uint32_t)bcost<<28)>>30) * offset;
+        bmy -= ((int32_t)((uint32_t)bcost<<30)>>30) * offset;
         bcost >>= 4;
     }
 
