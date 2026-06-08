@@ -1224,7 +1224,7 @@ static ALWAYS_INLINE void macroblock_encode_internal( x264_t *h, int plane_count
     if( !b_force_no_skip )
     {
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
-        if( MPEG2 && !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma | h->mb.i_cbp_chroma422) )
+        if( MPEG2 && !MB_INTERLACED && !(h->mb.i_cbp_luma | h->mb.i_cbp_chroma | h->mb.i_cbp_chroma422) )
         {
             if( h->mb.i_type == P_L0 && !M32( h->mb.cache.mv[0][x264_scan8[0]] ) )
                 h->mb.i_type = P_SKIP;
