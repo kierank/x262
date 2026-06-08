@@ -1477,6 +1477,7 @@ static void mb_analyse_inter_p16x16( x264_t *h, x264_mb_analysis_t *a )
          * SSD threshold would probably be better than SATD */
         if( i_ref == 0
             && a->b_try_skip
+            && !( MPEG2 && MB_INTERLACED )
             && m.cost-m.cost_mv < 300*a->i_lambda
             &&  abs(m.mv[0]-h->mb.cache.pskip_mv[0])
               + abs(m.mv[1]-h->mb.cache.pskip_mv[1]) <= 1
@@ -1520,7 +1521,8 @@ static void mb_analyse_inter_p16x16( x264_t *h, x264_mb_analysis_t *a )
     if( a->i_mbrd )
     {
         mb_init_fenc_cache( h, a->i_mbrd >= 2 || h->param.analyse.inter & X264_ANALYSE_PSUB8x8 );
-        if( a->l0.me16x16.i_ref == 0 && M32( a->l0.me16x16.mv ) == M32( h->mb.cache.pskip_mv ) && !a->b_force_intra )
+        if( a->l0.me16x16.i_ref == 0 && M32( a->l0.me16x16.mv ) == M32( h->mb.cache.pskip_mv )
+            && !a->b_force_intra && !( MPEG2 && MB_INTERLACED ) )
         {
             h->mb.i_partition = D_16x16;
             x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 0, a->l0.me16x16.mv );
@@ -2210,7 +2212,7 @@ static void mb_analyse_inter_b16x16( x264_t *h, x264_mb_analysis_t *a )
                 {
                     try_skip = 0;
                 }
-                else if( !l )
+                else if( !l && !( MPEG2 && MB_INTERLACED ) )
                 {
                     /* We already tested skip */
                     h->mb.i_type = B_SKIP;
@@ -2612,15 +2614,15 @@ static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
 
     /* get cost of BI mode */
     int ref_costs = REF_COST( 0, a->l0.me16x8[0].i_ref ) + REF_COST( 0, a->l0.me16x8[1].i_ref )
-                    + REF_COST( 1, a->l1.me16x8[0].i_ref ) + REF_COST( 0, a->l1.me16x8[1].i_ref );
+                    + REF_COST( 1, a->l1.me16x8[0].i_ref ) + REF_COST( 1, a->l1.me16x8[1].i_ref );
     for( int idx_16x8 = 0; idx_16x8 < 2; idx_16x8++ )
     {
         stride0 = 16; stride1 = 16;
         src0 = h->mc.get_ref( pix0, &stride0,
-                              h->mb.pic.p_fref[0][a->l0.me16x8[idx_16x8].i_ref], h->mb.pic.i_stride[0],
+                              h->mb.pic.p_fref[0][a->l0.me16x8[idx_16x8].i_ref], h->mb.pic.i_stride[0]<<1,
                               a->l0.me16x8[idx_16x8].mv[0], a->l0.me16x8[idx_16x8].mv[1], 16, 8, x264_weight_none );
         src1 = h->mc.get_ref( pix1, &stride1,
-                              h->mb.pic.p_fref[1][a->l1.me16x8[idx_16x8].i_ref], h->mb.pic.i_stride[0],
+                              h->mb.pic.p_fref[1][a->l1.me16x8[idx_16x8].i_ref], h->mb.pic.i_stride[0]<<1,
                               a->l1.me16x8[idx_16x8].mv[0], a->l1.me16x8[idx_16x8].mv[1], 16, 8, x264_weight_none );
         h->mc.avg[PIXEL_16x8]( &pix0[16*8*idx_16x8], 16, src0, stride0, src1, stride1, h->mb.bipred_weight[a->l0.me16x8[idx_16x8].i_ref][a->l1.me16x8[idx_16x8].i_ref] );
     }
@@ -3343,7 +3345,7 @@ intra_analysis:
                 {
                     h->mb.i_partition = D_16x16;
                     /* Use the P-SKIP MV if we can... */
-                    if( !M32(h->mb.cache.pskip_mv) )
+                    if( !M32(h->mb.cache.pskip_mv) && !( MPEG2 && MB_INTERLACED ) )
                     {
                         b_skip = 1;
                         h->mb.i_type = P_SKIP;
@@ -3378,13 +3380,13 @@ intra_analysis:
                          h->mb.i_mb_type_top == P_SKIP ||
                          h->mb.i_mb_type_topleft == P_SKIP ||
                          h->mb.i_mb_type_topright == P_SKIP )
-                    b_skip = x264_macroblock_probe_pskip( h );
+                    b_skip = !( MPEG2 && MB_INTERLACED ) && x264_macroblock_probe_pskip( h );
             }
         }
 
         h->mc.prefetch_ref( h->mb.pic.p_fref[0][0][h->mb.i_mb_x&3], h->mb.pic.i_stride[0], 1 );
 
-        if( b_skip )
+        if( b_skip && !( MPEG2 && MB_INTERLACED ) )
         {
             h->mb.i_type = P_SKIP;
             h->mb.i_partition = D_16x16;
@@ -3686,7 +3688,7 @@ skip_analysis:
         if( analysis.i_mbrd )
             mb_init_fenc_cache( h, analysis.i_mbrd >= 2 );
 
-        h->mb.i_type = B_SKIP;
+        h->mb.i_type = ( MPEG2 && MB_INTERLACED ) ? B_DIRECT : B_SKIP;
         if( h->mb.b_direct_auto_write )
         {
             /* direct=auto heuristic: prefer whichever mode allows more Skip macroblocks */
@@ -3723,13 +3725,14 @@ skip_analysis:
             {
                 i_bskip_cost = ssd_mb( h );
                 /* 6 = minimum cavlc cost of a non-skipped MB */
-                b_skip = h->mb.b_skip_mc = i_bskip_cost <= ((6 * analysis.i_lambda2 + 128) >> 8);
+                b_skip = h->mb.b_skip_mc = !( MPEG2 && MB_INTERLACED ) &&
+                         i_bskip_cost <= ((6 * analysis.i_lambda2 + 128) >> 8);
             }
             else if( !h->mb.b_direct_auto_write )
             {
                 /* Conditioning the probe on neighboring block types
                  * doesn't seem to help speed or quality. */
-                analysis.b_try_skip = x264_macroblock_probe_bskip( h );
+                analysis.b_try_skip = !( MPEG2 && MB_INTERLACED ) && x264_macroblock_probe_bskip( h );
                 if( h->param.analyse.i_subpel_refine < 3 )
                     b_skip = analysis.b_try_skip;
             }
@@ -3784,7 +3787,8 @@ skip_analysis:
             if( analysis.i_mbrd && analysis.b_early_terminate && analysis.i_cost16x16direct <= i_cost * 33/32 )
             {
                 mb_analyse_b_rd( h, &analysis, i_cost );
-                if( i_bskip_cost < analysis.i_rd16x16direct &&
+                if( !( MPEG2 && MB_INTERLACED ) &&
+                    i_bskip_cost < analysis.i_rd16x16direct &&
                     i_bskip_cost < analysis.i_rd16x16bi &&
                     i_bskip_cost < analysis.l0.i_rd16x16 &&
                     i_bskip_cost < analysis.l1.i_rd16x16 )

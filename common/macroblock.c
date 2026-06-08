@@ -34,13 +34,36 @@
                    mvx, mvy, 4*width, 4*height, \
                    list ? x264_weight_none : &h->sh.weight[i_ref][p] );
 
+/* MPEG-2 field-based luma prediction in a frame picture. The reference field (fsel: 0=top,
+ * 1=bottom) is the corresponding alternate lines of the frame plane, read offset to that
+ * field's first line at doubled stride. The output field (y=0 -> top lines 0,2,.. ; y=2 ->
+ * bottom lines 1,3,..) is written at doubled stride. MPEG-2 uses only the unfiltered plane. */
+#define MC_LUMA_FIELD_MPEG2(list,p) \
+{ \
+    pixel *src_fld[4] = { h->mb.pic.p_fref[list][i_ref][p*4] + fsel*h->mb.pic.i_stride[p] }; \
+    h->mc.mc_luma( &h->mb.pic.p_fdec[p][(y>>1)*FDEC_STRIDE+4*x], FDEC_STRIDE<<1, \
+                   src_fld, h->mb.pic.i_stride[p]<<1, \
+                   mvx, mvy, 4*width, 4*height, \
+                   list ? x264_weight_none : &h->sh.weight[i_ref][p] ); \
+}
+
 static NOINLINE void mb_mc_0xywh( x264_t *h, int x, int y, int width, int height )
 {
     int i8    = x264_scan8[0]+x+8*y;
     int i_ref = h->mb.cache.ref[0][i8];
     int mvx   = x264_clip3( h->mb.cache.mv[0][i8][0], h->mb.mv_min[0], h->mb.mv_max[0] ) + 4*4*x;
     int mvy   = x264_clip3( h->mb.cache.mv[0][i8][1], h->mb.mv_min[1], h->mb.mv_max[1] ) + 4*4*y*(!MPEG2);
+    int fsel  = 0;
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && MB_INTERLACED )
+    {
+        fsel = i_ref;  /* motion_vertical_field_select; the only reference is frame 0 */
+        i_ref = 0;
+        MC_LUMA_FIELD_MPEG2( 0, 0 );
+    }
+    else
+#endif
     MC_LUMA( 0, 0 );
 
     if( CHROMA444 )
@@ -55,12 +78,13 @@ static NOINLINE void mb_mc_0xywh( x264_t *h, int x, int y, int width, int height
         if( v_shift & MB_INTERLACED & i_ref & !MPEG2 )
             mvy += (h->mb.i_mb_y & 1)*4 - 2;
 
-        int offset = ( MPEG2 & MB_INTERLACED ) ? (FDEC_STRIDE>>v_shift)*y : (4*FDEC_STRIDE>>v_shift)*y + 2*x;
+        int offset = ( MPEG2 & MB_INTERLACED ) ? (y>>1)*FDEC_STRIDE : (4*FDEC_STRIDE>>v_shift)*y + 2*x;
         height = 4*height >> v_shift;
+        int chroma_fld_off = ( MPEG2 & MB_INTERLACED ) ? fsel*h->mb.pic.i_stride[1] : 0;
 
         h->mc.mc_chroma( &h->mb.pic.p_fdec[1][offset],
                          &h->mb.pic.p_fdec[2][offset], FDEC_STRIDE << ( MPEG2 & MB_INTERLACED ),
-                         h->mb.pic.p_fref[0][i_ref][4], h->mb.pic.i_stride[1],
+                         h->mb.pic.p_fref[0][i_ref][4] + chroma_fld_off, h->mb.pic.i_stride[1] << ( MPEG2 & MB_INTERLACED ),
                          mvx, 2*mvy>>v_shift, 2*width, height );
 
         if( h->sh.weight[i_ref][1].weightfn )
@@ -79,7 +103,17 @@ static NOINLINE void mb_mc_1xywh( x264_t *h, int x, int y, int width, int height
     int i_ref = h->mb.cache.ref[1][i8];
     int mvx   = x264_clip3( h->mb.cache.mv[1][i8][0], h->mb.mv_min[0], h->mb.mv_max[0] ) + 4*4*x;
     int mvy   = x264_clip3( h->mb.cache.mv[1][i8][1], h->mb.mv_min[1], h->mb.mv_max[1] ) + 4*4*y*(!MPEG2);
+    int fsel  = 0;
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && MB_INTERLACED )
+    {
+        fsel = i_ref;
+        i_ref = 0;
+        MC_LUMA_FIELD_MPEG2( 1, 0 );
+    }
+    else
+#endif
     MC_LUMA( 1, 0 );
 
     if( CHROMA444 )
@@ -93,10 +127,11 @@ static NOINLINE void mb_mc_1xywh( x264_t *h, int x, int y, int width, int height
         if( v_shift & MB_INTERLACED & i_ref & !MPEG2 )
             mvy += (h->mb.i_mb_y & 1)*4 - 2;
 
-        int offset = ( MPEG2 & MB_INTERLACED ) ? (FDEC_STRIDE>>v_shift)*y : (4*FDEC_STRIDE>>v_shift)*y + 2*x;
+        int offset = ( MPEG2 & MB_INTERLACED ) ? (y>>1)*FDEC_STRIDE : (4*FDEC_STRIDE>>v_shift)*y + 2*x;
+        int chroma_fld_off = ( MPEG2 & MB_INTERLACED ) ? fsel*h->mb.pic.i_stride[1] : 0;
         h->mc.mc_chroma( &h->mb.pic.p_fdec[1][offset],
                          &h->mb.pic.p_fdec[2][offset], FDEC_STRIDE << ( MPEG2 & MB_INTERLACED ),
-                         h->mb.pic.p_fref[1][i_ref][4], h->mb.pic.i_stride[1],
+                         h->mb.pic.p_fref[1][i_ref][4] + chroma_fld_off, h->mb.pic.i_stride[1] << ( MPEG2 & MB_INTERLACED ),
                          mvx, 2*mvy>>v_shift, 2*width, 4*height>>v_shift );
     }
 }
@@ -108,6 +143,20 @@ static NOINLINE void mb_mc_1xywh( x264_t *h, int x, int y, int width, int height
                           mvx1, mvy1, 4*width, 4*height, x264_weight_none ); \
     h->mc.avg[i_mode]( &h->mb.pic.p_fdec[p][4*y*FDEC_STRIDE+4*x], FDEC_STRIDE, \
                        src0, i_stride0, src1, i_stride1, weight );
+
+/* MPEG-2 field-based bidirectional luma: each list reads its selected reference field from
+ * the frame plane at doubled stride into the tmp buffer; the averaged result is written to
+ * the half's field lines at doubled stride. fsel0/fsel1 select the reference field per list. */
+#define MC_LUMA_BI_FIELD_MPEG2(p) \
+{ \
+    pixel *s0[4] = { h->mb.pic.p_fref[0][0][p*4] + fsel0*h->mb.pic.i_stride[p] }; \
+    pixel *s1[4] = { h->mb.pic.p_fref[1][0][p*4] + fsel1*h->mb.pic.i_stride[p] }; \
+    h->mc.mc_luma( tmp0, 16, s0, h->mb.pic.i_stride[p]<<1, mvx0, mvy0, 4*width, 4*height, x264_weight_none ); \
+    h->mc.mc_luma( tmp1, 16, s1, h->mb.pic.i_stride[p]<<1, mvx1, mvy1, 4*width, 4*height, x264_weight_none ); \
+    src0 = tmp0; src1 = tmp1; i_stride0 = i_stride1 = 16; \
+    h->mc.avg[i_mode]( &h->mb.pic.p_fdec[p][(y>>1)*FDEC_STRIDE+4*x], FDEC_STRIDE<<1, \
+                       src0, i_stride0, src1, i_stride1, weight ); \
+}
 
 static NOINLINE void mb_mc_01xywh( x264_t *h, int x, int y, int width, int height )
 {
@@ -124,8 +173,21 @@ static NOINLINE void mb_mc_01xywh( x264_t *h, int x, int y, int width, int heigh
     ALIGNED_ARRAY_32( pixel, tmp0,[16*16] );
     ALIGNED_ARRAY_32( pixel, tmp1,[16*16] );
     pixel *src0, *src1;
+    int fsel0 = 0, fsel1 = 0;
 
-    MC_LUMA_BI( 0 );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && MB_INTERLACED )
+    {
+        fsel0 = i_ref0; fsel1 = i_ref1;
+        i_ref0 = i_ref1 = 0;
+        weight = h->mb.bipred_weight[0][0];
+        MC_LUMA_BI_FIELD_MPEG2( 0 );
+    }
+    else
+#endif
+    {
+        MC_LUMA_BI( 0 );
+    }
 
     if( CHROMA444 )
     {
@@ -140,13 +202,16 @@ static NOINLINE void mb_mc_01xywh( x264_t *h, int x, int y, int width, int heigh
         if( v_shift & MB_INTERLACED & i_ref1 & !MPEG2 )
             mvy1 += (h->mb.i_mb_y & 1)*4 - 2;
 
-        h->mc.mc_chroma( tmp0, tmp0+8, 16, h->mb.pic.p_fref[0][i_ref0][4], h->mb.pic.i_stride[1],
+        int c_off0 = ( MPEG2 & MB_INTERLACED ) ? fsel0*h->mb.pic.i_stride[1] : 0;
+        int c_off1 = ( MPEG2 & MB_INTERLACED ) ? fsel1*h->mb.pic.i_stride[1] : 0;
+        intptr_t c_stride = h->mb.pic.i_stride[1] << ( MPEG2 & MB_INTERLACED );
+        h->mc.mc_chroma( tmp0, tmp0+8, 16, h->mb.pic.p_fref[0][i_ref0][4] + c_off0, c_stride,
                          mvx0, 2*mvy0>>v_shift, 2*width, 4*height>>v_shift );
-        h->mc.mc_chroma( tmp1, tmp1+8, 16, h->mb.pic.p_fref[1][i_ref1][4], h->mb.pic.i_stride[1],
+        h->mc.mc_chroma( tmp1, tmp1+8, 16, h->mb.pic.p_fref[1][i_ref1][4] + c_off1, c_stride,
                          mvx1, 2*mvy1>>v_shift, 2*width, 4*height>>v_shift );
 
         int chromapix = h->luma2chroma_pixel[i_mode];
-        int offset = ( MPEG2 & MB_INTERLACED ) ? (FDEC_STRIDE>>v_shift)*y : (4*FDEC_STRIDE>>v_shift)*y + 2*x;
+        int offset = ( MPEG2 & MB_INTERLACED ) ? (y>>1)*FDEC_STRIDE : (4*FDEC_STRIDE>>v_shift)*y + 2*x;
         h->mc.avg[chromapix]( &h->mb.pic.p_fdec[1][offset], FDEC_STRIDE << ( MPEG2 & MB_INTERLACED ), tmp0,   16, tmp1,   16, weight );
         h->mc.avg[chromapix]( &h->mb.pic.p_fdec[2][offset], FDEC_STRIDE << ( MPEG2 & MB_INTERLACED ), tmp0+8, 16, tmp1+8, 16, weight );
     }
@@ -1342,8 +1407,9 @@ static ALWAYS_INLINE void macroblock_cache_load( x264_t *h, int mb_x, int mb_y, 
     /* load skip */
     if( h->sh.i_type == SLICE_TYPE_B )
     {
-        h->mb.bipred_weight = h->mb.bipred_weight_buf[MB_INTERLACED][MB_INTERLACED&(mb_y&1)];
-        h->mb.dist_scale_factor = h->mb.dist_scale_factor_buf[MB_INTERLACED][MB_INTERLACED&(mb_y&1)];
+        int bi_field = ( MPEG2 ? 0 : MB_INTERLACED );
+        h->mb.bipred_weight = h->mb.bipred_weight_buf[bi_field][bi_field&(mb_y&1)];
+        h->mb.dist_scale_factor = h->mb.dist_scale_factor_buf[bi_field][bi_field&(mb_y&1)];
         if( h->param.b_cabac )
         {
             uint8_t skipbp;
