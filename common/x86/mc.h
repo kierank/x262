@@ -30,9 +30,5 @@
 #define x264_mc_init_mmx x264_template(mc_init_mmx)
 void x264_mc_init_mmx( uint32_t cpu, x264_mc_functions_t *pf );
 
-#if HAVE_MPEG2
-#define x264_mc_init_mmx_mpeg2 x264_template(mc_init_mmx_mpeg2)
-void x264_mc_init_mmx_mpeg2( uint32_t cpu, x264_mc_functions_t *pf );
-#endif
 
 #endif

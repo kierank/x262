@@ -37,10 +37,14 @@
 /* MPEG-2 field-based luma prediction in a frame picture. The reference field (fsel: 0=top,
  * 1=bottom) is the corresponding alternate lines of the frame plane, read offset to that
  * field's first line at doubled stride. The output field (y=0 -> top lines 0,2,.. ; y=2 ->
- * bottom lines 1,3,..) is written at doubled stride. MPEG-2 uses only the unfiltered plane. */
+ * bottom lines 1,3,..) is written at doubled stride. */
 #define MC_LUMA_FIELD_MPEG2(list,p) \
 { \
-    pixel *src_fld[4] = { h->mb.pic.p_fref[list][i_ref][p*4] + fsel*h->mb.pic.i_stride[p] }; \
+    pixel *src_fld[4] = { \
+        h->mb.pic.p_fref[list][i_ref][p*4+0] + fsel*h->mb.pic.i_stride[p], \
+        h->mb.pic.p_fref[list][i_ref][p*4+1] + fsel*h->mb.pic.i_stride[p], \
+        h->mb.pic.p_fref[list][i_ref][p*4+2] + fsel*h->mb.pic.i_stride[p], \
+        h->mb.pic.p_fref[list][i_ref][p*4+3] + fsel*h->mb.pic.i_stride[p] }; \
     h->mc.mc_luma( &h->mb.pic.p_fdec[p][(y>>1)*FDEC_STRIDE+4*x], FDEC_STRIDE<<1, \
                    src_fld, h->mb.pic.i_stride[p]<<1, \
                    mvx, mvy, 4*width, 4*height, \
@@ -149,8 +153,16 @@ static NOINLINE void mb_mc_1xywh( x264_t *h, int x, int y, int width, int height
  * the half's field lines at doubled stride. fsel0/fsel1 select the reference field per list. */
 #define MC_LUMA_BI_FIELD_MPEG2(p) \
 { \
-    pixel *s0[4] = { h->mb.pic.p_fref[0][0][p*4] + fsel0*h->mb.pic.i_stride[p] }; \
-    pixel *s1[4] = { h->mb.pic.p_fref[1][0][p*4] + fsel1*h->mb.pic.i_stride[p] }; \
+    pixel *s0[4] = { \
+        h->mb.pic.p_fref[0][0][p*4+0] + fsel0*h->mb.pic.i_stride[p], \
+        h->mb.pic.p_fref[0][0][p*4+1] + fsel0*h->mb.pic.i_stride[p], \
+        h->mb.pic.p_fref[0][0][p*4+2] + fsel0*h->mb.pic.i_stride[p], \
+        h->mb.pic.p_fref[0][0][p*4+3] + fsel0*h->mb.pic.i_stride[p] }; \
+    pixel *s1[4] = { \
+        h->mb.pic.p_fref[1][0][p*4+0] + fsel1*h->mb.pic.i_stride[p], \
+        h->mb.pic.p_fref[1][0][p*4+1] + fsel1*h->mb.pic.i_stride[p], \
+        h->mb.pic.p_fref[1][0][p*4+2] + fsel1*h->mb.pic.i_stride[p], \
+        h->mb.pic.p_fref[1][0][p*4+3] + fsel1*h->mb.pic.i_stride[p] }; \
     h->mc.mc_luma( tmp0, 16, s0, h->mb.pic.i_stride[p]<<1, mvx0, mvy0, 4*width, 4*height, x264_weight_none ); \
     h->mc.mc_luma( tmp1, 16, s1, h->mb.pic.i_stride[p]<<1, mvx1, mvy1, 4*width, 4*height, x264_weight_none ); \
     src0 = tmp0; src1 = tmp1; i_stride0 = i_stride1 = 16; \
@@ -686,7 +698,7 @@ static ALWAYS_INLINE void macroblock_load_pic_pointers( x264_t *h, int mb_x, int
     for( int j = 0; j < h->mb.pic.i_fref[0]; j++ )
     {
         // Interpolate between pixels in same field.
-        if( mb_interlaced )
+        if( mb_interlaced || (MPEG2 && MB_INTERLACED) )
         {
             plane_src = h->fref[0][j>>1]->plane_fld[i];
             filtered_src = h->fref[0][j>>1]->filtered_fld[i];
@@ -715,7 +727,7 @@ static ALWAYS_INLINE void macroblock_load_pic_pointers( x264_t *h, int mb_x, int
     if( h->sh.i_type == SLICE_TYPE_B )
         for( int j = 0; j < h->mb.pic.i_fref[1]; j++ )
         {
-            if( mb_interlaced )
+            if( mb_interlaced || (MPEG2 && MB_INTERLACED) )
             {
                 plane_src = h->fref[1][j>>1]->plane_fld[i];
                 filtered_src = h->fref[1][j>>1]->filtered_fld[i];
