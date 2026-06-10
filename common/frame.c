@@ -77,7 +77,7 @@ static x264_frame_t *frame_new( x264_t *h, int b_fdec )
 #else
     int disalign = (1<<10) / SIZEOF_PIXEL;
 #endif
-    int pixel_buffers = MPEG2 ? 1 : 4;
+    int pixel_buffers = 4;
 
     CHECKED_MALLOCZERO( frame, sizeof(x264_frame_t) );
     PREALLOC_INIT
@@ -612,7 +612,7 @@ void x264_frame_expand_border_filtered( x264_t *h, x264_frame_t *frame, int mb_y
     int height = b_end ? (16*(h->mb.i_mb_height - mb_y) >> SLICE_MBAFF) + 16 : 16;
     int padh = PADH - 4;
     int padv = PADV - 8;
-    int pixel_buffers = MPEG2 ? 1 : 4;
+    int pixel_buffers = 4;
     for( int p = 0; p < (CHROMA444 ? 3 : 1); p++ )
         for( int i = 1; i < pixel_buffers; i++ )
         {
@@ -634,7 +634,7 @@ void x264_frame_expand_border_filtered( x264_t *h, x264_frame_t *frame, int mb_y
 
 void x264_frame_expand_border_lowres( x264_t *h, x264_frame_t *frame )
 {
-    int pixel_buffers = MPEG2 ? 1 : 4;
+    int pixel_buffers = 4;
     for( int i = 0; i < pixel_buffers; i++ )
         plane_expand_border( frame->lowres[i], frame->i_stride_lowres, frame->i_width_lowres, frame->i_lines_lowres, PADH, PADV, 1, 1, 0 );
 }
