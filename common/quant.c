@@ -438,17 +438,14 @@ static int coeff_level_run64( dctcoef *dct, x264_run_level_t *runlevel )
 {
     int i_last = runlevel->last = coeff_last64(dct);
     int i_total = 0;
-    int mask = 0;
-    do
+    uint64_t mask = 0;
+    while( i_last >= 0 )
     {
-        int r = 0;
-        runlevel->level[i_total] = dct[i_last];
-        mask |= 1U << (i_last & 31);
-        while( --i_last >= 0 && dct[i_last] == 0 )
-            r++;
-        runlevel->run[i_total++] = r;
-    } while( i_last >= 0 );
-    runlevel->mask = mask;
+        runlevel->level[i_total++] = dct[i_last];
+        mask |= 1ULL << (i_last & 63);
+        while( --i_last >= 0 && dct[i_last] == 0 );
+    }
+    runlevel->mask64 = mask;
     return i_total;
 }
 #endif

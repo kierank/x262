@@ -509,6 +509,7 @@ static ALWAYS_INLINE int x264_ctz_4bit( uint32_t x )
 #if defined(__GNUC__) && (__GNUC__ > 3 || __GNUC__ == 3 && __GNUC_MINOR__ > 3)
 #define x264_clz(x) __builtin_clz(x)
 #define x264_ctz(x) __builtin_ctz(x)
+#define x264_ctz64(x) __builtin_ctzll(x)
 #else
 static ALWAYS_INLINE int x264_clz( uint32_t x )
 {
@@ -532,6 +533,11 @@ static ALWAYS_INLINE int x264_ctz( uint32_t x )
     z += y = (((x & 0xf) - 1) >> 29) & 4;
     x >>= y;
     return z + lut[x&0xf];
+}
+
+static ALWAYS_INLINE int x264_ctz64( uint64_t x )
+{
+    return (uint32_t)x ? x264_ctz( (uint32_t)x ) : 32 + x264_ctz( (uint32_t)(x >> 32) );
 }
 #endif
 
