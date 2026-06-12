@@ -34,6 +34,41 @@
                    mvx, mvy, 4*width, 4*height, \
                    list ? x264_weight_none : &h->sh.weight[i_ref][p] );
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* Rebuild the reference-plane pointers for frame (b_field=0) or field (b_field=1) mode;
+ * the parity pointers p_fref[*][1] are built later in analysis. */
+void x264_mb_setup_fref_mpeg2( x264_t *h, int b_field )
+{
+    int n_planes = CHROMA_FORMAT ? 2 : 1;
+    for( int i = 0; i < n_planes; i++ )
+    {
+        int height = i ? 16 >> CHROMA_V_SHIFT : 16;
+        int i_stride = h->fdec->i_stride[i];
+        int i_pix_offset = 16 * h->mb.i_mb_x + height * h->mb.i_mb_y * i_stride;
+        for( int l = 0; l < (h->sh.i_type == SLICE_TYPE_B ? 2 : 1); l++ )
+            for( int j = 0; j < h->i_ref[l]; j++ )
+            {
+                pixel *plane_src    = b_field ? h->fref[l][j]->plane_fld[i]    : h->fref[l][j]->plane[i];
+                pixel **filtered_src = b_field ? h->fref[l][j]->filtered_fld[i] : h->fref[l][j]->filtered[i];
+                h->mb.pic.p_fref[l][j][i*4] = plane_src + i_pix_offset;
+                if( !i )
+                {
+                    if( h->param.analyse.i_subpel_refine )
+                        for( int k = 1; k < 4; k++ )
+                            h->mb.pic.p_fref[l][j][k] = filtered_src[k] + i_pix_offset;
+                    if( !l )
+                    {
+                        if( h->sh.weight[j][0].weightfn )
+                            h->mb.pic.p_fref_w[j] = &h->fenc->weighted[j][i_pix_offset];
+                        else
+                            h->mb.pic.p_fref_w[j] = h->mb.pic.p_fref[l][j][0];
+                    }
+                }
+            }
+    }
+}
+#endif
+
 /* MPEG-2 field-based luma prediction in a frame picture. The reference field (fsel: 0=top,
  * 1=bottom) is the corresponding alternate lines of the frame plane, read offset to that
  * field's first line at doubled stride. The output field (y=0 -> top lines 0,2,.. ; y=2 ->

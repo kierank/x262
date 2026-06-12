@@ -3068,24 +3068,22 @@ static intptr_t slice_write( x264_t *h )
 
         if( PARAM_INTERLACED )
         {
-            if( h->mb.b_adaptive_mbaff )
+            if( MPEG2 )
+                /* MPEG-2 decides field/frame per MB in macroblock_analyse; enter in frame mode. */
+                h->mb.b_interlaced = 0;
+            else if( h->mb.b_adaptive_mbaff )
             {
-                if( !MPEG2 )
+                if( !(i_mb_y&1) )
                 {
-                    if( !(i_mb_y&1) )
-                    {
-                        /* FIXME: VSAD is fast but fairly poor at choosing the best interlace type. */
-                        h->mb.b_interlaced = x264_field_vsad( h, i_mb_x, i_mb_y );
-                        memcpy( &h->zigzagf, MB_INTERLACED ? &h->zigzagf_interlaced : &h->zigzagf_progressive, sizeof(h->zigzagf) );
-                        if( !MB_INTERLACED && (i_mb_y+2) == h->mb.i_mb_height )
-                            x264_expand_border_mbpair( h, i_mb_x, i_mb_y );
-                    }
-                }
-                else
-                    /* FIXME: Try MPEG-2 mode decision in macroblock_analyse() instead of VSAD here. */
+                    /* FIXME: VSAD is fast but fairly poor at choosing the best interlace type. */
                     h->mb.b_interlaced = x264_field_vsad( h, i_mb_x, i_mb_y );
+                    memcpy( &h->zigzagf, MB_INTERLACED ? &h->zigzagf_interlaced : &h->zigzagf_progressive, sizeof(h->zigzagf) );
+                    if( !MB_INTERLACED && (i_mb_y+2) == h->mb.i_mb_height )
+                        x264_expand_border_mbpair( h, i_mb_x, i_mb_y );
+                }
             }
-            h->mb.field[mb_xy] = MB_INTERLACED;
+            if( !MPEG2 )
+                h->mb.field[mb_xy] = MB_INTERLACED;
         }
 
         /* load cache */
@@ -3095,6 +3093,10 @@ static intptr_t slice_write( x264_t *h )
             x264_macroblock_cache_load_progressive( h, i_mb_x, i_mb_y );
 
         x264_macroblock_analyse( h );
+
+        /* MPEG-2 decided the mode during analysis. */
+        if( MPEG2 && PARAM_INTERLACED )
+            h->mb.field[mb_xy] = MB_INTERLACED;
 
 #if HAVE_MPEG2
         if( MPEG2 && i_mb_x == 0 )
