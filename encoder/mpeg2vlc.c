@@ -41,25 +41,29 @@ static void x264_write_dct_vlc_mpeg2( x264_t *h, dctcoef *l, int intra_tab )
 
     /* minus one because runlevel is zero-indexed and backwards */
     i_total = h->quantf.coeff_level_run[DCT_LUMA_8x8]( l, &runlevel ) - 1;
-    if( !inter && runlevel.run[i_total] )
-        runlevel.run[i_total]--; // compensate for the DC coefficient set to zero
+    uint64_t mask = runlevel.mask64;
+    int prev = inter ? -1 : 0; // compensate for the DC coefficient set to zero
 
     for( int i = i_total; i >= 0 && ( runlevel.last > 0 || inter ); i-- )
     {
-        if( abs( runlevel.level[i] ) <= 40 && runlevel.run[i] <= dct_vlc_largest_run[abs( runlevel.level[i] )] )
+        int pos = x264_ctz64( mask );
+        mask &= mask - 1;
+        int run = pos - prev - 1;
+        prev = pos;
+        if( abs( runlevel.level[i] ) <= 40 && run <= dct_vlc_largest_run[abs( runlevel.level[i] )] )
         {
             /* special case in table B.14 for abs(DC) == 1 */
-            if( i == i_total && runlevel.run[i] == 0 &&
+            if( i == i_total && run == 0 &&
                 ( runlevel.level[i] == 1 || runlevel.level[i] == -1 ) && inter )
                 bs_write1( s, 1 );
             else
-                bs_write_vlc( s, dct_vlcs[intra_tab][abs( runlevel.level[i] )][runlevel.run[i]] );
+                bs_write_vlc( s, dct_vlcs[intra_tab][abs( runlevel.level[i] )][run] );
             bs_write1( s, runlevel.level[i] < 0 );
         }
         else
         {
             bs_write_vlc( s, dct_vlcs[h->param.b_alt_intra_vlc][0][1] ); // escape
-            bs_write( s, 6, runlevel.run[i] );
+            bs_write( s, 6, run );
             bs_write( s, 12, runlevel.level[i] & ((1<<12)-1) ); // convert to 12-bit signed
         }
     }
