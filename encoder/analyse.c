@@ -380,6 +380,53 @@ static void mb_analyse_init_qp( x264_t *h, x264_mb_analysis_t *a, int qp )
     h->mb.i_chroma_qp = h->chroma_qp_table[qp];
 }
 
+/* Vertical MV search bounds; depends on MB_INTERLACED, so re-run after a field switch. */
+static void mb_analyse_mv_range_y( x264_t *h )
+{
+    if( PARAM_INTERLACED )
+    {
+        int i = MB_INTERLACED ? 2 : h->mb.i_mb_y&1;
+        h->mb.mv_min[1] = h->mb.mv_miny_row[i];
+        h->mb.mv_max[1] = h->mb.mv_maxy_row[i];
+        h->mb.mv_min_spel[1] = h->mb.mv_miny_spel_row[i];
+        h->mb.mv_max_spel[1] = h->mb.mv_maxy_spel_row[i];
+        h->mb.mv_limit_fpel[0][1] = h->mb.mv_miny_fpel_row[i];
+        h->mb.mv_limit_fpel[1][1] = h->mb.mv_maxy_fpel_row[i];
+    }
+
+    if( MPEG2 )
+    {
+        /* MPEG-2 MVs must reference only pixels inside the coded picture.
+         * Tighten the spel search bounds to the true frame edge so ME never
+         * evaluates an out-of-frame MV (X264_MAX/MIN keeps i_fpel_border).
+         * Field MBs use field coordinates: a 16-pel MB row is 32 spel. */
+        int mvy_scale = MB_INTERLACED ? 32 : 64;
+        h->mb.mv_min_spel[0] = X264_MAX( h->mb.mv_min_spel[0], -64*h->mb.i_mb_x );
+        h->mb.mv_max_spel[0] = X264_MIN( h->mb.mv_max_spel[0], 64*(h->mb.i_mb_width-h->mb.i_mb_x-1) );
+        h->mb.mv_min_spel[1] = X264_MAX( h->mb.mv_min_spel[1], -mvy_scale*h->mb.i_mb_y );
+        h->mb.mv_max_spel[1] = X264_MIN( h->mb.mv_max_spel[1], mvy_scale*(h->mb.i_mb_height-h->mb.i_mb_y-1) );
+        /* Round spel inward to even so a clamp to the bound can never be odd. */
+        h->mb.mv_min_spel[0] = (h->mb.mv_min_spel[0] + 1) & ~1;
+        h->mb.mv_max_spel[0] = h->mb.mv_max_spel[0] & ~1;
+        h->mb.mv_min_spel[1] = (h->mb.mv_min_spel[1] + 1) & ~1;
+        h->mb.mv_max_spel[1] = h->mb.mv_max_spel[1] & ~1;
+        h->mb.mv_limit_fpel[0][0] = X264_MAX( h->mb.mv_limit_fpel[0][0], h->mb.mv_min_spel[0]>>2 );
+        h->mb.mv_limit_fpel[1][0] = X264_MIN( h->mb.mv_limit_fpel[1][0], h->mb.mv_max_spel[0]>>2 );
+        h->mb.mv_limit_fpel[0][1] = X264_MAX( h->mb.mv_limit_fpel[0][1], h->mb.mv_min_spel[1]>>2 );
+        h->mb.mv_limit_fpel[1][1] = X264_MIN( h->mb.mv_limit_fpel[1][1], h->mb.mv_max_spel[1]>>2 );
+    }
+}
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* Switch the current MB between frame and field coding for the MPEG-2 adaptive decision. */
+static void x264_mb_switch_field_mpeg2( x264_t *h, int b_field )
+{
+    h->mb.b_interlaced = b_field;
+    x264_mb_setup_fref_mpeg2( h, b_field );
+    mb_analyse_mv_range_y( h );
+}
+#endif
+
 static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
 {
     int subme = h->param.analyse.i_subpel_refine - (h->sh.i_type == SLICE_TYPE_B);
@@ -492,38 +539,7 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
                 h->mb.mv_limit_fpel[1][1] = (h->mb.mv_max_spel[1]>>2) - i_fpel_border;
             }
         }
-        if( PARAM_INTERLACED )
-        {
-            int i = MB_INTERLACED ? 2 : h->mb.i_mb_y&1;
-            h->mb.mv_min[1] = h->mb.mv_miny_row[i];
-            h->mb.mv_max[1] = h->mb.mv_maxy_row[i];
-            h->mb.mv_min_spel[1] = h->mb.mv_miny_spel_row[i];
-            h->mb.mv_max_spel[1] = h->mb.mv_maxy_spel_row[i];
-            h->mb.mv_limit_fpel[0][1] = h->mb.mv_miny_fpel_row[i];
-            h->mb.mv_limit_fpel[1][1] = h->mb.mv_maxy_fpel_row[i];
-        }
-
-        if( MPEG2 )
-        {
-            /* MPEG-2 MVs must reference only pixels inside the coded picture.
-             * Tighten the spel search bounds to the true frame edge so ME never
-             * evaluates an out-of-frame MV (X264_MAX/MIN keeps i_fpel_border).
-             * Field MBs use field coordinates: a 16-pel MB row is 32 spel. */
-            int mvy_scale = MB_INTERLACED ? 32 : 64;
-            h->mb.mv_min_spel[0] = X264_MAX( h->mb.mv_min_spel[0], -64*h->mb.i_mb_x );
-            h->mb.mv_max_spel[0] = X264_MIN( h->mb.mv_max_spel[0], 64*(h->mb.i_mb_width-h->mb.i_mb_x-1) );
-            h->mb.mv_min_spel[1] = X264_MAX( h->mb.mv_min_spel[1], -mvy_scale*h->mb.i_mb_y );
-            h->mb.mv_max_spel[1] = X264_MIN( h->mb.mv_max_spel[1], mvy_scale*(h->mb.i_mb_height-h->mb.i_mb_y-1) );
-            /* Round spel inward to even so a clamp to the bound can never be odd. */
-            h->mb.mv_min_spel[0] = (h->mb.mv_min_spel[0] + 1) & ~1;
-            h->mb.mv_max_spel[0] = h->mb.mv_max_spel[0] & ~1;
-            h->mb.mv_min_spel[1] = (h->mb.mv_min_spel[1] + 1) & ~1;
-            h->mb.mv_max_spel[1] = h->mb.mv_max_spel[1] & ~1;
-            h->mb.mv_limit_fpel[0][0] = X264_MAX( h->mb.mv_limit_fpel[0][0], h->mb.mv_min_spel[0]>>2 );
-            h->mb.mv_limit_fpel[1][0] = X264_MIN( h->mb.mv_limit_fpel[1][0], h->mb.mv_max_spel[0]>>2 );
-            h->mb.mv_limit_fpel[0][1] = X264_MAX( h->mb.mv_limit_fpel[0][1], h->mb.mv_min_spel[1]>>2 );
-            h->mb.mv_limit_fpel[1][1] = X264_MIN( h->mb.mv_limit_fpel[1][1], h->mb.mv_max_spel[1]>>2 );
-        }
+        mb_analyse_mv_range_y( h );
 
         a->l0.me16x16.cost =
         a->l0.i_rd16x16    =
@@ -1518,6 +1534,9 @@ static void mb_analyse_inter_p16x16( x264_t *h, x264_mb_analysis_t *a )
             quant = 0;
         if( mcoded || coded )
             a->l0.me16x16.cost += a->i_lambda * x264_p_mb_type[mcoded][coded][quant].i_size;
+        /* frame motion_type is 2 bits, transmitted only when interlaced and motion-coded */
+        if( mcoded && (PARAM_INTERLACED || h->param.b_fake_interlaced) )
+            a->l0.me16x16.cost += a->i_lambda * 2;
     }
 #endif
 
@@ -1602,6 +1621,16 @@ static void x264_mb_analyse_inter_p16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
     h->mb.pic.i_fref[0] = h->i_ref[0];
 
     a->l0.me16x16.cost = a->l0.me16x8[0].cost + a->l0.me16x8[1].cost;
+
+    /* Charge mb_type + the 2 motion_type bits (field MBs are always motion-coded) to match
+     * the frame p16x16 costing; the 2 field-select bits are already in i_ref_cost. */
+    int residual = a->l0.me16x16.cost - a->l0.me16x8[0].cost_mv - a->l0.me16x8[1].cost_mv;
+    int coded  = residual > a->i_lambda * 64;
+    int quant  = h->mb.i_last_qp != a->i_qp && h->mb.i_mb_x;
+    if( quant && !coded )
+        quant = 0;
+    a->l0.me16x16.cost += a->i_lambda * ( x264_p_mb_type[1][coded][quant].i_size + 2 );
+
     h->mb.i_type = P_L0;
 }
 #endif
@@ -3440,7 +3469,25 @@ skip_analysis:
 
             mb_analyse_load_costs( h, &analysis );
 
+            /* MPEG-2 adaptive field/frame: evaluate the field cost, then the frame cascade,
+             * and pick the cheaper. Gated to the RD tier because the SATD field cost is
+             * approximate (frame-arranged fenc vs plane_fld at frame stride); below it the
+             * MB stays frame-coded. subme 0 is non-adaptive and stays all-field. */
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+            int b_mpeg2_adaptive = MPEG2 && PARAM_INTERLACED && h->mb.b_adaptive_mbaff && analysis.i_mbrd;
+            int cost_field = COST_MAX;
+            x264_me_t me16x8_field[2];
+
+            if( b_mpeg2_adaptive )
+            {
+                x264_mb_switch_field_mpeg2( h, 1 );
+                x264_mb_analyse_inter_p16x8_mpeg2( h, &analysis );
+                cost_field = analysis.l0.me16x16.cost;
+                h->mc.memcpy_aligned( &me16x8_field[0], &analysis.l0.me16x8[0], sizeof(x264_me_t) );
+                h->mc.memcpy_aligned( &me16x8_field[1], &analysis.l0.me16x8[1], sizeof(x264_me_t) );
+                x264_mb_switch_field_mpeg2( h, 0 );
+            }
+
             if( MPEG2 && MB_INTERLACED )
                 x264_mb_analyse_inter_p16x8_mpeg2( h, &analysis );
             else
@@ -3521,6 +3568,20 @@ skip_analysis:
                 mb_analyse_inter_p8x16( h, &analysis, i_cost );
                 COPY3_IF_LT( i_cost, analysis.l0.i_cost8x16, i_type, P_L0, i_partition, D_8x16 );
             }
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+            if( b_mpeg2_adaptive && cost_field < i_cost )
+            {
+                x264_mb_switch_field_mpeg2( h, 1 );
+                h->mc.memcpy_aligned( &analysis.l0.me16x8[0], &me16x8_field[0], sizeof(x264_me_t) );
+                h->mc.memcpy_aligned( &analysis.l0.me16x8[1], &me16x8_field[1], sizeof(x264_me_t) );
+                x264_macroblock_cache_ref( h, 0, 0, 4, 2, 0, analysis.l0.me16x8[0].i_ref );
+                x264_macroblock_cache_ref( h, 0, 2, 4, 2, 0, analysis.l0.me16x8[1].i_ref );
+                i_cost = cost_field;
+                i_type = P_L0;
+                i_partition = D_16x8;
+            }
+#endif
 
             h->mb.i_partition = i_partition;
 
@@ -3790,6 +3851,28 @@ skip_analysis:
 
             mb_analyse_load_costs( h, &analysis );
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+            /* MPEG-2 adaptive field/frame (B slice); mirrors the P-slice path above. */
+            int b_mpeg2_adaptive = MPEG2 && PARAM_INTERLACED && h->mb.b_adaptive_mbaff && analysis.i_mbrd;
+            int cost_field = COST_MAX, type_field = B_L0_L0;
+            x264_me_t me16x8_field[2][2];
+
+            if( b_mpeg2_adaptive )
+            {
+                x264_mb_switch_field_mpeg2( h, 1 );
+                x264_mb_analyse_inter_b16x8_mpeg2( h, &analysis );
+                cost_field = analysis.l0.me16x16.cost;
+                type_field = B_L0_L0;
+                COPY2_IF_LT( cost_field, analysis.l1.me16x16.cost, type_field, B_L1_L1 );
+                COPY2_IF_LT( cost_field, analysis.i_cost16x16bi, type_field, B_BI_BI );
+                h->mc.memcpy_aligned( &me16x8_field[0][0], &analysis.l0.me16x8[0], sizeof(x264_me_t) );
+                h->mc.memcpy_aligned( &me16x8_field[0][1], &analysis.l0.me16x8[1], sizeof(x264_me_t) );
+                h->mc.memcpy_aligned( &me16x8_field[1][0], &analysis.l1.me16x8[0], sizeof(x264_me_t) );
+                h->mc.memcpy_aligned( &me16x8_field[1][1], &analysis.l1.me16x8[1], sizeof(x264_me_t) );
+                x264_mb_switch_field_mpeg2( h, 0 );
+            }
+#endif
+
             /* select best inter mode */
             /* direct must be first */
             if( analysis.b_direct_available )
@@ -3901,6 +3984,20 @@ skip_analysis:
                     COPY3_IF_LT( i_cost, analysis.i_cost16x8bi, i_type, analysis.i_mb_type16x8, i_partition, D_16x8 );
                 }
             }
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+            if( b_mpeg2_adaptive && cost_field < i_cost )
+            {
+                x264_mb_switch_field_mpeg2( h, 1 );
+                h->mc.memcpy_aligned( &analysis.l0.me16x8[0], &me16x8_field[0][0], sizeof(x264_me_t) );
+                h->mc.memcpy_aligned( &analysis.l0.me16x8[1], &me16x8_field[0][1], sizeof(x264_me_t) );
+                h->mc.memcpy_aligned( &analysis.l1.me16x8[0], &me16x8_field[1][0], sizeof(x264_me_t) );
+                h->mc.memcpy_aligned( &analysis.l1.me16x8[1], &me16x8_field[1][1], sizeof(x264_me_t) );
+                i_cost = cost_field;
+                i_type = type_field;
+                i_partition = D_16x8;
+            }
+#endif
 
             if( analysis.i_mbrd || !h->mb.i_subpel_refine )
             {
