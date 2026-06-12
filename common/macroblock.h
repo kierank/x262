@@ -342,6 +342,9 @@ void x264_mb_predict_mv_16x16( x264_t *h, int i_list, int i_ref, int16_t mvp[2] 
  *      set mvp with predicted mv for D_16x8 block
  *      h->mb. need only valid values from other blocks */
 void x264_mb_predict_mv_16x8_mpeg2( x264_t *h, int i_list, int i_ref, int16_t mvp[2], int field );
+/* x264_mb_setup_fref_mpeg2:
+ *      rebuild reference-plane pointers for frame (0) or field (1) mode */
+void x264_mb_setup_fref_mpeg2( x264_t *h, int b_field );
 #endif
 /* x264_mb_predict_mv_pskip:
  *      set mvp with predicted mv for P_SKIP
