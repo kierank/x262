@@ -1544,7 +1544,19 @@ static void x264_mb_analyse_inter_p16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
     int i_mvc;
     ALIGNED_4( int16_t mvc[8][2] );
     int i_halfpel_thresh = INT_MAX;
-    int *p_halfpel_thresh = (a->b_early_terminate && h->mb.pic.i_fref[0]>1) ? &i_halfpel_thresh : NULL;
+
+    /* Set up p_fref[0][1] to point to the bottom field (top field + one row). */
+    intptr_t i_stride = h->mb.pic.i_stride[0];
+    for( int k = 0; k < 4; k++ )
+        h->mb.pic.p_fref[0][1][k] = h->mb.pic.p_fref[0][0][k] + i_stride;
+    if( CHROMA_FORMAT )
+        h->mb.pic.p_fref[0][1][4] = h->mb.pic.p_fref[0][0][4] + h->mb.pic.i_stride[1];
+    h->mb.pic.p_fref_w[1] = h->mb.pic.p_fref_w[0] + i_stride;
+    if( h->fdec->integral )
+        h->mb.pic.p_integral[0][1] = h->mb.pic.p_integral[0][0] + i_stride;
+    h->mb.pic.i_fref[0] = 2;
+
+    int *p_halfpel_thresh = (a->b_early_terminate) ? &i_halfpel_thresh : NULL;
 
     /* For 16x8 Search for each field of a MB in MBAFF case*/
     m.i_pixel = PIXEL_16x8;
@@ -1555,7 +1567,7 @@ static void x264_mb_analyse_inter_p16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
         a->l0.me16x8[idx_16x8].cost = INT_MAX;
         for( int i_ref = 0; i_ref < h->mb.pic.i_fref[0]; i_ref++ )
         {
-            m.i_ref_cost = REF_COST( 0, i_ref );
+            m.i_ref_cost = a->i_lambda;  /* motion_vertical_field_select: 1 bit */
             i_halfpel_thresh -= m.i_ref_cost;
 
             /* search with ref */
@@ -1586,6 +1598,8 @@ static void x264_mb_analyse_inter_p16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
 
     x264_macroblock_cache_ref( h, 0, 0, 4, 2, 0, a->l0.me16x8[0].i_ref );
     x264_macroblock_cache_ref( h, 0, 2, 4, 2, 0, a->l0.me16x8[1].i_ref );
+
+    h->mb.pic.i_fref[0] = h->i_ref[0];
 
     a->l0.me16x16.cost = a->l0.me16x8[0].cost + a->l0.me16x8[1].cost;
     h->mb.i_type = P_L0;
@@ -2568,8 +2582,21 @@ static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
     int i_ref, i_mvc;
     ALIGNED_4( int16_t mvc[9][2] );
     int i_halfpel_thresh[2] = {INT_MAX, INT_MAX};
-    int *p_halfpel_thresh[2] = {(a->b_early_terminate && h->mb.pic.i_fref[0]>1) ? &i_halfpel_thresh[0] : NULL,
-                                (a->b_early_terminate && h->mb.pic.i_fref[1]>1) ? &i_halfpel_thresh[1] : NULL};
+    /* Set up p_fref[l][1] to point to the bottom field (top field + one row). */
+    intptr_t i_stride = h->mb.pic.i_stride[0];
+    for( int l = 0; l < 2; l++ )
+    {
+        for( int k = 0; k < 4; k++ )
+            h->mb.pic.p_fref[l][1][k] = h->mb.pic.p_fref[l][0][k] + i_stride;
+        if( CHROMA_FORMAT )
+            h->mb.pic.p_fref[l][1][4] = h->mb.pic.p_fref[l][0][4] + h->mb.pic.i_stride[1];
+        if( h->fdec->integral )
+            h->mb.pic.p_integral[l][1] = h->mb.pic.p_integral[l][0] + i_stride;
+        h->mb.pic.i_fref[l] = 2;
+    }
+
+    int *p_halfpel_thresh[2] = {a->b_early_terminate ? &i_halfpel_thresh[0] : NULL,
+                                a->b_early_terminate ? &i_halfpel_thresh[1] : NULL};
     x264_me_t m;
     m.i_pixel = PIXEL_16x8;
 
@@ -2586,7 +2613,7 @@ static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
 
             for( i_ref = 0; i_ref < h->mb.pic.i_fref[l]; i_ref++ )
             {
-                m.i_ref_cost = REF_COST( l, i_ref );
+                m.i_ref_cost = a->i_lambda;  /* motion_vertical_field_select: 1 bit */
 
                 /* search with ref */
                 m.i_stride[0] >>= 1;
@@ -2617,8 +2644,7 @@ static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
     a->l1.me16x16.cost = a->l1.me16x8[0].cost + a->l1.me16x8[1].cost;
 
     /* get cost of BI mode */
-    int ref_costs = REF_COST( 0, a->l0.me16x8[0].i_ref ) + REF_COST( 0, a->l0.me16x8[1].i_ref )
-                    + REF_COST( 1, a->l1.me16x8[0].i_ref ) + REF_COST( 1, a->l1.me16x8[1].i_ref );
+    int ref_costs = 4 * a->i_lambda;  /* 4 × motion_vertical_field_select bits */
     for( int idx_16x8 = 0; idx_16x8 < 2; idx_16x8++ )
     {
         stride0 = 16; stride1 = 16;
@@ -2648,6 +2674,9 @@ static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
     a->i_cost16x16bi   += a->i_lambda * x264_b_mb_type[2][coded][quant].i_size;
     a->l0.me16x16.cost += a->i_lambda * x264_b_mb_type[0][coded][quant].i_size;
     a->l1.me16x16.cost += a->i_lambda * x264_b_mb_type[1][coded][quant].i_size;
+
+    h->mb.pic.i_fref[0] = h->i_ref[0];
+    h->mb.pic.i_fref[1] = h->i_ref[1];
 }
 #endif
 
