@@ -173,7 +173,7 @@ static int rd_cost_mb( x264_t *h, int i_lambda2 )
     int type_bak = h->mb.i_type;
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
     int i_intra_dc_predictor_bak[8];
-    int16_t mvp[2][2][2];
+    ALIGNED_8( int16_t mvp[2][2][2] );
     if( MPEG2 )
     {
         memcpy( i_intra_dc_predictor_bak, h->mb.i_intra_dc_predictor, sizeof(i_intra_dc_predictor_bak) );

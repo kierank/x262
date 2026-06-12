@@ -622,7 +622,7 @@ struct x264_t
         int     i_dct_dc_size[8];
         int     i_dct_dc_diff[8];
         int     i_bskip_type;
-        int16_t mvp[2][2][2];
+        ALIGNED_8( int16_t mvp[2][2][2] );
         int     i_cbp_chroma422;
 #endif
 
