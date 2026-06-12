@@ -634,9 +634,9 @@ static const uint8_t mpeg2_decimate_table_intra[64] = {
 /* Walk dct8x8 in reverse zigzag order; if every non-zero coefficient from the
  * last coded position down to stop is ±1, zero them all and return 1.
  * stop=1 for intra (protects DC at position 0), stop=0 for inter. */
-static int mpeg2_decimate_trailing_ones( dctcoef dct[64], int b_intra, int b_interlaced )
+static int mpeg2_decimate_trailing_ones( dctcoef dct[64], int b_intra, int b_alternate_scan )
 {
-    const uint8_t *zigzag_to_flat = b_interlaced ? x264_zigzag_field_mpeg2_to_flat : x264_zigzag_frame_to_flat;
+    const uint8_t *zigzag_to_flat = b_alternate_scan ? x264_zigzag_field_mpeg2_to_flat : x264_zigzag_frame_to_flat;
     const uint8_t *ds_table = b_intra ? mpeg2_decimate_table_intra : mpeg2_decimate_table_inter;
     int stop = b_intra ? 1 : 0;
     int i_score = 0;
@@ -713,7 +713,7 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
     nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8IY+chroma422][i_qp],
                               h->quant8_bias[CQM_8IY+chroma422][i_qp] );
 
-    if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 1, h->mb.b_interlaced ) )
+    if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 1, h->param.b_alternate_scan ) )
         nz = !!dct8x8[0];
 
     // DC prediction
@@ -795,7 +795,7 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
 
     int nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8PY+chroma422][i_qp],
                                           h->quant8_bias[CQM_8PY+chroma422][i_qp] );
-    if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 0, h->mb.b_interlaced ) )
+    if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 0, h->param.b_alternate_scan ) )
         nz = 0;
     if( nz )
     {
