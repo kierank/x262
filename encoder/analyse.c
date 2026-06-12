@@ -390,6 +390,10 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
     a->i_mbrd = (subme>=6) + (subme>=8) + (h->param.analyse.i_subpel_refine>=10);
     h->mb.b_deblock_rdo = h->param.analyse.i_subpel_refine >= 9 && h->sh.i_disable_deblocking_filter_idc != 1;
     a->b_early_terminate = h->param.analyse.i_subpel_refine < 11;
+    a->i_mb_partition16x8[0] =
+    a->i_mb_partition16x8[1] =
+    a->i_mb_partition8x16[0] =
+    a->i_mb_partition8x16[1] = 0;
 
     mb_analyse_init_qp( h, a, qp );
 
