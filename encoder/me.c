@@ -1012,8 +1012,8 @@ static void refine_subpel( x264_t *h, x264_me_t *m, int hpel_iters, int qpel_ite
 {\
     x264_me_t *m = m##list;\
     int i = 4 + 3*dx + dy;\
-    int mvx = bm##list##x+dx;\
-    int mvy = bm##list##y+dy;\
+    int mvx = bm##list##x+(dx)*offset;\
+    int mvy = bm##list##y+(dy)*offset;\
     stride[0][list][i] = bw;\
     src[0][list][i] = h->mc.get_ref( pixy_buf[list][i], &stride[0][list][i], &m->p_fref[0],\
                                      m->i_stride[0], mvx, mvy, bw, bh, x264_weight_none );\
@@ -1043,9 +1043,7 @@ int x264_iter_kludge = 0;
 
 static ALWAYS_INLINE void me_refine_bidir( x264_t *h, x264_me_t *m0, x264_me_t *m1, int i_weight, int i8, int i_lambda2, int rd )
 {
-    if( MPEG2 )
-        return;
-
+    int offset = MPEG2 ? 2 : 1;
     int x = i8&1;
     int y = i8>>1;
     int s8 = X264_SCAN8_0 + 2*x + 16*y;
@@ -1094,10 +1092,10 @@ static ALWAYS_INLINE void me_refine_bidir( x264_t *h, x264_me_t *m0, x264_me_t *
         {0,-1,0,1},{0,1,0,-1}, {-1,0,1,0},{1,0,-1,0},
     };
 
-    if( bm0y < h->mb.mv_min_spel[1] + 8 || bm1y < h->mb.mv_min_spel[1] + 8 ||
-        bm0y > h->mb.mv_max_spel[1] - 8 || bm1y > h->mb.mv_max_spel[1] - 8 ||
-        bm0x < h->mb.mv_min_spel[0] + 8 || bm1x < h->mb.mv_min_spel[0] + 8 ||
-        bm0x > h->mb.mv_max_spel[0] - 8 || bm1x > h->mb.mv_max_spel[0] - 8 )
+    if( bm0y < h->mb.mv_min_spel[1] + 8*offset || bm1y < h->mb.mv_min_spel[1] + 8*offset ||
+        bm0y > h->mb.mv_max_spel[1] - 8*offset || bm1y > h->mb.mv_max_spel[1] - 8*offset ||
+        bm0x < h->mb.mv_min_spel[0] + 8*offset || bm1x < h->mb.mv_min_spel[0] + 8*offset ||
+        bm0x > h->mb.mv_max_spel[0] - 8*offset || bm1x > h->mb.mv_max_spel[0] - 8*offset )
         return;
 
     if( rd && m0->i_pixel != PIXEL_16x16 && i8 != 0 )
@@ -1130,10 +1128,10 @@ static ALWAYS_INLINE void me_refine_bidir( x264_t *h, x264_me_t *m0, x264_me_t *
 
         for( int j = !!pass; j < 33; j++ )
         {
-            int m0x = dia4d[j][0] + bm0x;
-            int m0y = dia4d[j][1] + bm0y;
-            int m1x = dia4d[j][2] + bm1x;
-            int m1y = dia4d[j][3] + bm1y;
+            int m0x = dia4d[j][0]*offset + bm0x;
+            int m0y = dia4d[j][1]*offset + bm0y;
+            int m1x = dia4d[j][2]*offset + bm1x;
+            int m1y = dia4d[j][3]*offset + bm1y;
             if( !pass || !((visited[(m0x)&7][(m0y)&7][(m1x)&7] & (1<<((m1y)&7)))) )
             {
                 int i0 = 4 + 3*dia4d[j][0] + dia4d[j][1];
@@ -1171,10 +1169,10 @@ static ALWAYS_INLINE void me_refine_bidir( x264_t *h, x264_me_t *m0, x264_me_t *
         if( !bestj )
             break;
 
-        bm0x += dia4d[bestj][0];
-        bm0y += dia4d[bestj][1];
-        bm1x += dia4d[bestj][2];
-        bm1y += dia4d[bestj][3];
+        bm0x += dia4d[bestj][0]*offset;
+        bm0y += dia4d[bestj][1]*offset;
+        bm1x += dia4d[bestj][2]*offset;
+        bm1y += dia4d[bestj][3]*offset;
 
         mc_list0 = M16( &dia4d[bestj][0] );
         mc_list1 = M16( &dia4d[bestj][2] );
