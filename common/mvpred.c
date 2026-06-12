@@ -606,7 +606,7 @@ void x264_mb_predict_mv_ref16x16( x264_t *h, int i_list, int i_ref, int16_t (*mv
         x264_frame_t *l0 = h->fref[0][0];
         int field = h->mb.i_mb_y&1;
         int curpoc = h->fdec->i_poc + h->fdec->i_delta_poc[field];
-        int refpoc = h->fref[i_list][i_ref>>SLICE_MBAFF]->i_poc;
+        int refpoc = h->fref[i_list][MPEG2 ? 0 : i_ref>>SLICE_MBAFF]->i_poc;
         refpoc += l0->i_delta_poc[field^(i_ref&1)];
 
 #define SET_TMVP( dx, dy ) \
