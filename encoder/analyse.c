@@ -4402,7 +4402,7 @@ static void analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
                 x264_macroblock_cache_mv_ptr( h, 0, 2, 4, 2, 1, a->l1.me16x8[1].mv );
             }
         }
-        else
+        else if( h->mb.i_type == P_L0 || h->mb.i_type == B_L0_L0 || h->mb.i_type == B_L1_L1 )
         {
             x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 0, a->l0.me16x16.mv );
             if( h->mb.i_type != P_L0 )
