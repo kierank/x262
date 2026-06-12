@@ -1043,6 +1043,9 @@ int x264_iter_kludge = 0;
 
 static ALWAYS_INLINE void me_refine_bidir( x264_t *h, x264_me_t *m0, x264_me_t *m1, int i_weight, int i8, int i_lambda2, int rd )
 {
+    if( MPEG2 )
+        return;
+
     int x = i8&1;
     int y = i8>>1;
     int s8 = X264_SCAN8_0 + 2*x + 16*y;
