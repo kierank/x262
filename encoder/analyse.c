@@ -445,6 +445,8 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
     mb_analyse_init_qp( h, a, qp );
 
     h->mb.b_transform_8x8 = 0;
+    if( MPEG2 )
+        h->mb.b_field_dct = 0;
 
     /* I: Intra part */
     a->i_satd_i16x16 =
@@ -3202,6 +3204,47 @@ static inline void mb_analyse_transform( x264_t *h )
     }
 }
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* Fast-tier MPEG-2 field/frame DCT decision: choose field DCT when the luma residual is
+ * more vertically correlated within a field than across adjacent (interleaved) lines —
+ * the classic Σ|r(y)−r(y+1)| frame vs Σ|r(y)−r(y+2)| field heuristic. Intra MBs use fenc
+ * directly (MPEG-2 intra prediction is a flat DC fill, so residual structure == source). */
+static void mb_analyse_dct_type_mpeg2( x264_t *h )
+{
+    pixel *fenc = h->mb.pic.p_fenc[0];
+    pixel *fdec = h->mb.pic.p_fdec[0];
+    int b_intra = IS_INTRA( h->mb.i_type );
+
+    if( !b_intra )
+    {
+        x264_mb_mc( h );
+        h->mb.b_skip_mc = 1;
+    }
+
+    int frame_cost = 0, field_cost = 0;
+    for( int y = 0; y < 16; y++ )
+        for( int x = 0; x < 16; x++ )
+        {
+            int r  = b_intra ? fenc[y*FENC_STRIDE+x]
+                             : fenc[y*FENC_STRIDE+x] - fdec[y*FDEC_STRIDE+x];
+            if( y < 15 )
+            {
+                int rf = b_intra ? fenc[(y+1)*FENC_STRIDE+x]
+                                 : fenc[(y+1)*FENC_STRIDE+x] - fdec[(y+1)*FDEC_STRIDE+x];
+                frame_cost += abs( r - rf );
+            }
+            if( y < 14 )
+            {
+                int rg = b_intra ? fenc[(y+2)*FENC_STRIDE+x]
+                                 : fenc[(y+2)*FENC_STRIDE+x] - fdec[(y+2)*FDEC_STRIDE+x];
+                field_cost += abs( r - rg );
+            }
+        }
+
+    h->mb.b_field_dct = field_cost < frame_cost;
+}
+#endif
+
 static inline void mb_analyse_transform_rd( x264_t *h, x264_mb_analysis_t *a, int *i_satd, int *i_rd )
 {
     if( h->param.analyse.b_transform_8x8 && h->pps->b_transform_8x8_mode )
@@ -4346,6 +4389,11 @@ skip_analysis:
 
     if( !analysis.i_mbrd )
         mb_analyse_transform( h );
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && (PARAM_INTERLACED || h->param.b_fake_interlaced) && !analysis.i_mbrd && !IS_SKIP(h->mb.i_type) )
+        mb_analyse_dct_type_mpeg2( h );
+#endif
 
     if( analysis.i_mbrd == 3 && !IS_SKIP(h->mb.i_type) )
         mb_analyse_qp_rd( h, &analysis );

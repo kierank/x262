@@ -683,28 +683,39 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
     int chroma422 = ( CHROMA_FORMAT == CHROMA_422 && idx > 3 ) ? 2 : 0;
     int chroma = idx > 3 ? 1 : 0;
 
+    int b_field = h->mb.b_field_dct;
     int x = idx&1;
     if( idx < 4 )
     {
+        /* field DCT splits the luma block into same-field lines: idx>>1 selects the
+         * field (top/bottom = base / base+STRIDE), then walk at doubled stride. */
         int y = idx>>1;
-        p_src = &h->mb.pic.p_fenc[0][8*x + 8*y*FENC_STRIDE];
-        p_dst = &h->mb.pic.p_fdec[0][8*x + 8*y*FDEC_STRIDE];
+        int off = b_field ? 8*x + y*FENC_STRIDE : 8*x + 8*y*FENC_STRIDE;
+        int off_d = b_field ? 8*x + y*FDEC_STRIDE : 8*x + 8*y*FDEC_STRIDE;
+        p_src = &h->mb.pic.p_fenc[0][off];
+        p_dst = &h->mb.pic.p_fdec[0][off_d];
         cur_dc_predictor = idx == 0 ? h->mb.i_intra_dc_predictor[3] : h->mb.i_intra_dc_predictor[idx-1];
     }
     else if( idx < 6)
     {
+        /* 4:2:2 field DCT splits the 8x16 chroma into upper/lower field blocks too;
+         * 4:2:0 chroma (no idx 6,7) is always frame-organized. */
         p_src = h->mb.pic.p_fenc[1+x];
         p_dst = h->mb.pic.p_fdec[1+x];
         cur_dc_predictor = h->mb.i_intra_dc_predictor[4+x+chroma422];
     }
     else // CHROMA_422
     {
-        p_src = &h->mb.pic.p_fenc[1+x][8*FENC_STRIDE];
-        p_dst = &h->mb.pic.p_fdec[1+x][8*FDEC_STRIDE];
+        p_src = &h->mb.pic.p_fenc[1+x][(b_field ? 1 : 8)*FENC_STRIDE];
+        p_dst = &h->mb.pic.p_fdec[1+x][(b_field ? 1 : 8)*FDEC_STRIDE];
         cur_dc_predictor = h->mb.i_intra_dc_predictor[4+x];
     }
 
-    h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
+    int b_field_block = b_field && (idx < 4 || chroma422);
+    if( b_field_block )
+        h->dctf.sub8x8_dct8_field( dct8x8, p_src, p_dst );
+    else
+        h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
 
     h->nr_count[chroma] += h->mb.b_noise_reduction;
     if( h->mb.b_noise_reduction)
@@ -731,17 +742,21 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
 
     if( nz )
     {
+        int fdec_stride = b_field_block ? FDEC_STRIDE<<1 : FDEC_STRIDE;
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
         h->quantf.dequant_mpeg2_intra( dct8x8, h->dequant8_mf[CQM_8IY+chroma422][i_qp],
                                        h->param.i_intra_dc_precision );
         pixel saved[64];
         for( int y = 0; y < 8; y++ )
-            memcpy( saved + 8*y, p_dst + y*FDEC_STRIDE, 8 * sizeof(pixel) );
-        h->dctf.add8x8_idct8( p_dst, dct8x8 );
+            memcpy( saved + 8*y, p_dst + y*fdec_stride, 8 * sizeof(pixel) );
+        if( b_field_block )
+            h->dctf.add8x8_idct8_field( p_dst, dct8x8 );
+        else
+            h->dctf.add8x8_idct8( p_dst, dct8x8 );
         int diff = 0;
         for( int y = 0; y < 8; y++ )
             for( int col = 0; col < 8; col++ )
-                diff |= saved[8*y+col] ^ p_dst[y*FDEC_STRIDE+col];
+                diff |= saved[8*y+col] ^ p_dst[y*fdec_stride+col];
         if( diff )
         {
             if( idx < 4 )
@@ -770,12 +785,15 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
     int chroma422 = ( CHROMA_FORMAT == CHROMA_422 && idx > 3 ) ? 2 : 0;
     int chroma = idx > 3 ? 1 : 0;
 
+    int b_field = h->mb.b_field_dct;
     int x = idx&1;
     if( idx < 4 )
     {
         int y = idx>>1;
-        p_src = &h->mb.pic.p_fenc[0][8*x + 8*y*FENC_STRIDE];
-        p_dst = &h->mb.pic.p_fdec[0][8*x + 8*y*FDEC_STRIDE];
+        int off = b_field ? 8*x + y*FENC_STRIDE : 8*x + 8*y*FENC_STRIDE;
+        int off_d = b_field ? 8*x + y*FDEC_STRIDE : 8*x + 8*y*FDEC_STRIDE;
+        p_src = &h->mb.pic.p_fenc[0][off];
+        p_dst = &h->mb.pic.p_fdec[0][off_d];
     }
     else if( idx < 6 )
     {
@@ -784,10 +802,15 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
     }
     else // CHROMA_422
     {
-        p_src = &h->mb.pic.p_fenc[1+x][8*FENC_STRIDE];
-        p_dst = &h->mb.pic.p_fdec[1+x][8*FDEC_STRIDE];
+        p_src = &h->mb.pic.p_fenc[1+x][(b_field ? 1 : 8)*FENC_STRIDE];
+        p_dst = &h->mb.pic.p_fdec[1+x][(b_field ? 1 : 8)*FDEC_STRIDE];
     }
-    h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
+
+    int b_field_block = b_field && (idx < 4 || chroma422);
+    if( b_field_block )
+        h->dctf.sub8x8_dct8_field( dct8x8, p_src, p_dst );
+    else
+        h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
 
     h->nr_count[chroma] += h->mb.b_noise_reduction;
     if( h->mb.b_noise_reduction)
@@ -799,16 +822,20 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
         nz = 0;
     if( nz )
     {
+        int fdec_stride = b_field_block ? FDEC_STRIDE<<1 : FDEC_STRIDE;
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
         h->quantf.dequant_mpeg2_inter( dct8x8, h->dequant8_mf[CQM_8PY+chroma422][i_qp] );
         pixel saved[64];
         for( int y = 0; y < 8; y++ )
-            memcpy( saved + 8*y, p_dst + y*FDEC_STRIDE, 8 * sizeof(pixel) );
-        h->dctf.add8x8_idct8( p_dst, dct8x8 );
+            memcpy( saved + 8*y, p_dst + y*fdec_stride, 8 * sizeof(pixel) );
+        if( b_field_block )
+            h->dctf.add8x8_idct8_field( p_dst, dct8x8 );
+        else
+            h->dctf.add8x8_idct8( p_dst, dct8x8 );
         int diff = 0;
         for( int y = 0; y < 8; y++ )
             for( int col = 0; col < 8; col++ )
-                diff |= saved[8*y+col] ^ p_dst[y*FDEC_STRIDE+col];
+                diff |= saved[8*y+col] ^ p_dst[y*fdec_stride+col];
         if( diff )
         {
             if( idx < 4 )
@@ -945,19 +972,18 @@ static ALWAYS_INLINE void macroblock_encode_internal( x264_t *h, int plane_count
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
         if( MPEG2 )
         {
-            /* luma */
+            /* luma — predict the whole MB before encoding, since a field-DCT block
+             * spans both vertical halves and must see the full prediction. */
             for( int i = 0; i < 4; i++ )
-            {
                 h->predict_8x8_mpeg2( &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE], 0 );
+            for( int i = 0; i < 4; i++ )
                 x264_mb_encode_intra_block_mpeg2( h, i, i_qp );
-            }
             /* chroma */
             int blockcount = CHROMA_FORMAT == CHROMA_422 ? 4 : 2;
             for( int i = 0; i < blockcount; i++ )
-            {
                 h->predict_8x8_mpeg2( &h->mb.pic.p_fdec[1 + (i&1)][8 * (i>>1) * FDEC_STRIDE], 0 );
+            for( int i = 0; i < blockcount; i++ )
                 x264_mb_encode_intra_block_mpeg2( h, i+4, i_qp );
-            }
             /* reset mvp */
             if( h->sh.i_type == SLICE_TYPE_P || h->sh.i_type == SLICE_TYPE_B )
                 x264_reset_mv_predictor_mpeg2( h );

@@ -797,6 +797,34 @@ static void sub8x8_dct_mpeg2( dctcoef dct[64], pixel *pix1, pixel *pix2 )
     jpeg_fdct_islow( dct );
 }
 
+/* Field DCT: gather/scatter the 8x8 block from every other line (same field). */
+static void sub8x8_dct_field_mpeg2( dctcoef dct[64], pixel *pix1, pixel *pix2 )
+{
+    pixel_sub_wxh( dct, 8, pix1, FENC_STRIDE<<1, pix2, FDEC_STRIDE<<1 );
+    jpeg_fdct_islow( dct );
+}
+
+static void add8x8_idct_field_mpeg2( pixel *p_dst, dctcoef dct[64] )
+{
+    dctcoef tmp[64];
+
+    /* transpose to match zigzag and cqm */
+    for( int i = 0; i < 8; i++ )
+        for( int j = 0; j < 8; j++ )
+            tmp[i * 8 + j] = dct[j * 8 + i];
+
+    for( int i = 0; i < 8; i++ )
+        idctrow( tmp + i * 8 );
+
+    for( int i = 0; i < 8; i++ )
+        idctcol( tmp + i );
+
+    for( int i = 0; i < 8; i++ )
+        for( int j = 0; j < 8; j++ )
+            p_dst[i*(FDEC_STRIDE<<1) + j] =
+                x264_clip_pixel( p_dst[i*(FDEC_STRIDE<<1) + j] + tmp[i*8 + j] );
+}
+
 static void sub16x16_dct_mpeg2( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )
 {
     sub8x8_dct_mpeg2( dct[0], &pix1[0],               &pix2[0] );
@@ -1111,8 +1139,10 @@ void x264_dct_init( uint32_t cpu, x264_dct_function_t *dctf, int b_mpeg2 )
 #if HAVE_MPEG2
     if( b_mpeg2 )
     {
-        dctf->sub8x8_dct8    = sub8x8_dct_mpeg2;
-        dctf->add8x8_idct8   = add8x8_idct_mpeg2;
+        dctf->sub8x8_dct8        = sub8x8_dct_mpeg2;
+        dctf->add8x8_idct8       = add8x8_idct_mpeg2;
+        dctf->sub8x8_dct8_field  = sub8x8_dct_field_mpeg2;
+        dctf->add8x8_idct8_field = add8x8_idct_field_mpeg2;
         dctf->sub16x16_dct8  = sub16x16_dct_mpeg2;
         dctf->add16x16_idct8 = add16x16_idct_mpeg2;
         x264_idct_init_mpeg2();
