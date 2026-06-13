@@ -3469,10 +3469,10 @@ skip_analysis:
 
             mb_analyse_load_costs( h, &analysis );
 
-            /* MPEG-2 adaptive field/frame: evaluate the field cost, then the frame cascade,
-             * and pick the cheaper. Gated to the RD tier because the SATD field cost is
-             * approximate (frame-arranged fenc vs plane_fld at frame stride); below it the
-             * MB stays frame-coded. subme 0 is non-adaptive and stays all-field. */
+            /* MPEG-2 adaptive field/frame: run the field search to produce its candidate,
+             * then the frame cascade; the two are compared by RD below. Enabled only at the
+             * RD tier (i_mbrd) since the SATD field cost is too approximate to decide on its
+             * own; below it the MB stays frame-coded. subme 0 is non-adaptive (all-field). */
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
             int b_mpeg2_adaptive = MPEG2 && PARAM_INTERLACED && h->mb.b_adaptive_mbaff && analysis.i_mbrd;
             int cost_field = COST_MAX;
@@ -3568,20 +3568,6 @@ skip_analysis:
                 mb_analyse_inter_p8x16( h, &analysis, i_cost );
                 COPY3_IF_LT( i_cost, analysis.l0.i_cost8x16, i_type, P_L0, i_partition, D_8x16 );
             }
-
-#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
-            if( b_mpeg2_adaptive && cost_field < i_cost )
-            {
-                x264_mb_switch_field_mpeg2( h, 1 );
-                h->mc.memcpy_aligned( &analysis.l0.me16x8[0], &me16x8_field[0], sizeof(x264_me_t) );
-                h->mc.memcpy_aligned( &analysis.l0.me16x8[1], &me16x8_field[1], sizeof(x264_me_t) );
-                x264_macroblock_cache_ref( h, 0, 0, 4, 2, 0, analysis.l0.me16x8[0].i_ref );
-                x264_macroblock_cache_ref( h, 0, 2, 4, 2, 0, analysis.l0.me16x8[1].i_ref );
-                i_cost = cost_field;
-                i_type = P_L0;
-                i_partition = D_16x8;
-            }
-#endif
 
             h->mb.i_partition = i_partition;
 
@@ -3684,6 +3670,41 @@ skip_analysis:
                 COPY3_IF_LT( i_cost, analysis.l0.i_cost8x8, i_partition, D_8x8, i_type, P_8x8 );
                 h->mb.i_type = i_type;
                 h->mb.i_partition = i_partition;
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+                /* RD the field alternative against the frame-mode winner, but only when its
+                 * SATD cost is within range of the frame SATD — the RD probe is expensive and
+                 * a much costlier field SATD almost never wins after RD. */
+                if( b_mpeg2_adaptive && cost_field < i_satd_inter + (i_satd_inter>>1) )
+                {
+                    x264_me_t me16x8_frame[2];
+                    h->mc.memcpy_aligned( &me16x8_frame[0], &analysis.l0.me16x8[0], sizeof(x264_me_t) );
+                    h->mc.memcpy_aligned( &me16x8_frame[1], &analysis.l0.me16x8[1], sizeof(x264_me_t) );
+
+                    x264_mb_switch_field_mpeg2( h, 1 );
+                    h->mc.memcpy_aligned( &analysis.l0.me16x8[0], &me16x8_field[0], sizeof(x264_me_t) );
+                    h->mc.memcpy_aligned( &analysis.l0.me16x8[1], &me16x8_field[1], sizeof(x264_me_t) );
+                    h->mb.i_type = P_L0;
+                    h->mb.i_partition = D_16x8;
+                    analyse_update_cache( h, &analysis );
+                    int i_cost_field = rd_cost_mb( h, analysis.i_lambda2 );
+                    if( i_cost_field < i_cost )
+                    {
+                        i_cost = i_cost_field;
+                        i_type = P_L0;
+                        i_partition = D_16x8;
+                    }
+                    else
+                    {
+                        x264_mb_switch_field_mpeg2( h, 0 );
+                        h->mc.memcpy_aligned( &analysis.l0.me16x8[0], &me16x8_frame[0], sizeof(x264_me_t) );
+                        h->mc.memcpy_aligned( &analysis.l0.me16x8[1], &me16x8_frame[1], sizeof(x264_me_t) );
+                        h->mb.i_type = i_type;
+                        h->mb.i_partition = i_partition;
+                        analyse_update_cache( h, &analysis );
+                    }
+                }
+#endif
                 if( i_cost < COST_MAX )
                     mb_analyse_transform_rd( h, &analysis, &i_satd_inter, &i_cost );
                 intra_rd( h, &analysis, i_satd_inter * 5/4 + 1 );
@@ -3985,20 +4006,6 @@ skip_analysis:
                 }
             }
 
-#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
-            if( b_mpeg2_adaptive && cost_field < i_cost )
-            {
-                x264_mb_switch_field_mpeg2( h, 1 );
-                h->mc.memcpy_aligned( &analysis.l0.me16x8[0], &me16x8_field[0][0], sizeof(x264_me_t) );
-                h->mc.memcpy_aligned( &analysis.l0.me16x8[1], &me16x8_field[0][1], sizeof(x264_me_t) );
-                h->mc.memcpy_aligned( &analysis.l1.me16x8[0], &me16x8_field[1][0], sizeof(x264_me_t) );
-                h->mc.memcpy_aligned( &analysis.l1.me16x8[1], &me16x8_field[1][1], sizeof(x264_me_t) );
-                i_cost = cost_field;
-                i_type = type_field;
-                i_partition = D_16x8;
-            }
-#endif
-
             if( analysis.i_mbrd || !h->mb.i_subpel_refine )
             {
                 /* refine later */
@@ -4168,6 +4175,46 @@ skip_analysis:
 
                 h->mb.i_type = i_type;
                 h->mb.i_partition = i_partition;
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+                /* RD the field alternative against the frame-mode winner; skip when its SATD
+                 * cost is far above the frame SATD (the RD probe rarely flips such MBs). */
+                if( b_mpeg2_adaptive && cost_field < i_satd_inter + (i_satd_inter>>1) )
+                {
+                    x264_me_t me16x8_frame[2][2];
+                    h->mc.memcpy_aligned( &me16x8_frame[0][0], &analysis.l0.me16x8[0], sizeof(x264_me_t) );
+                    h->mc.memcpy_aligned( &me16x8_frame[0][1], &analysis.l0.me16x8[1], sizeof(x264_me_t) );
+                    h->mc.memcpy_aligned( &me16x8_frame[1][0], &analysis.l1.me16x8[0], sizeof(x264_me_t) );
+                    h->mc.memcpy_aligned( &me16x8_frame[1][1], &analysis.l1.me16x8[1], sizeof(x264_me_t) );
+
+                    x264_mb_switch_field_mpeg2( h, 1 );
+                    h->mc.memcpy_aligned( &analysis.l0.me16x8[0], &me16x8_field[0][0], sizeof(x264_me_t) );
+                    h->mc.memcpy_aligned( &analysis.l0.me16x8[1], &me16x8_field[0][1], sizeof(x264_me_t) );
+                    h->mc.memcpy_aligned( &analysis.l1.me16x8[0], &me16x8_field[1][0], sizeof(x264_me_t) );
+                    h->mc.memcpy_aligned( &analysis.l1.me16x8[1], &me16x8_field[1][1], sizeof(x264_me_t) );
+                    h->mb.i_type = type_field;
+                    h->mb.i_partition = D_16x8;
+                    analyse_update_cache( h, &analysis );
+                    int i_cost_field = rd_cost_mb( h, analysis.i_lambda2 );
+                    if( i_cost_field < i_cost )
+                    {
+                        i_cost = i_cost_field;
+                        i_type = type_field;
+                        i_partition = D_16x8;
+                    }
+                    else
+                    {
+                        x264_mb_switch_field_mpeg2( h, 0 );
+                        h->mc.memcpy_aligned( &analysis.l0.me16x8[0], &me16x8_frame[0][0], sizeof(x264_me_t) );
+                        h->mc.memcpy_aligned( &analysis.l0.me16x8[1], &me16x8_frame[0][1], sizeof(x264_me_t) );
+                        h->mc.memcpy_aligned( &analysis.l1.me16x8[0], &me16x8_frame[1][0], sizeof(x264_me_t) );
+                        h->mc.memcpy_aligned( &analysis.l1.me16x8[1], &me16x8_frame[1][1], sizeof(x264_me_t) );
+                        h->mb.i_type = i_type;
+                        h->mb.i_partition = i_partition;
+                        analyse_update_cache( h, &analysis );
+                    }
+                }
+#endif
             }
 
             if( h->mb.b_chroma_me )
