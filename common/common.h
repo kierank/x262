@@ -275,6 +275,7 @@ typedef struct
     int i_mb_cbp[6];
     int i_mb_pred_mode[4][13];
     int i_mb_field[3];
+    int i_mb_field_dct; /* MPEG-2: MBs coded with field DCT */
     /* Adaptive direct mv pred */
     int i_direct_score[2];
     /* Metrics */
@@ -544,6 +545,7 @@ struct x264_t
 
         int     b_interlaced;
         int     b_adaptive_mbaff; /* MBAFF+subme 0 requires non-adaptive MBAFF i.e. all field mbs */
+        int     b_field_dct; /* MPEG-2: per-MB field DCT (dct_type) */
 
         /* Allowed qpel MV range to stay within the picture + emulated edge pixels */
         int     mv_min[2];
@@ -789,6 +791,7 @@ struct x264_t
         int64_t i_mb_cbp[6];
         int64_t i_mb_pred_mode[4][13];
         int64_t i_mb_field[3];
+        int64_t i_mb_field_dct;
         /* */
         int     i_direct_score[2];
         int     i_direct_frames[2];
