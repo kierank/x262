@@ -39,6 +39,8 @@ dequant_shuf_avx512: dw  0, 2, 4, 6, 8,10,12,14,16,18,20,22,24,26,28,30
                      dw 32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62
 levelrun_reverse_avx512: dw 31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16
                         dw 15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
+mpeg2_clip_max: times 32 dw 2047
+mpeg2_clip_min: times 32 dw -2048
 %endif
 
 %macro DQM4 3
@@ -908,6 +910,111 @@ cglobal dequant_8x8_flat16, 0,3
 %endif
 
 %undef dmf
+
+%if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+;-----------------------------------------------------------------------------
+; void dequant_mpeg2_inter( dctcoef dct[64], int dequant_mf[64] )
+;-----------------------------------------------------------------------------
+
+; 32x32->32 low-dword multiply of two dword vectors: %1 *= mem %2, scratch %3,%4
+%macro PMULLD_EMU 4
+%if cpuflag(sse4)
+    pmulld    %1, %2
+%else
+    mova      %4, %2
+    pshufd    %3, %1, q2301
+    pmuludq   %1, %4              ; even dword products
+    pshufd    %4, %4, q2301
+    pmuludq   %3, %4              ; odd dword products
+    pshufd    %1, %1, q3120
+    pshufd    %3, %3, q3120
+    punpckldq %1, %3              ; interleave low dwords back in order
+%endif
+%endmacro
+
+; process one register-width of coeffs (8 for xmm, 16 for ymm) at byte offset %1.
+; m6 = pw_1, m7 = sum accumulator. Clip bounds taken from memory.
+%macro DEQUANT_MPEG2_INTER_ROW 1
+    mova       m0, [r0+%1]          ; dct
+    pxor       m5, m5
+    pcmpeqw    m5, m0               ; mask: -1 where dct==0
+    psraw      m1, m0, 15           ; sign (0 / -1)
+    ABSW       m0, m0, m2
+    paddw      m0, m0
+    por        m0, m6               ; t = |dct|*2 + 1   (unsigned, <= 4095)
+%if mmsize == 32
+    pmovzxwd   m2, xm0
+    vextracti128 xm0, m0, 1
+    pmovzxwd   m0, xm0
+    PMULLD_EMU m2, [r1+%1*2   ], m8, m9
+    PMULLD_EMU m0, [r1+%1*2+32], m8, m9
+    psrld      m2, 6
+    psrld      m0, 6
+    packusdw   m2, m0
+    vpermq     m2, m2, q3120
+%else
+    pxor       m3, m3
+    mova       m2, m0
+    punpcklwd  m2, m3               ; lo |t| dwords (zero-extended)
+    punpckhwd  m0, m3               ; hi |t| dwords
+    PMULLD_EMU m2, [r1+%1*2   ], m3, m4
+    PMULLD_EMU m0, [r1+%1*2+16], m3, m4
+    psrld      m2, 6
+    psrld      m0, 6
+%if cpuflag(sse4)
+    packusdw   m2, m0
+%else
+    pslld      m2, 16
+    psrad      m2, 16               ; sign-extend so packssdw keeps the value
+    pslld      m0, 16
+    psrad      m0, 16
+    packssdw   m2, m0
+%endif
+%endif
+    pxor       m2, m1               ; restore sign: (x ^ s) - s
+    psubw      m2, m1
+    pminsw     m2, [mpeg2_clip_max]
+    pmaxsw     m2, [mpeg2_clip_min]
+    pandn      m5, m2               ; keep result only where dct was nonzero
+    mova       [r0+%1], m5
+    pxor       m7, m5               ; sum ^= result
+%endmacro
+
+%macro DEQUANT_MPEG2_INTER 0
+cglobal dequant_mpeg2_inter, 2,2,8+(mmsize/16)   ; xmm: m0-m7, ymm: m0-m9
+    mova       m6, [pw_1]
+    pxor       m7, m7
+%assign i 0
+%rep 128/mmsize
+    DEQUANT_MPEG2_INTER_ROW i
+%assign i i+mmsize
+%endrep
+    ; horizontal XOR of all word lanes in m7 down to its low word
+%if mmsize == 32
+    vextracti128 xm0, m7, 1
+    pxor       xm7, xm0
+%endif
+    pshufd     xm0, xm7, q1032
+    pxor       xm7, xm0
+    pshuflw    xm0, xm7, q1032
+    pxor       xm7, xm0
+    pshuflw    xm0, xm7, q0001
+    pxor       xm7, xm0             ; xm7 low word = XOR of all 64 results
+    movd       eax, xm7
+    not        eax
+    and        eax, 1               ; 1 & ~sum
+    xor        ax, [r0+63*2]
+    mov        [r0+63*2], ax
+    RET
+%endmacro
+
+INIT_XMM sse2
+DEQUANT_MPEG2_INTER
+INIT_XMM avx
+DEQUANT_MPEG2_INTER
+INIT_YMM avx2
+DEQUANT_MPEG2_INTER
+%endif ; HAVE_MPEG2 && !HIGH_BIT_DEPTH
 
 %macro DEQUANT_DC 2
 cglobal dequant_4x4dc, 0,3,6
