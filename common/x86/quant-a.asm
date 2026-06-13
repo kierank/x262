@@ -37,6 +37,8 @@ decimate_shuf_avx512: dd 0, 4, 8,12, 1, 5, 9,13, 2, 6,10,14, 3, 7,11,15
 %else
 dequant_shuf_avx512: dw  0, 2, 4, 6, 8,10,12,14,16,18,20,22,24,26,28,30
                      dw 32,34,36,38,40,42,44,46,48,50,52,54,56,58,60,62
+levelrun_reverse_avx512: dw 31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16
+                        dw 15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
 %endif
 
 %macro DQM4 3
@@ -2056,8 +2058,14 @@ COEFF_LAST64_AVX512 w
 struc levelrun
     .last: resd 1
     .mask: resd 1
+%if HAVE_MPEG2
+    align 64, resb 1
+    .level: resw 64
+    .mask64: resq 1
+%else
     align 16, resb 1
     .level: resw 16
+%endif
 endstruc
 
 ; t6 = eax for return, t3 = ecx for shift, t[01] = r[01] for x86_64 args
@@ -2137,6 +2145,250 @@ COEFF_LEVELRUN 8
 %endif
 COEFF_LEVELRUN 15
 COEFF_LEVELRUN 16
+
+%if HAVE_MPEG2 && ARCH_X86_64 && HIGH_BIT_DEPTH == 0
+; t5 = 64-bit nonzero mask, t0 = dct, t1 = runlevel
+%macro LEVELRUN64_TAIL 0
+    mov [t1+levelrun.mask64], t5
+    xor    t6d, t6d
+; An all-zero block has mask 0: last = -1, no coefficients. bsr/lzcnt of 0 are
+; unreliable, so handle it explicitly and skip the loop so it never reads
+; dct[-1]. Matches coeff_level_run64.
+    mov    t4d, -1
+    test    t5, t5
+    jz .empty
+    mov    t4d, 63
+    LZCOUNT t3, t5, 0x3f
+    sub    t4d, t3d
+    mov [t1+levelrun.last], t4d
+    add     t5, t5
+    shl     t5, t3b
+.loop:
+    LZCOUNT t3, t5, 0x3f
+    mov    t2w, [t0+t4*2]
+    inc    t3d
+    shl     t5, t3b
+    mov   [t1+t6*2+levelrun.level], t2w
+    inc    t6d
+    sub    t4d, t3d
+    jge .loop
+    RET
+.empty:
+    mov [t1+levelrun.last], t4d
+    RET
+%endmacro
+
+%macro COEFF_LEVELRUN64 0
+cglobal coeff_level_run64,0,7
+    movifnidn t0, r0mp
+    movifnidn t1, r1mp
+    pxor    m2, m2
+    xor    t3d, t3d
+    LAST_MASK 16, t5d, t0+SIZEOF_DCTCOEF* 0, t4d
+    LAST_MASK 16, t4d, t0+SIZEOF_DCTCOEF*16, t6d
+    shl    t4d, 16
+    or     t5d, t4d
+    LAST_MASK 16, t4d, t0+SIZEOF_DCTCOEF*32, t6d
+    LAST_MASK 16, t6d, t0+SIZEOF_DCTCOEF*48, t2d
+    shl    t6d, 16
+    or     t4d, t6d
+    shl     t4, 32
+    or      t5, t4
+    not     t5
+    LEVELRUN64_TAIL
+%endmacro
+
+INIT_XMM sse2
+COEFF_LEVELRUN64
+INIT_XMM lzcnt
+COEFF_LEVELRUN64
+
+%macro COEFF_LEVELRUN64_AVX512 0
+cglobal coeff_level_run64,0,7
+    movifnidn t0, r0mp
+    movifnidn t1, r1mp
+    xor    t3d, t3d
+    vpxord  m0, m0, m0
+    vpcmpw  k0, m0, [t0+0*64], 4
+    vpcmpw  k1, m0, [t0+1*64], 4
+    kunpckdq k0, k1, k0
+    kmovq   t5, k0
+    LEVELRUN64_TAIL
+%endmacro
+
+INIT_ZMM avx512
+COEFF_LEVELRUN64_AVX512
+
+%macro COEFF_LEVELRUN64_AVX512ICL 0
+cglobal coeff_level_run64, 2,4
+    vpxord       m0, m0, m0
+    mova         m4, [levelrun_reverse_avx512]
+    vpermw       m1, m4, [r0+0*64]
+    vpermw       m2, m4, [r0+1*64]
+    vpcmpw       k0, m0, [r0+0*64], 4
+    vpcmpw       k1, m0, [r0+1*64], 4
+    vpcmpw       k2, m0, m2, 4
+    vpcmpw       k3, m0, m1, 4
+    kunpckdq     k0, k1, k0
+    kmovq        r2, k0
+    lzcnt        rax, r2
+    xor          eax, 63
+; all-zero block: lzcnt 0 = 64, 64^63 = 127; last must be -1 (matches
+; coeff_level_run64). The empty vpcompressw stores below are harmless.
+    mov          r3d, -1
+    test         r2, r2
+    cmovz        eax, r3d
+    mov [r1+levelrun.last], eax
+    mov [r1+levelrun.mask64], r2
+; vpcompressw to a register is 2 uops; a memory destination is microcoded
+; (~250 uops) on Zen4, so compress into a register and store separately.
+    vpcompressw  m2{k2}{z}, m2
+    mova [r1+levelrun.level], m2
+    kmovd        r3d, k2
+    popcnt       r3d, r3d
+    vpcompressw  m1{k3}{z}, m1
+    movu [r1+r3*2+levelrun.level], m1
+    popcnt       rax, r2
+    RET
+%endmacro
+
+INIT_ZMM avx512icl
+COEFF_LEVELRUN64_AVX512ICL
+
+; Gather one group of 8 coefficients using the pshufb LUT, like the run15/16
+; LUT below. %1 = group index (0 = coeffs 0-7 .. 7 = coeffs 56-63), running
+; word offset in r4, mask byte in r3b/r3d, scratch xmm m0/m1.
+%macro LEVELRUN64_LUT_GROUP 1
+    movzx     r3d, byte [r1+levelrun.mask64+%1]
+    movh       m1, [dct_coef_shuffle+r3*8 GLOBAL]
+    punpcklbw  m1, m1
+    por        m1, m4
+    mova       m0, [r0+16*%1]
+    pshufb     m0, m1
+    movu [r1+r4*2+levelrun.level], m0
+    movzx     r3d, byte [popcnt_table+r3 GLOBAL]
+    add       r4d, r3d
+%endmacro
+
+%macro COEFF_LEVELRUN64_LUT 0
+cglobal coeff_level_run64, 2,5
+    lea        r2, [$$]
+    %define GLOBAL +r2-$$
+    pxor      xm5, xm5
+    mova       m0, [r0+ 0]
+    packsswb   m0, [r0+16]
+    mova       m1, [r0+32]
+    packsswb   m1, [r0+48]
+    pcmpeqb    m0, m5
+    pcmpeqb    m1, m5
+    pmovmskb  eax, m0
+    pmovmskb  r3d, m1
+    shl        r3, 16
+    or        rax, r3
+    mova       m0, [r0+64]
+    packsswb   m0, [r0+80]
+    mova       m1, [r0+96]
+    packsswb   m1, [r0+112]
+    pcmpeqb    m0, m5
+    pcmpeqb    m1, m5
+    pmovmskb  r3d, m0
+    shl        r3, 32
+    or        rax, r3
+    pmovmskb  r3d, m1
+    shl        r3, 48
+    or        rax, r3
+    not       rax
+    mov [r1+levelrun.mask64], rax
+    lzcnt      r2, rax
+    xor        r2d, 63
+; all-zero block: lzcnt 0 = 64, 64^63 = 127; last must be -1 (matches
+; coeff_level_run64). The LUT groups below write nothing when the mask is 0.
+    mov       r3d, -1
+    test      rax, rax
+    cmovz     r2d, r3d
+    mov [r1+levelrun.last], r2d
+    lea        r2, [$$]
+    mova       m4, [pw_256 GLOBAL]
+    xor       r4d, r4d
+    %assign %%g 7
+    %rep 8
+        LEVELRUN64_LUT_GROUP %%g
+        %assign %%g %%g-1
+    %endrep
+; The overlapping unaligned stores above can spill past level[63] into the
+; mask64 field, so write it again here.
+    mov [r1+levelrun.mask64], rax
+    mov       eax, r4d
+    RET
+%endmacro
+
+INIT_XMM ssse3
+COEFF_LEVELRUN64_LUT
+
+; AVX2 variant: gather 16 coefficients per group, modeled on the run15/16 avx2
+; LUT below. %1 = group index (0 = coeffs 0-15 .. 3 = coeffs 48-63). r5 = mask64,
+; r7 = $$ base, r4 = running word offset, scratches r2/r3, xmm m0/m2.
+%macro LEVELRUN64_LUT_GROUP_AVX2 1
+    mov        r2, r5
+    shr        r2, %1*16
+    movzx     r3d, r2b  ; coeffs %1*16+0..7
+    shr       r2d, 8
+    movzx     r2d, r2b  ; coeffs %1*16+8..15
+    movq     xm2, [dct_coef_shuffle+r3*8 GLOBAL]
+    vinserti128 m2, m2, [dct_coef_shuffle+r2*8 GLOBAL], 1
+    punpcklbw  m2, m2
+    por        m2, m4
+    pshufb     m0, [r0+32*%1], m2
+    movzx     r2d, byte [popcnt_table+r2 GLOBAL]
+    movzx     r3d, byte [popcnt_table+r3 GLOBAL]
+    vextracti128 [r1+r4*2+levelrun.level], m0, 1
+    add       r2d, r4d
+    movu [r1+r2*2+levelrun.level], xm0
+    lea       r4d, [r2+r3]
+%endmacro
+
+%macro COEFF_LEVELRUN64_LUT_AVX2 0
+cglobal coeff_level_run64, 2,8
+    lea        r7, [$$]
+    %define GLOBAL +r7-$$
+    pxor      xm5, xm5
+    mova       m0, [r0+ 0]
+    packsswb   m0, [r0+32]
+    vpermq     m0, m0, q3120
+    mova       m1, [r0+64]
+    packsswb   m1, [r0+96]
+    vpermq     m1, m1, q3120
+    pcmpeqb    m0, m5
+    pcmpeqb    m1, m5
+    pmovmskb  eax, m0
+    pmovmskb  r3d, m1
+    shl        r3, 32
+    or        rax, r3
+    not       rax
+    mov        r5, rax
+    lzcnt      r3, rax
+    xor        r3d, 63
+; all-zero block: lzcnt 0 = 64, 64^63 = 127; last must be -1 (matches
+; coeff_level_run64). The LUT groups below write nothing when the mask is 0.
+    mov       eax, -1
+    test      r5, r5
+    cmovz     r3d, eax
+    mov [r1+levelrun.last], r3d
+    vpbroadcastw m4, [pw_256 GLOBAL]
+    xor       r4d, r4d
+    %assign %%g 3
+    %rep 4
+        LEVELRUN64_LUT_GROUP_AVX2 %%g
+        %assign %%g %%g-1
+    %endrep
+    mov [r1+levelrun.mask64], r5
+    mov       eax, r4d
+    RET
+%endmacro
+
+INIT_YMM avx2
+COEFF_LEVELRUN64_LUT_AVX2
+%endif
 
 ; Similar to the one above, but saves the DCT
 ; coefficients in m0/m1 so we don't have to load
