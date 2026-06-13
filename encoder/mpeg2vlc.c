@@ -120,7 +120,11 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
     if( quant && !coded )
     {
         quant = 0;
+#if !RDO_SKIP_BS
+        /* The real writer inherits the previous QP for a non-coded MB; the size-only
+         * RD variant must not mutate i_qp, since RD runs multiple times per MB. */
         h->mb.i_qp = h->mb.i_last_qp;
+#endif
     }
 
     // macroblock modes
