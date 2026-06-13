@@ -195,6 +195,7 @@ static void print_bench(void)
                 continue;
             printf( "%s_%s%s: %"PRId64"\n", benchs[i].name,
 #if ARCH_X86 || ARCH_X86_64
+                    b->cpu&X264_CPU_AVX512ICL ? "avx512icl" :
                     b->cpu&X264_CPU_AVX512 ? "avx512" :
                     b->cpu&X264_CPU_AVX2 ? "avx2" :
                     b->cpu&X264_CPU_BMI2 ? "bmi2" :
@@ -3135,6 +3136,8 @@ static int check_all_flags( void )
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_AVX2, "AVX2" );
     if( cpu_detect & X264_CPU_AVX512 )
         ret |= add_flags( &cpu0, &cpu1, X264_CPU_AVX512, "AVX512" );
+    if( cpu_detect & X264_CPU_AVX512ICL )
+        ret |= add_flags( &cpu0, &cpu1, X264_CPU_AVX512ICL, "AVX512ICL" );
 #elif ARCH_PPC
     if( cpu_detect & X264_CPU_ALTIVEC )
     {
