@@ -48,6 +48,10 @@ typedef struct
     void (*sub8x8_dct8) ( dctcoef dct[64], pixel *pix1, pixel *pix2 );
     void (*add8x8_idct8)( pixel *p_dst, dctcoef dct[64] );
 
+    /* MPEG-2 field DCT: read/write the 8x8 block from alternate (same-field) lines. */
+    void (*sub8x8_dct8_field) ( dctcoef dct[64], pixel *pix1, pixel *pix2 );
+    void (*add8x8_idct8_field)( pixel *p_dst, dctcoef dct[64] );
+
     void (*sub16x16_dct8) ( dctcoef dct[4][64], pixel *pix1, pixel *pix2 );
     void (*add16x16_idct8)( pixel *p_dst, dctcoef dct[4][64] );
 

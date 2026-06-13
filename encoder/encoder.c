@@ -3321,6 +3321,10 @@ cont:
                 h->stat.frame.i_mb_pred_mode[3][x264_mb_chroma_pred_mode_fix[h->mb.i_chroma_pred_mode]]++;
             }
             h->stat.frame.i_mb_field[b_intra?0:b_skip?2:1] += MB_INTERLACED;
+#if HAVE_MPEG2
+            if( h->mb.i_cbp_luma | h->mb.i_cbp_chroma | h->mb.i_cbp_chroma422 )
+                h->stat.frame.i_mb_field_dct += h->mb.b_field_dct;
+#endif
         }
 
         /* calculate deblock strength values (actual deblocking is done per-row along with hpel) */
@@ -4478,6 +4482,7 @@ static int encoder_frame_end( x264_t *h, x264_t *thread_current,
     }
     for( int i = 0; i < 3; i++ )
         h->stat.i_mb_field[i] += h->stat.frame.i_mb_field[i];
+    h->stat.i_mb_field_dct += h->stat.frame.i_mb_field_dct;
     if( h->sh.i_type == SLICE_TYPE_P && h->param.analyse.i_weighted_pred >= X264_WEIGHTP_SIMPLE )
     {
         h->stat.i_wpred[0] += !!h->sh.weight[0][0].weightfn;
@@ -4783,6 +4788,13 @@ void    x264_encoder_close  ( x264_t *h )
                 fieldstats += sprintf( fieldstats, " skip:%.1f%%", h->stat.i_mb_field[2] * 100.0 / i_skip );
             x264_log( h, X264_LOG_INFO, "field mbs: intra: %.1f%%%s\n",
                       h->stat.i_mb_field[0] * 100.0 / i_all_intra, buf );
+            if( MPEG2 )
+            {
+                int64_t i_coded = i_mb_count - i_skip;
+                if( i_coded )
+                    x264_log( h, X264_LOG_INFO, "field dct: %.1f%%\n",
+                              h->stat.i_mb_field_dct * 100.0 / i_coded );
+            }
         }
 
         if( h->pps->b_transform_8x8_mode )

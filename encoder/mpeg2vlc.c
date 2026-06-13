@@ -150,7 +150,7 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
         if( (i_mb_type == P_L0 && mcoded) || i_mb_type > P_L0 )
             bs_write( s, 2, 2 - MB_INTERLACED ); // frame|field_motion_type
         if( coded )
-            bs_write1( s, 0 ); // dct_type
+            bs_write1( s, h->mb.b_field_dct ); // dct_type
     }
 
     if( quant )
