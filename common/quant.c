@@ -719,6 +719,9 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
 #if HAVE_MPEG2 && ARCH_X86_64
         pf->coeff_level_run[DCT_LUMA_8x8] = x264_coeff_level_run64_sse2;
 #endif
+#if HAVE_MPEG2
+        pf->dequant_mpeg2_inter = x264_dequant_mpeg2_inter_sse2;
+#endif
     }
 
     if( cpu&X264_CPU_LZCNT )
@@ -786,6 +789,9 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->idct_dequant_2x4_dconly = x264_idct_dequant_2x4_dconly_avx;
         pf->optimize_chroma_2x2_dc = x264_optimize_chroma_2x2_dc_avx;
         pf->denoise_dct = x264_denoise_dct_avx;
+#if HAVE_MPEG2
+        pf->dequant_mpeg2_inter = x264_dequant_mpeg2_inter_avx;
+#endif
     }
 
     if( cpu&X264_CPU_XOP )
@@ -818,6 +824,9 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->coeff_level_run[DCT_LUMA_4x4] = x264_coeff_level_run16_avx2;
 #if HAVE_MPEG2 && ARCH_X86_64
         pf->coeff_level_run[DCT_LUMA_8x8] = x264_coeff_level_run64_avx2;
+#endif
+#if HAVE_MPEG2
+        pf->dequant_mpeg2_inter = x264_dequant_mpeg2_inter_avx2;
 #endif
     }
     if( cpu&X264_CPU_AVX512 )
