@@ -3243,6 +3243,19 @@ static void mb_analyse_dct_type_mpeg2( x264_t *h )
 
     h->mb.b_field_dct = field_cost < frame_cost;
 }
+
+/* RD-tier field DCT decision: RD-cost both dct_type values and keep the cheaper. The flag
+ * only affects the recon (the block encoders read it), so flipping it and re-running
+ * rd_cost_mb is sufficient; the cache (MVs/refs) is unchanged. */
+static void mb_analyse_dct_type_rd_mpeg2( x264_t *h, x264_mb_analysis_t *a )
+{
+    analyse_update_cache( h, a );
+    h->mb.b_field_dct = 0;
+    int cost0 = rd_cost_mb( h, a->i_lambda2 );
+    h->mb.b_field_dct = 1;
+    int cost1 = rd_cost_mb( h, a->i_lambda2 );
+    h->mb.b_field_dct = cost1 < cost0;
+}
 #endif
 
 static inline void mb_analyse_transform_rd( x264_t *h, x264_mb_analysis_t *a, int *i_satd, int *i_rd )
@@ -4391,8 +4404,13 @@ skip_analysis:
         mb_analyse_transform( h );
 
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
-    if( MPEG2 && (PARAM_INTERLACED || h->param.b_fake_interlaced) && !analysis.i_mbrd && !IS_SKIP(h->mb.i_type) )
-        mb_analyse_dct_type_mpeg2( h );
+    if( MPEG2 && PARAM_INTERLACED && !IS_SKIP(h->mb.i_type) )
+    {
+        if( !analysis.i_mbrd )
+            mb_analyse_dct_type_mpeg2( h );
+        else
+            mb_analyse_dct_type_rd_mpeg2( h, &analysis );
+    }
 #endif
 
     if( analysis.i_mbrd == 3 && !IS_SKIP(h->mb.i_type) )
