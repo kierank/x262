@@ -2518,11 +2518,48 @@ static int check_quant( uint32_t cpu_ref, uint32_t cpu_new )
         } \
     }
 
+#if HAVE_MPEG2
+#define TEST_LEVELRUN64( lastname, name ) \
+    if( qf_a.lastname != qf_ref.lastname ) \
+    { \
+        set_func_name( #name ); \
+        used_asm = 1; \
+        for( int i = 0; i < 100; i++ ) \
+        { \
+            x264_run_level_t runlevel_c, runlevel_a; \
+            int nnz = 0; \
+            int max = rand() & 63; \
+            memset( dct1, 0, 64*sizeof(dctcoef) ); \
+            memcpy( &runlevel_a, buf1+i, sizeof(x264_run_level_t) ); \
+            memcpy( &runlevel_c, buf1+i, sizeof(x264_run_level_t) ); \
+            /* i == 0 leaves the block all-zero: trellis emits these and the \
+             * mask-0 path (lzcnt 0 == 64) used to walk off the bottom. */ \
+            for( int idx = 0; i && idx < max; idx++ ) \
+                nnz |= dct1[idx] = !(rand()&3) + (!(rand()&15))*rand(); \
+            if( i && !nnz ) \
+                dct1[0] = 1; \
+            int result_c = call_c( qf_c.lastname, dct1, &runlevel_c ); \
+            int result_a = call_a( qf_a.lastname, dct1, &runlevel_a ); \
+            if( result_c != result_a || runlevel_c.last != runlevel_a.last || \
+                runlevel_c.mask64 != runlevel_a.mask64 || \
+                memcmp(runlevel_c.level, runlevel_a.level, sizeof(dctcoef)*result_c)) \
+            { \
+                ok = 0; \
+                fprintf( stderr, #name ": [FAILED]\n" ); \
+                break; \
+            } \
+        } \
+    }
+#endif
+
     ok = 1; used_asm = 0;
     TEST_LEVELRUN( coeff_level_run4              , coeff_level_run4,   4, 0 );
     TEST_LEVELRUN( coeff_level_run8              , coeff_level_run8,   8, 0 );
     TEST_LEVELRUN( coeff_level_run[  DCT_LUMA_AC], coeff_level_run15, 16, 1 );
     TEST_LEVELRUN( coeff_level_run[ DCT_LUMA_4x4], coeff_level_run16, 16, 0 );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    TEST_LEVELRUN64( coeff_level_run[ DCT_LUMA_8x8], coeff_level_run64 );
+#endif
     report( "coeff_level_run :" );
 
     return ret;

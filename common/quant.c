@@ -716,6 +716,9 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->coeff_last[DCT_LUMA_8x8] = x264_coeff_last64_sse2;
         pf->coeff_level_run[ DCT_LUMA_AC] = x264_coeff_level_run15_sse2;
         pf->coeff_level_run[DCT_LUMA_4x4] = x264_coeff_level_run16_sse2;
+#if HAVE_MPEG2 && ARCH_X86_64
+        pf->coeff_level_run[DCT_LUMA_8x8] = x264_coeff_level_run64_sse2;
+#endif
     }
 
     if( cpu&X264_CPU_LZCNT )
@@ -729,6 +732,9 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->coeff_level_run8 = x264_coeff_level_run8_lzcnt;
         pf->coeff_level_run[ DCT_LUMA_AC] = x264_coeff_level_run15_lzcnt;
         pf->coeff_level_run[DCT_LUMA_4x4] = x264_coeff_level_run16_lzcnt;
+#if HAVE_MPEG2 && ARCH_X86_64
+        pf->coeff_level_run[DCT_LUMA_8x8] = x264_coeff_level_run64_lzcnt;
+#endif
     }
 
     if( cpu&X264_CPU_SSSE3 )
@@ -748,6 +754,9 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->coeff_level_run8 = x264_coeff_level_run8_ssse3;
         pf->coeff_level_run[ DCT_LUMA_AC] = x264_coeff_level_run15_ssse3;
         pf->coeff_level_run[DCT_LUMA_4x4] = x264_coeff_level_run16_ssse3;
+#if HAVE_MPEG2 && ARCH_X86_64
+        pf->coeff_level_run[DCT_LUMA_8x8] = x264_coeff_level_run64_ssse3;
+#endif
         if( cpu&X264_CPU_LZCNT )
         {
             pf->coeff_level_run4 = x264_coeff_level_run4_ssse3_lzcnt;
@@ -807,6 +816,9 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->coeff_last[DCT_LUMA_8x8] = x264_coeff_last64_avx2;
         pf->coeff_level_run[ DCT_LUMA_AC] = x264_coeff_level_run15_avx2;
         pf->coeff_level_run[DCT_LUMA_4x4] = x264_coeff_level_run16_avx2;
+#if HAVE_MPEG2 && ARCH_X86_64
+        pf->coeff_level_run[DCT_LUMA_8x8] = x264_coeff_level_run64_avx2;
+#endif
     }
     if( cpu&X264_CPU_AVX512 )
     {
@@ -824,7 +836,14 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->coeff_last[ DCT_LUMA_AC] = x264_coeff_last15_avx512;
         pf->coeff_last[DCT_LUMA_4x4] = x264_coeff_last16_avx512;
         pf->coeff_last[DCT_LUMA_8x8] = x264_coeff_last64_avx512;
+#if HAVE_MPEG2 && ARCH_X86_64
+        pf->coeff_level_run[DCT_LUMA_8x8] = x264_coeff_level_run64_avx512;
+#endif
     }
+#if HAVE_MPEG2 && ARCH_X86_64
+    if( cpu&X264_CPU_AVX512ICL )
+        pf->coeff_level_run[DCT_LUMA_8x8] = x264_coeff_level_run64_avx512icl;
+#endif
 #endif // HAVE_MMX
 
 #if HAVE_ALTIVEC

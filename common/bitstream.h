@@ -52,7 +52,7 @@ typedef struct
     int32_t last;
     int32_t mask;
 #if HAVE_MPEG2
-    ALIGNED_16( dctcoef level[64] );
+    ALIGNED_64( dctcoef level[64] );
     uint64_t mask64;
 #else
     ALIGNED_16( dctcoef level[18] );
