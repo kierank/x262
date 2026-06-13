@@ -2571,8 +2571,8 @@ static int check_quant_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
     x264_quant_function_t qf_c;
     x264_quant_function_t qf_ref;
     x264_quant_function_t qf_a;
-    ALIGNED_16( dctcoef dct1[64] );
-    ALIGNED_16( dctcoef dct2[64] );
+    ALIGNED_ARRAY_64( dctcoef, dct1,[64] );
+    ALIGNED_ARRAY_64( dctcoef, dct2,[64] );
     ALIGNED_16( uint8_t cqm_buf[64] );
     int ret = 0, ok = 1, used_asm = 0;
     x264_t h_buf;
@@ -2656,7 +2656,7 @@ static int check_quant_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
 #define TEST_DEQUANT_MPEG2_INTER( qname, dqname, block ) \
         if( qf_a.dqname != qf_ref.dqname ) \
         { \
-            set_func_name( "%s_%s", #dqname, i_cqm?"cqm":"flat" ); \
+            set_func_name( "%s", #dqname ); \
             used_asm = 1; \
             for( int qp = 31; qp > 0; qp-- ) \
            { \
