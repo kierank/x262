@@ -2792,6 +2792,38 @@ static int check_mc_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
         report( "mc_chroma mpeg2 :" );
     }
 
+    if( mc_a.frame_init_lowres_core != mc_ref.frame_init_lowres_core )
+    {
+        pixel *dstc[4] = { pbuf3, pbuf3+1024, pbuf3+2048, pbuf3+3072 };
+        pixel *dsta[4] = { pbuf4, pbuf4+1024, pbuf4+2048, pbuf4+3072 };
+        set_func_name( "frame_init_lowres_core_mpeg2" );
+        ok = 1; used_asm = 1;
+        for( int w = 80; w <= 80+16; w += 16 )
+        {
+            intptr_t stride = (w*2+31)&~31;
+            intptr_t stride_lowres = (w+31)&~31;
+            memset( pbuf3, 0, 4096 * SIZEOF_PIXEL );
+            memset( pbuf4, 0, 4096 * SIZEOF_PIXEL );
+            call_c( mc_c.frame_init_lowres_core, pbuf1, dstc[0], dstc[1], dstc[2], dstc[3], stride, stride_lowres, w, 8 );
+            call_a( mc_a.frame_init_lowres_core, pbuf1, dsta[0], dsta[1], dsta[2], dsta[3], stride, stride_lowres, w, 8 );
+            for( int i = 0; i < 8 && ok; i++ )
+                for( int j = 0; j < 4; j++ )
+                    if( memcmp( dstc[j]+i*stride_lowres, dsta[j]+i*stride_lowres, w * SIZEOF_PIXEL ) )
+                    {
+                        ok = 0;
+                        fprintf( stderr, "frame_init_lowres_core_mpeg2 differs plane %d line %d (w=%d)\n", j, i, w );
+                        for( int k = 0; k < w; k++ )
+                            fprintf( stderr, FMT_PIXEL" ", dstc[j][k+i*stride_lowres] );
+                        fprintf( stderr, "\n" );
+                        for( int k = 0; k < w; k++ )
+                            fprintf( stderr, FMT_PIXEL" ", dsta[j][k+i*stride_lowres] );
+                        fprintf( stderr, "\n" );
+                        break;
+                    }
+        }
+        report( "lowres mpeg2 :" );
+    }
+
     return ret;
 }
 #endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */

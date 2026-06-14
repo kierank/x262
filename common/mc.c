@@ -847,6 +847,12 @@ void x264_mc_init( uint32_t cpu, x264_mc_functions_t *pf, int cpu_independent, i
             pf->mc_chroma = x264_mc_chroma_mpeg2_avx;
         if( cpu&X264_CPU_AVX2 )
             pf->mc_chroma = x264_mc_chroma_mpeg2_avx2;
+        if( cpu&X264_CPU_SSE2 )
+            pf->frame_init_lowres_core = x264_frame_init_lowres_core_mpeg2_sse2;
+        if( cpu&X264_CPU_SSSE3 )
+            pf->frame_init_lowres_core = x264_frame_init_lowres_core_mpeg2_ssse3;
+        if( cpu&X264_CPU_AVX2 )
+            pf->frame_init_lowres_core = x264_frame_init_lowres_core_mpeg2_avx2;
 #endif
     }
 #endif
