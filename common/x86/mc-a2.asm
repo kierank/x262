@@ -88,6 +88,7 @@ pd_4: times 4 dd 4
 SECTION .text
 
 cextern pb_0
+cextern pb_1
 cextern pw_1
 cextern pw_8
 cextern pw_16
@@ -2881,3 +2882,94 @@ cglobal mbtree_fix8_unpack, 3,4
     vmovaps [r0+4*r2] {k1}, m0
     vmovaps [r0+4*r2+mmsize] {k2}, m1
     MBTREE_FIX8_AVX512_END
+
+%if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+;-----------------------------------------------------------------------------
+; void hpel_filter_mpeg2( uint8_t *dsth, uint8_t *dstv, uint8_t *dstc, uint8_t *src,
+;                         intptr_t stride, int width, int height, int16_t *buf )
+;-----------------------------------------------------------------------------
+; dsth[x] = (src[x] + src[x+1]              + 1) >> 1
+; dstv[x] = (src[x] + src[x+stride]         + 1) >> 1
+; dstc[x] = (src[x] + src[x+1] + src[x+stride] + src[x+stride+1] + 2) >> 2
+; buf is unused (only H.264's two-pass filter needs it).
+
+; compute the three outputs for one mmsize-wide column group at src offset %1.
+; outputs: m4=dsth, m5=dstv, m6=dstc (m0-m3 clobbered, m7=0x01 mask preserved).
+; r8 = src + stride.
+%macro HPEL_MPEG2_CALC 1
+    movu       m0, [r3+%1]            ; a = src[x]
+    movu       m1, [r3+%1+1]          ; b = src[x+1]
+    movu       m2, [r8+%1]            ; c = src[x+stride]
+    movu       m3, [r8+%1+1]          ; d = src[x+stride+1]
+    pavgb      m4, m0, m1             ; dsth = pavgb(a,b)  (also p)
+    pavgb      m5, m0, m2             ; dstv = pavgb(a,c)
+    ; dstc = (a+b+c+d+2)>>2, exact in the byte domain (compensated double-pavgb).
+    ; corr = ((a^b) | (c^d)) & (p ^ q) & 1   (p=pavgb(a,b), q=pavgb(c,d); verified)
+    pavgb      m6, m2, m3             ; q = pavgb(c,d)
+    pxor       m0, m1                 ; a ^ b
+    pxor       m2, m3                 ; c ^ d
+    por        m0, m2                 ; (a^b) | (c^d)
+    pxor       m1, m4, m6             ; p ^ q
+    pand       m0, m1
+    pand       m0, m7                 ; isolate bit 0 (m7 = byte 0x01)
+    pavgb      m6, m4, m6             ; over-rounded center = pavgb(p,q)
+    psubb      m6, m0                 ; dstc = corrected center
+%endmacro
+
+; one group: compute at offset %1, store to dst offset %1.
+; Temporal (movu) stores: motion estimation re-reads the filtered planes in the same
+; frame, so non-temporal stores were a net loss (measured ~14% slower at 4K on Zen4 in
+; an isolated A/B; the eviction-then-refetch cost exceeds the saved RFO traffic). See
+; doc/hpel-mpeg2-rejected-variants.md for the NT and AVX-512 code that was tried.
+%macro HPEL_MPEG2_COL 1
+    HPEL_MPEG2_CALC %1
+    movu       [r0+%1], m4
+    movu       [r1+%1], m5
+    movu       [r2+%1], m6
+%endmacro
+
+%macro HPEL_FILTER_MPEG2 0
+cglobal hpel_filter_mpeg2, 7,9,8
+    movsxdifnidn r5, r5d              ; width  (int -> reg-width)
+    movsxdifnidn r6, r6d              ; height (int -> reg-width)
+%if mmsize == 64
+    vpbroadcastb m7, [pb_1]           ; bytes of 0x01 (low-bit isolation mask)
+%else
+    mova       m7, [pb_1]
+%endif
+    ; bias the dst/src base pointers by width so the inner loop indexes [base + x] with
+    ; x running from -width to 0; the final group overlaps to cover a non-mmsize tail.
+    add        r0, r5
+    add        r1, r5
+    add        r2, r5
+    add        r3, r5
+    neg        r5                     ; r5 = -width
+.loopy:
+    lea        r8, [r3+r4]            ; src + stride
+    mov        r7, r5                 ; x = -width
+.loopx:
+    cmp        r7, -mmsize
+    jg .tail
+    HPEL_MPEG2_COL r7
+    add        r7, mmsize
+    jl .loopx
+    jmp .nextrow
+.tail:
+    HPEL_MPEG2_COL -mmsize            ; final group ending exactly at width
+.nextrow:
+    add        r0, r4
+    add        r1, r4
+    add        r2, r4
+    add        r3, r4
+    dec        r6d
+    jg .loopy
+    RET
+%endmacro
+
+INIT_XMM sse2
+HPEL_FILTER_MPEG2
+INIT_XMM avx
+HPEL_FILTER_MPEG2
+INIT_YMM avx2
+HPEL_FILTER_MPEG2
+%endif ; HAVE_MPEG2 && !HIGH_BIT_DEPTH

@@ -2689,6 +2689,49 @@ static int check_quant_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
 
     return ret;
 }
+
+static int check_mc_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
+{
+    x264_mc_functions_t mc_c;
+    x264_mc_functions_t mc_ref;
+    x264_mc_functions_t mc_a;
+    int ret = 0, ok, used_asm;
+
+    x264_mc_init( 0,       &mc_c,   0, 1 );
+    x264_mc_init( cpu_ref, &mc_ref, 0, 1 );
+    x264_mc_init( cpu_new, &mc_a,   0, 1 );
+
+    if( mc_a.hpel_filter != mc_ref.hpel_filter )
+    {
+        pixel *srchpel = pbuf1+8+2*64;
+        pixel *dstc[3] = { pbuf3+8, pbuf3+8+16*64, pbuf3+8+32*64 };
+        pixel *dsta[3] = { pbuf4+8, pbuf4+8+16*64, pbuf4+8+32*64 };
+        void *tmp = pbuf3+49*64;
+        set_func_name( "hpel_filter_mpeg2" );
+        ok = 1; used_asm = 1;
+        memset( pbuf3, 0, 4096 * SIZEOF_PIXEL );
+        memset( pbuf4, 0, 4096 * SIZEOF_PIXEL );
+        call_c( mc_c.hpel_filter, dstc[0], dstc[1], dstc[2], srchpel, (intptr_t)64, 48, 10, tmp );
+        call_a( mc_a.hpel_filter, dsta[0], dsta[1], dsta[2], srchpel, (intptr_t)64, 48, 10, tmp );
+        for( int i = 0; i < 3; i++ )
+            for( int j = 0; j < 10; j++ )
+                if( memcmp( dstc[i]+j*64, dsta[i]+j*64, 48 * SIZEOF_PIXEL ) )
+                {
+                    ok = 0;
+                    fprintf( stderr, "hpel_filter_mpeg2 differs at plane %c line %d\n", "hvc"[i], j );
+                    for( int k = 0; k < 48; k++ )
+                        fprintf( stderr, FMT_PIXEL"%s", dstc[i][j*64+k], (k+1)&3 ? "" : " " );
+                    fprintf( stderr, "\n" );
+                    for( int k = 0; k < 48; k++ )
+                        fprintf( stderr, FMT_PIXEL"%s", dsta[i][j*64+k], (k+1)&3 ? "" : " " );
+                    fprintf( stderr, "\n" );
+                    break;
+                }
+        report( "hpel mpeg2 :" );
+    }
+
+    return ret;
+}
 #endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */
 
 static int check_intra( uint32_t cpu_ref, uint32_t cpu_new )
@@ -3066,6 +3109,7 @@ static int check_all_funcs( uint32_t cpu_ref, uint32_t cpu_new )
          + check_quant( cpu_ref, cpu_new )
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
          + check_quant_mpeg2( cpu_ref, cpu_new )
+         + check_mc_mpeg2( cpu_ref, cpu_new )
 #endif
          + check_cabac( cpu_ref, cpu_new )
          + check_bitstream( cpu_ref, cpu_new );
