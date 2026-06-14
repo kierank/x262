@@ -849,6 +849,16 @@ static void name##_16x16( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )\
 }
 SUB8X8_DCT_MPEG2_ASM( sub8x8_dct_mpeg2_sse2, x264_fdct_mpeg2_sse2 )
 SUB8X8_DCT_MPEG2_ASM( sub8x8_dct_mpeg2_avx,  x264_fdct_mpeg2_avx )
+
+/* AVX2 batches two horizontally-adjacent 8x8 forward DCTs per call, with the
+ * pixel subtraction folded into the kernel. The 16x16 path does the top row of
+ * blocks (0,1) then the bottom (2,3); the single 8x8 and field paths have no
+ * pair to batch, so they stay on the SSE2 kernel. */
+static void sub16x16_dct_mpeg2_avx2( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )
+{
+    x264_fdct_mpeg2_x2_avx2( (void*)dct[0], &pix1[0], &pix2[0] );
+    x264_fdct_mpeg2_x2_avx2( (void*)dct[2], &pix1[8*FENC_STRIDE], &pix2[8*FDEC_STRIDE] );
+}
 #endif
 #endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */
 
@@ -1183,7 +1193,10 @@ void x264_dct_init( uint32_t cpu, x264_dct_function_t *dctf, int b_mpeg2 )
             dctf->add8x8_idct8_field = add8x8_idct_mpeg2_avx_field;
             dctf->sub8x8_dct8        = sub8x8_dct_mpeg2_avx;
             dctf->sub8x8_dct8_field  = sub8x8_dct_mpeg2_avx_field;
+            dctf->sub16x16_dct8      = sub8x8_dct_mpeg2_avx_16x16;
         }
+        if( cpu&X264_CPU_AVX2 )
+            dctf->sub16x16_dct8 = sub16x16_dct_mpeg2_avx2;
 #endif
     }
 #endif

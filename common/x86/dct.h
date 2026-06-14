@@ -235,6 +235,8 @@ void x264_add8x8_idct_mpeg2_avx ( uint8_t *pixels, intptr_t stride, int16_t bloc
 void x264_fdct_mpeg2_sse2( int16_t block[64] );
 #define x264_fdct_mpeg2_avx x264_template(fdct_mpeg2_avx)
 void x264_fdct_mpeg2_avx( int16_t block[64] );
+#define x264_fdct_mpeg2_x2_avx2 x264_template(fdct_mpeg2_x2_avx2)
+void x264_fdct_mpeg2_x2_avx2( int16_t dct[2][64], uint8_t *pix1, uint8_t *pix2 );
 #endif
 #endif
 #define x264_zigzag_sub_4x4_frame_avx x264_template(zigzag_sub_4x4_frame_avx)
