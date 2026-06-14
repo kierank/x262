@@ -1550,8 +1550,15 @@ void x264_zigzag_init( uint32_t cpu, x264_zigzag_function_t *pf_progressive, x26
 #endif // !HIGH_BIT_DEPTH
 
 #if HAVE_MPEG2
-    /* MPEG-2 TODO: Write SIMD */
     if( b_mpeg2 )
+    {
         pf_interlaced->scan_8x8 = zigzag_scan_8x8_field_mpeg2;
+#if HAVE_MMX && !HIGH_BIT_DEPTH
+        if( cpu&X264_CPU_SSSE3 )
+            pf_interlaced->scan_8x8 = x264_zigzag_scan_8x8_field_mpeg2_ssse3;
+        if( cpu&X264_CPU_AVX512 )
+            pf_interlaced->scan_8x8 = x264_zigzag_scan_8x8_field_mpeg2_avx512;
+#endif
+    }
 #endif
 }

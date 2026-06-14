@@ -1232,6 +1232,36 @@ static int check_dct( uint32_t cpu_ref, uint32_t cpu_new )
 #undef TEST_ZIGZAG_SCAN
 #undef TEST_ZIGZAG_SUB
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    {
+        x264_zigzag_function_t zz_c[2], zz_ref[2], zz_a[2];
+        x264_zigzag_init( 0,       &zz_c[0],   &zz_c[1],   1 );
+        x264_zigzag_init( cpu_ref, &zz_ref[0], &zz_ref[1], 1 );
+        x264_zigzag_init( cpu_new, &zz_a[0],   &zz_a[1],   1 );
+        ok = 1; used_asm = 0;
+        if( zz_a[1].scan_8x8 != zz_ref[1].scan_8x8 )
+        {
+            set_func_name( "zigzag_scan_8x8_field_mpeg2" );
+            used_asm = 1;
+            ALIGNED_ARRAY_64( dctcoef, dct,[64] );
+            for( int j = 0; j < 100; j++ )
+            {
+                for( int i = 0; i < 64; i++ )
+                    dct[i] = rand()&0x1F ? 0 : (rand() & 0xFFFF) - 0x8000;
+                call_c( zz_c[1].scan_8x8, level1, dct );
+                call_a( zz_a[1].scan_8x8, level2, dct );
+                if( memcmp( level1, level2, 64*sizeof(dctcoef) ) )
+                {
+                    ok = 0;
+                    fprintf( stderr, "zigzag_scan_8x8_field_mpeg2 [FAILED]\n" );
+                    break;
+                }
+            }
+        }
+        report( "zigzag mpeg2 :" );
+    }
+#endif
+
     return ret;
 }
 
