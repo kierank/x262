@@ -41,6 +41,8 @@ levelrun_reverse_avx512: dw 31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16
                         dw 15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
 mpeg2_clip_max: times 32 dw 2047
 mpeg2_clip_min: times 32 dw -2048
+mpeg2_dc_summask: dw 0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+ALIGN 64
 %endif
 
 %macro DQM4 3
@@ -1014,6 +1016,101 @@ INIT_XMM avx
 DEQUANT_MPEG2_INTER
 INIT_YMM avx2
 DEQUANT_MPEG2_INTER
+
+;-----------------------------------------------------------------------------
+; void dequant_mpeg2_intra( dctcoef dct[64], int dequant_mf[64], int precision )
+;-----------------------------------------------------------------------------
+
+; process one register-width of coeffs (8 for xmm, 16 for ymm) at byte offset %1.
+; m7 = sum accumulator. No odd bias, >>5, no zero check (intra dequants all coeffs).
+%macro DEQUANT_MPEG2_INTRA_ROW 1
+    mova       m0, [r0+%1]          ; dct
+    psraw      m1, m0, 15           ; sign (0 / -1)
+    ABSW       m0, m0, m2
+%if mmsize == 32
+    pmovzxwd   m2, xm0
+    vextracti128 xm0, m0, 1
+    pmovzxwd   m0, xm0
+    PMULLD_EMU m2, [r1+%1*2   ], m8, m9
+    PMULLD_EMU m0, [r1+%1*2+32], m8, m9
+    psrld      m2, 5
+    psrld      m0, 5
+    packusdw   m2, m0
+    vpermq     m2, m2, q3120
+%else
+    pxor       m3, m3
+    mova       m2, m0
+    punpcklwd  m2, m3               ; lo |dct| dwords (zero-extended)
+    punpckhwd  m0, m3               ; hi |dct| dwords
+    PMULLD_EMU m2, [r1+%1*2   ], m3, m4
+    PMULLD_EMU m0, [r1+%1*2+16], m3, m4
+    psrld      m2, 5
+    psrld      m0, 5
+%if cpuflag(sse4)
+    packusdw   m2, m0
+%else
+    pslld      m2, 16
+    psrad      m2, 16
+    pslld      m0, 16
+    psrad      m0, 16
+    packssdw   m2, m0
+%endif
+%endif
+    pxor       m2, m1               ; restore sign: (x ^ s) - s
+    psubw      m2, m1
+    pminsw     m2, [mpeg2_clip_max]
+    pmaxsw     m2, [mpeg2_clip_min]
+    mova       [r0+%1], m2
+%if %1 == 0
+    pand       m2, m6               ; exclude DC lane from the running sum
+%endif
+    pxor       m7, m2               ; sum ^= result
+%endmacro
+
+%macro DEQUANT_MPEG2_INTRA 0
+cglobal dequant_mpeg2_intra, 3,3,8+(mmsize/16)
+    ; DC: dct[0] <<= 3 - precision   (dct[0] is non-negative, fits 12 bits).
+    ; Done with a SIMD variable shift to avoid a scalar shift-by-cl ABI hazard.
+    neg        r2d
+    add        r2d, 3             ; 3 - precision (shift count, 0..3)
+    movd       xm0, r2d
+    movd       xm5, [r0]          ; dct[0] in lane 0
+    pslld      xm5, xm0           ; DC_shifted, held in xm5 across the loop
+    mova       m6, [mpeg2_dc_summask]
+    pxor       m7, m7
+%assign i 0
+%rep 128/mmsize
+    DEQUANT_MPEG2_INTRA_ROW i
+%assign i i+mmsize
+%endrep
+    ; m7 now holds XOR of AC[1..63] (DC lane excluded by the summask)
+%if mmsize == 32
+    vextracti128 xm0, m7, 1
+    pxor       xm7, xm0
+%endif
+    pshufd     xm0, xm7, q1032
+    pxor       xm7, xm0
+    pshuflw    xm0, xm7, q1032
+    pxor       xm7, xm0
+    pshuflw    xm0, xm7, q0001
+    pxor       xm7, xm0           ; xm7 lane 0 = XOR of AC[1..63]
+    movd       r2d, xm5           ; DC_shifted
+    mov        [r0], r2w          ; store into dct[0]
+    movd       eax, xm7
+    xor        eax, r2d           ; sum = DC_shifted XOR AC[1..63]
+    not        eax
+    and        eax, 1             ; 1 & ~sum
+    xor        ax, [r0+63*2]
+    mov        [r0+63*2], ax
+    RET
+%endmacro
+
+INIT_XMM sse2
+DEQUANT_MPEG2_INTRA
+INIT_XMM avx
+DEQUANT_MPEG2_INTRA
+INIT_YMM avx2
+DEQUANT_MPEG2_INTRA
 %endif ; HAVE_MPEG2 && !HIGH_BIT_DEPTH
 
 %macro DEQUANT_DC 2

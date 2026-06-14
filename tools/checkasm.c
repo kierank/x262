@@ -2619,7 +2619,7 @@ static int check_quant_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
 #define TEST_DEQUANT_MPEG2_INTRA( qname, dqname, block ) \
         if( qf_a.dqname != qf_ref.dqname ) \
         { \
-            set_func_name( "%s_%s", #dqname, i_cqm?"cqm":"flat" ); \
+            set_func_name( "%s", #dqname ); \
             used_asm = 1; \
             for( int qp = 31; qp > 0; qp-- ) \
            { \
@@ -2631,7 +2631,7 @@ static int check_quant_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
                 if( memcmp( dct1, dct2, 64*sizeof(dctcoef) ) ) \
                 { \
                     ok = 0; \
-                    fprintf( stderr, #dqname "(qp=%d, cqm=%d, block="#block"): [FAILED]\n", qp, i_cqm ); \
+                    fprintf( stderr, #dqname "(qp=%d, cqm=%d, precision=%d, block="#block"): [FAILED]\n", qp, i_cqm, h->param.i_intra_dc_precision ); \
                     for (int r = 0; r < 64; r++) fprintf( stderr, "%d ", dct2[r] ); \
                     fprintf( stderr, "\n" ); \
                     for (int r = 0; r < 64; r++) fprintf( stderr, "%d ", dct1[r] ); \
