@@ -63,6 +63,12 @@ cavlc_shuf_avx512: dw 0x0080, 0x0184, 0x0288, 0x038c, 0x0490, 0x0594, 0x0698, 0x
                    dw 0x08a0, 0x09a4, 0x0aa8, 0x0bac, 0x0cb0, 0x0db4, 0x0eb8, 0x0fbc ; bits 6-11:  interleave2
                    dw 0x00c1, 0x01c5, 0x02c9, 0x03cd, 0x04d1, 0x05d5, 0x06d9, 0x07dd
                    dw 0x08e1, 0x09e5, 0x0ae9, 0x0bed, 0x0cf1, 0x0df5, 0x0ef9, 0x0ffd
+%if HAVE_MPEG2
+scan_field_mpeg2_avx512: dw 0x0780, 0x07c1, 0x0882, 0x08c3, 0x0a08, 0x0a49, 0x0c10, 0x0c51 ; bits 0-5:   field1
+                         dw 0x0a8a, 0x0acb, 0x0904, 0x0945, 0x0986, 0x09c7, 0x0b0f, 0x0b4e ; bits 6-11:  field2
+                         dw 0x0b8d, 0x0bcc, 0x0c93, 0x0cd2, 0x0e18, 0x0e59, 0x0ea0, 0x0ee1
+                         dw 0x0d1a, 0x0d5b, 0x0d94, 0x0dd5, 0x0f16, 0x0f57, 0x0f9c, 0x0fdd
+%endif
 %endif
 
 pw_ppmmmmpp:    dw 1,1,-1,-1,-1,-1,1,1
@@ -1524,6 +1530,115 @@ INIT_XMM ssse3
 SCAN_8x8
 %endif
 
+%if HAVE_MPEG2 && HIGH_BIT_DEPTH == 0
+; void zigzag_scan_8x8_field_mpeg2( int16_t level[64], int16_t dct[64] )
+SECTION_RODATA 16
+scan8fm_g0c0: db 0,1,2,3,4,5,6,7,-1,-1,-1,-1,-1,-1,-1,-1
+scan8fm_g0c1: db -1,-1,-1,-1,-1,-1,-1,-1,0,1,2,3,-1,-1,-1,-1
+scan8fm_g0c2: db -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,0,1,2,3
+scan8fm_g1c0: db -1,-1,-1,-1,8,9,10,11,12,13,14,15,-1,-1,-1,-1
+scan8fm_g1c1: db 4,5,6,7,-1,-1,-1,-1,-1,-1,-1,-1,14,15,12,13
+scan8fm_g2c1: db 10,11,8,9,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+scan8fm_g2c2: db -1,-1,-1,-1,6,7,4,5,-1,-1,-1,-1,-1,-1,-1,-1
+scan8fm_g2c3: db -1,-1,-1,-1,-1,-1,-1,-1,0,1,2,3,-1,-1,-1,-1
+scan8fm_g2c4: db -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,0,1,2,3
+scan8fm_g3c2: db -1,-1,-1,-1,8,9,10,11,12,13,14,15,-1,-1,-1,-1
+scan8fm_g3c3: db 4,5,6,7,-1,-1,-1,-1,-1,-1,-1,-1,8,9,10,11
+scan8fm_g4c3: db 12,13,14,15,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+scan8fm_g4c4: db -1,-1,-1,-1,4,5,6,7,-1,-1,-1,-1,-1,-1,-1,-1
+scan8fm_g4c5: db -1,-1,-1,-1,-1,-1,-1,-1,0,1,2,3,-1,-1,-1,-1
+scan8fm_g4c6: db -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,0,1,2,3
+scan8fm_g5c4: db -1,-1,-1,-1,8,9,10,11,12,13,14,15,-1,-1,-1,-1
+scan8fm_g5c5: db 4,5,6,7,-1,-1,-1,-1,-1,-1,-1,-1,8,9,10,11
+scan8fm_g6c5: db 12,13,14,15,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+scan8fm_g6c6: db -1,-1,-1,-1,4,5,6,7,-1,-1,-1,-1,-1,-1,-1,-1
+scan8fm_g6c7: db -1,-1,-1,-1,-1,-1,-1,-1,0,1,2,3,4,5,6,7
+scan8fm_g7c6: db 8,9,10,11,12,13,14,15,-1,-1,-1,-1,-1,-1,-1,-1
+scan8fm_g7c7: db -1,-1,-1,-1,-1,-1,-1,-1,8,9,10,11,12,13,14,15
+
+SECTION .text
+; Each input chunk is loaded once and stays register-resident (max 4 live at
+; once + 2 temps = 7 xmm, so this also fits x86_32); a chunk's last use
+; shuffles it in place.
+INIT_XMM ssse3
+cglobal zigzag_scan_8x8_field_mpeg2, 2,2,7
+    mova       m2, [r1+  0]  ; chunk 0
+    mova       m3, [r1+ 16]  ; chunk 1
+    mova       m4, [r1+ 32]  ; chunk 2
+    mova       m5, [r1+ 48]  ; chunk 3
+    mova       m6, [r1+ 64]  ; chunk 4
+    ; group 0 (chunks 0 1 2)
+    mova       m0, m2
+    pshufb     m0, [scan8fm_g0c0]
+    mova       m1, m3
+    pshufb     m1, [scan8fm_g0c1]
+    por        m0, m1
+    mova       m1, m4
+    pshufb     m1, [scan8fm_g0c2]
+    por        m0, m1
+    mova       [r0+  0], m0
+    ; group 1 (chunks 0 1)
+    pshufb     m2, [scan8fm_g1c0]
+    mova       m1, m3
+    pshufb     m1, [scan8fm_g1c1]
+    por        m2, m1
+    mova       [r0+ 16], m2
+    ; group 2 (chunks 1 2 3 4)
+    pshufb     m3, [scan8fm_g2c1]
+    mova       m1, m4
+    pshufb     m1, [scan8fm_g2c2]
+    por        m3, m1
+    mova       m1, m5
+    pshufb     m1, [scan8fm_g2c3]
+    por        m3, m1
+    mova       m1, m6
+    pshufb     m1, [scan8fm_g2c4]
+    por        m3, m1
+    mova       [r0+ 32], m3
+    ; group 3 (chunks 2 3)
+    pshufb     m4, [scan8fm_g3c2]
+    mova       m1, m5
+    pshufb     m1, [scan8fm_g3c3]
+    por        m4, m1
+    mova       [r0+ 48], m4
+    mova       m2, [r1+ 80]  ; chunk 5
+    mova       m3, [r1+ 96]  ; chunk 6
+    ; group 4 (chunks 3 4 5 6)
+    pshufb     m5, [scan8fm_g4c3]
+    mova       m1, m6
+    pshufb     m1, [scan8fm_g4c4]
+    por        m5, m1
+    mova       m1, m2
+    pshufb     m1, [scan8fm_g4c5]
+    por        m5, m1
+    mova       m1, m3
+    pshufb     m1, [scan8fm_g4c6]
+    por        m5, m1
+    mova       [r0+ 64], m5
+    ; group 5 (chunks 4 5)
+    pshufb     m6, [scan8fm_g5c4]
+    mova       m1, m2
+    pshufb     m1, [scan8fm_g5c5]
+    por        m6, m1
+    mova       [r0+ 80], m6
+    mova       m4, [r1+112]  ; chunk 7
+    ; group 6 (chunks 5 6 7)
+    pshufb     m2, [scan8fm_g6c5]
+    mova       m1, m3
+    pshufb     m1, [scan8fm_g6c6]
+    por        m2, m1
+    mova       m1, m4
+    pshufb     m1, [scan8fm_g6c7]
+    por        m2, m1
+    mova       [r0+ 96], m2
+    ; group 7 (chunks 6 7)
+    pshufb     m3, [scan8fm_g7c6]
+    pshufb     m4, [scan8fm_g7c7]
+    por        m3, m4
+    mova       [r0+112], m3
+    RET
+%endif
+
 ;-----------------------------------------------------------------------------
 ; void zigzag_scan_8x8_frame( dctcoef level[64], dctcoef dct[8][8] )
 ;-----------------------------------------------------------------------------
@@ -2264,6 +2379,12 @@ scan8_avx512:
 cglobal zigzag_scan_8x8_field, 2,2
     mova        m0, [scan_field_avx512]
     jmp scan8_avx512
+
+%if HAVE_MPEG2
+cglobal zigzag_scan_8x8_field_mpeg2, 2,2
+    mova        m0, [scan_field_mpeg2_avx512]
+    jmp scan8_avx512
+%endif
 
 cglobal zigzag_interleave_8x8_cavlc, 3,3
     mova       m0, [cavlc_shuf_avx512]
