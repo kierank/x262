@@ -1312,6 +1312,20 @@ static int check_dct( uint32_t cpu_ref, uint32_t cpu_new )
         TEST_DCT_MPEG2( sub8x8_dct8 );
         TEST_DCT_MPEG2( sub8x8_dct8_field );
 #undef TEST_DCT_MPEG2
+        if( dctm_asm.sub16x16_dct8 != dctm_ref.sub16x16_dct8 )
+        {
+            set_func_name( "sub16x16_dct8_mpeg2" );
+            used_asm = 1;
+            call_c1( dctm_c.sub16x16_dct8, (void*)dct1, pbuf1, pbuf2 );
+            call_a1( dctm_asm.sub16x16_dct8, (void*)dct2, pbuf1, pbuf2 );
+            if( memcmp( dct1, dct2, 256 * sizeof(dctcoef) ) )
+            {
+                ok = 0;
+                fprintf( stderr, "sub16x16_dct8_mpeg2 [FAILED]\n" );
+            }
+            call_c2( dctm_c.sub16x16_dct8, (void*)dct1, pbuf1, pbuf2 );
+            call_a2( dctm_asm.sub16x16_dct8, (void*)dct2, pbuf1, pbuf2 );
+        }
         report( "sub_dct8 mpeg2 :" );
     }
 #endif
