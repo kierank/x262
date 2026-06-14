@@ -2268,6 +2268,173 @@ INIT_YMM avx2
 FRAME_INIT_LOWRES
 %endif
 
+%if HAVE_MPEG2 && HIGH_BIT_DEPTH == 0
+;-----------------------------------------------------------------------------
+; void frame_init_lowres_core_mpeg2( uint8_t *src0, uint8_t *dst0, uint8_t *dsth,
+;       uint8_t *dstv, uint8_t *dstc, intptr_t src_stride, intptr_t dst_stride,
+;       int width, int height )
+;-----------------------------------------------------------------------------
+; Three phases (must run in order):
+;  1. downscale full-res src -> dst0 (lowres): 2x2 box avg, chained pavgb (lossy filter).
+;  2. duplicate dst0 last column and last row (border, so phase 3 edge reads are valid).
+;  3. bilinear half-pel of dst0 -> dsth/dstv/dstc (== hpel_filter_mpeg2 on the lowres plane).
+; width need not be a multiple of mmsize; the loops overread/overwrite into the padding.
+; m7 = even/odd byte deinterleave shuffle, m6 = pb_1.
+; args: r0=src0 r1=dst0 r2=dsth r3=dstv r4=dstc r5=src_stride r6=dst_stride
+;       r7=width r8=height  (loaded from r7m/r8m)
+
+; phase 1: one row of dst0 (mmsize lowres pixels) at src byte offset 2*%1, dst offset %1.
+; r0=src0 row base, r12=src1=src0+src_stride. 2:1 box average:
+; dst0[x] = pavgb( pavgb(src0[2x],src1[2x]), pavgb(src0[2x+1],src1[2x+1]) ).
+; Average the two full-res rows, then average adjacent (even,odd) column pairs.
+; ssse3+: pshufb-deinterleave even/odd then pavgb. sse2: mask even / shift odd then
+; pavgb (m7 holds pw_00ff there), packuswb to bytes.
+%macro LOWRES_MPEG2_DOWN 1
+    movu       m0, [r0+2*%1]
+    movu       m2, [r12+2*%1]
+    pavgb      m0, m2
+    movu       m1, [r0+2*%1+mmsize]
+    movu       m3, [r12+2*%1+mmsize]
+    pavgb      m1, m3
+%if cpuflag(ssse3)
+    pshufb     m0, m7                 ; even bytes -> low qword, odd -> high
+    pshufb     m1, m7
+    punpcklqdq m2, m0, m1             ; all even columns  (src[2x])
+    punpckhqdq m0, m0, m1             ; all odd  columns  (src[2x+1])
+%if mmsize == 32
+    vpermq     m2, m2, q3120          ; undo per-lane qword scramble
+    vpermq     m0, m0, q3120
+%endif
+    pavgb      m2, m0                 ; dst0[x] = pavgb(even, odd)
+%else ; sse2
+    pand       m2, m0, m7             ; even bytes (low byte of each word)
+    psrlw      m0, 8                  ; odd bytes
+    pavgb      m2, m0                 ; pavgb(even,odd) in low byte of each word
+    pand       m3, m1, m7
+    psrlw      m1, 8
+    pavgb      m3, m1
+    packuswb   m2, m3                 ; dst0[x] packed to bytes
+%endif
+    movu       [r1+%1], m2
+%endmacro
+
+; phase 3: one row of hpel (mmsize lowres pixels) at offset %1. r1=dst0 row base,
+; r8=dst0+dst_stride (next row), r6=dst_stride. outputs dsth(r2)/dstv(r3)/dstc(r4).
+%macro LOWRES_MPEG2_HPEL 1
+    movu       m0, [r1+%1]            ; a = dst0[x]
+    movu       m1, [r1+%1+1]          ; b = dst0[x+1]
+    movu       m2, [r8+%1]            ; c = dst0_next[x]
+    movu       m3, [r8+%1+1]          ; d = dst0_next[x+1]
+    pavgb      m4, m0, m1
+    movu       [r2+%1], m4            ; dsth = pavgb(a,b)
+    pavgb      m5, m0, m2
+    movu       [r3+%1], m5            ; dstv = pavgb(a,c)
+    ; dstc = (a+b+c+d+2)>>2 exact via compensated double-pavgb
+    pavgb      m5, m2, m3             ; q = pavgb(c,d)   (m4 = p = pavgb(a,b))
+    pxor       m0, m1                 ; a^b
+    pxor       m2, m3                 ; c^d
+    por        m0, m2
+    pxor       m1, m4, m5             ; p^q
+    pand       m0, m1
+    pand       m0, m6
+    pavgb      m4, m5
+    psubb      m4, m0
+    movu       [r4+%1], m4
+%endmacro
+
+; Phase 2 (border on dst0): r1=dst0 base, r6=dst_stride, r7=width, height in r10.
+; Replicate last column for every row, then copy last row to the row below.
+%macro LOWRES_MPEG2_BORDER 0
+    ; last column: dst0[width + y*ds] = dst0[width-1 + y*ds]
+    lea        r9, [r1+r7]            ; &dst0[width]
+    mov        r11, r10               ; y = height
+.border_col:
+    movzx     r12d, byte [r9-1]
+    mov       [r9], r12b
+    add        r9, r6
+    dec        r11
+    jg .border_col
+    ; last row: copy row height-1 -> row height, width+1 bytes
+    mov        r9, r10
+    dec        r9
+    imul       r9, r6
+    lea        r9, [r1+r9]            ; &dst0[(height-1)*ds]
+    lea       r11, [r9+r6]            ; &dst0[height*ds]
+    xor       r12, r12
+.border_row:
+    movzx     r13d, byte [r9+r12]
+    mov       [r11+r12], r13b
+    inc       r12
+    cmp       r12, r7
+    jl .border_row
+    ; border row's last column: dst0[width + height*ds] = dst0[width-1 + height*ds]
+    movzx     r13d, byte [r11+r7-1]
+    mov       [r11+r7], r13b
+%endmacro
+
+%macro FRAME_INIT_LOWRES_MPEG2 0
+cglobal frame_init_lowres_core_mpeg2, 7,14,8
+    movifnidn r5, r5mp                ; src_stride
+    movifnidn r6, r6mp                ; dst_stride
+    movsxdifnidn r7, r7m              ; width
+    movsxdifnidn r10, r8m             ; height (kept in r10 across phases)
+%if mmsize == 32
+    vbroadcasti128 m7, [deinterleave_shuf]
+    vbroadcasti128 m6, [pb_1]
+%elif cpuflag(ssse3)
+    mova       m7, [deinterleave_shuf]
+    mova       m6, [pb_1]
+%else ; sse2: m7 = pw_00ff (even-byte mask for phase 1)
+    mova       m7, [pw_00ff]
+    mova       m6, [pb_1]
+%endif
+    ; ---- phase 1: downscale full-res src0 -> dst0 ----
+    mov        r8, r10                ; row counter
+.down_y:
+    lea       r12, [r0+r5]            ; src1 = src0 + src_stride
+    xor        r9, r9
+.down_x:
+    LOWRES_MPEG2_DOWN r9
+    add        r9, mmsize
+    cmp        r9, r7
+    jl .down_x
+    lea        r0, [r0+r5*2]          ; src0 += 2*src_stride
+    add        r1, r6                 ; dst0 += dst_stride
+    dec        r8
+    jg .down_y
+    ; r1 now points past the last dst0 row; rewind to dst0 base
+    mov        r8, r10
+    imul       r8, r6
+    sub        r1, r8                 ; r1 = dst0 base
+    ; ---- phase 2: border ----
+    LOWRES_MPEG2_BORDER
+    ; ---- phase 3: hpel of dst0 -> dsth/dstv/dstc ----
+    mov       r11, r10               ; row counter (height)
+.hpel_y:
+    lea        r8, [r1+r6]           ; dst0_next = dst0 + dst_stride
+    xor        r9, r9
+.hpel_x:
+    LOWRES_MPEG2_HPEL r9
+    add        r9, mmsize
+    cmp        r9, r7
+    jl .hpel_x
+    add        r1, r6                ; dst0 += dst_stride
+    add        r2, r6
+    add        r3, r6
+    add        r4, r6
+    dec       r11
+    jg .hpel_y
+    RET
+%endmacro
+
+INIT_XMM sse2
+FRAME_INIT_LOWRES_MPEG2
+INIT_XMM ssse3
+FRAME_INIT_LOWRES_MPEG2
+INIT_YMM avx2
+FRAME_INIT_LOWRES_MPEG2
+%endif
+
 ;-----------------------------------------------------------------------------
 ; void mbtree_propagate_cost( int *dst, uint16_t *propagate_in, uint16_t *intra_costs,
 ;                             uint16_t *inter_costs, uint16_t *inv_qscales, float *fps_factor, int len )
