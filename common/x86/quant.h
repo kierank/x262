@@ -115,6 +115,12 @@ void x264_dequant_mpeg2_inter_sse2( dctcoef dct[64], int dequant_mf[64] );
 void x264_dequant_mpeg2_inter_avx( dctcoef dct[64], int dequant_mf[64] );
 #define x264_dequant_mpeg2_inter_avx2 x264_template(dequant_mpeg2_inter_avx2)
 void x264_dequant_mpeg2_inter_avx2( dctcoef dct[64], int dequant_mf[64] );
+#define x264_dequant_mpeg2_intra_sse2 x264_template(dequant_mpeg2_intra_sse2)
+void x264_dequant_mpeg2_intra_sse2( dctcoef dct[64], int dequant_mf[64], int precision );
+#define x264_dequant_mpeg2_intra_avx x264_template(dequant_mpeg2_intra_avx)
+void x264_dequant_mpeg2_intra_avx( dctcoef dct[64], int dequant_mf[64], int precision );
+#define x264_dequant_mpeg2_intra_avx2 x264_template(dequant_mpeg2_intra_avx2)
+void x264_dequant_mpeg2_intra_avx2( dctcoef dct[64], int dequant_mf[64], int precision );
 #endif
 #define x264_dequant_4x4_flat16_mmx x264_template(dequant_4x4_flat16_mmx)
 void x264_dequant_4x4_flat16_mmx( int16_t dct[16], int dequant_mf[6][16], int i_qp );
