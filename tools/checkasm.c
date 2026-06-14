@@ -2760,6 +2760,38 @@ static int check_mc_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
         report( "hpel mpeg2 :" );
     }
 
+    if( mc_a.mc_chroma != mc_ref.mc_chroma )
+    {
+        pixel *src = pbuf1 + 2*64;   /* interleaved U/V source */
+        pixel *dst1u = pbuf3, *dst1v = pbuf3 + 8*64;
+        pixel *dst2u = pbuf4, *dst2v = pbuf4 + 8*64;
+        ok = 1; used_asm = 1;
+        for( int w = 8; w >= 4; w -= 4 )
+            for( int h = 16; h >= 4; h -= 4 )
+            {
+                set_func_name( "mc_chroma_mpeg2" );
+                /* sweep mv at step 1 incl. negatives: covers all 4 cases AND the
+                   /4 truncation-vs-shift distinction (negative non-mult-of-4 MVs) */
+                for( int mvy = -15; mvy <= 15 && ok; mvy++ )
+                    for( int mvx = -15; mvx <= 15 && ok; mvx++ )
+                    {
+                        memset( pbuf3, 0xCD, 4096 * SIZEOF_PIXEL );
+                        memset( pbuf4, 0xCD, 4096 * SIZEOF_PIXEL );
+                        call_c( mc_c.mc_chroma, dst1u, dst1v, (intptr_t)64, src, (intptr_t)64, mvx, mvy, w, h );
+                        call_a( mc_a.mc_chroma, dst2u, dst2v, (intptr_t)64, src, (intptr_t)64, mvx, mvy, w, h );
+                        for( int j = 0; j < h; j++ )
+                            if( memcmp( dst1u+j*64, dst2u+j*64, w*SIZEOF_PIXEL ) ||
+                                memcmp( dst1v+j*64, dst2v+j*64, w*SIZEOF_PIXEL ) )
+                            {
+                                ok = 0;
+                                fprintf( stderr, "mc_chroma_mpeg2[mv(%d,%d) %dx%d] [FAILED] line %d\n", mvx, mvy, w, h, j );
+                                break;
+                            }
+                    }
+            }
+        report( "mc_chroma mpeg2 :" );
+    }
+
     return ret;
 }
 #endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */

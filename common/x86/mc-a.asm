@@ -40,10 +40,15 @@ ch_shuf_adj: times 8 db 0
              times 8 db 4
              times 8 db 6
 sq_1: times 1 dq 1
+%if HAVE_MPEG2
+; deinterleave: U bytes -> low qword, V bytes -> high qword
+mpeg2_ch_deint: db 0,2,4,6,8,10,12,14, 1,3,5,7,9,11,13,15
+%endif
 
 SECTION .text
 
 cextern pb_0
+cextern pb_1
 cextern pw_1
 cextern pw_4
 cextern pw_8
@@ -2224,3 +2229,253 @@ MC_CHROMA_SSSE3 ; No known AVX CPU will trigger CPU_CACHELINE_64
 INIT_YMM avx2
 MC_CHROMA_SSSE3
 %endif ; HIGH_BIT_DEPTH
+
+%if HAVE_MPEG2 && HIGH_BIT_DEPTH == 0
+;-----------------------------------------------------------------------------
+; void mc_chroma_mpeg2( uint8_t *dstu, uint8_t *dstv, intptr_t i_dst_stride,
+;                       uint8_t *src, intptr_t i_src_stride, int mvx, int mvy,
+;                       int i_width, int i_height )
+;-----------------------------------------------------------------------------
+; Source is interleaved U/V (src[2x]=U, src[2x+1]=V); dst are planar. Half-pel
+; bilinear, 4 cases by the post-(/4) low bits of mvx/mvy. Averaging is done in the
+; interleaved domain (pavgb averages U-with-U, V-with-V independently); each row
+; deinterleaves once via pshufb and split-stores. Four separate case loops (the case
+; branch is per-call). m7 = deinterleave shuffle, m6 = pb_1 (center round-fix).
+;
+; reg map in the loops: r0=dstu r1=dstv r2=dst_stride r3=src r4=src_stride
+;                       r5=srcp(=src+stride) r6=height
+%macro MC_CHROMA_MPEG2_STORE 1 ; width; deinterleaves xm1, stores, advances ptrs
+    pshufb    xm1, xm7
+%if %1 == 8
+    movq       [r0], xm1
+    movhps     [r1], xm1
+%else
+    movd       [r0], xm1
+%if cpuflag(sse4)
+    pextrd     [r1], xm1, 2          ; V dword is at byte 8 (low qword = U after deint)
+%else
+    psrldq    xm1, 8
+    movd       [r1], xm1
+%endif
+%endif
+    add        r0, r2
+    add        r1, r2
+%endmacro
+
+; center 4-tap exact (compensated double-pavgb), interleaved -> m1.
+%macro MC_CHROMA_MPEG2_CENTER 0
+    movu       m0, [r3]
+    movu       m2, [r3+2]
+    movu       m3, [r5]
+    movu       m4, [r5+2]
+    pavgb      m1, m0, m2            ; p = pavgb(a,b)
+    pavgb      m5, m3, m4            ; q = pavgb(c,d)
+    pxor       m0, m2                ; a^b
+    pxor       m3, m4                ; c^d
+    por        m0, m3                ; (a^b)|(c^d)
+    pxor       m2, m1, m5            ; p^q
+    pand       m0, m2
+    pand       m0, m6                ; & 1
+    pavgb      m1, m5                ; over-rounded center
+    psubb      m1, m0                ; corrected
+%endmacro
+
+; one full mc_chroma_mpeg2 for a given width (%1 = 8 or 4).
+%macro MC_CHROMA_MPEG2_W 1
+    ; r3=src r4=src_stride r5=srcp r6=height set by the caller prologue
+.full_%1:
+    movu       m1, [r3]
+    MC_CHROMA_MPEG2_STORE %1
+    add        r3, r4
+    dec        r6d
+    jg .full_%1
+    jmp .done
+.hhpel_%1:
+    movu       m1, [r3]
+    movu       m0, [r3+2]
+    pavgb      m1, m0
+    MC_CHROMA_MPEG2_STORE %1
+    add        r3, r4
+    dec        r6d
+    jg .hhpel_%1
+    jmp .done
+.vhpel_%1:
+    movu       m1, [r3]
+    movu       m0, [r5]
+    pavgb      m1, m0
+    MC_CHROMA_MPEG2_STORE %1
+    mov        r3, r5
+    add        r5, r4
+    dec        r6d
+    jg .vhpel_%1
+    jmp .done
+.center_%1:
+    MC_CHROMA_MPEG2_CENTER
+    MC_CHROMA_MPEG2_STORE %1
+    mov        r3, r5
+    add        r5, r4
+    dec        r6d
+    jg .center_%1
+    jmp .done
+%endmacro
+
+; ---- avx2: process 2 rows per iteration (one ymm lane each), w=8 only ----
+; load 2 rows from base reg %2 at offset %1 into ymm %3 (row N low lane, N+1 high lane).
+%macro MC_CHROMA_LD2 3 ; offset, base, dst
+    movu      xm%3, [%2+%1]
+    vinserti128 m%3, m%3, [%2+r4+%1], 1
+%endmacro
+; deinterleave ymm m1 (per-lane) and store 2 rows of w=8.
+%macro MC_CHROMA_MPEG2_STORE2 0
+    pshufb     m1, m7                ; each 128-lane: [8 U | 8 V] for its row
+    movq       [r0], xm1
+    movhps     [r1], xm1
+    vextracti128 xm0, m1, 1
+    movq    [r0+r2], xm0
+    movhps  [r1+r2], xm0
+    lea        r0, [r0+r2*2]
+    lea        r1, [r1+r2*2]
+%endmacro
+
+%macro MC_CHROMA_MPEG2_W8_2ROW 0
+.full_8_2:
+    MC_CHROMA_LD2 0, r3, 1
+    MC_CHROMA_MPEG2_STORE2
+    lea        r3, [r3+r4*2]
+    sub        r6d, 2
+    jg .full_8_2
+    jmp .done
+.hhpel_8_2:
+    MC_CHROMA_LD2 0, r3, 1
+    MC_CHROMA_LD2 2, r3, 0
+    pavgb      m1, m0
+    MC_CHROMA_MPEG2_STORE2
+    lea        r3, [r3+r4*2]
+    sub        r6d, 2
+    jg .hhpel_8_2
+    jmp .done
+.vhpel_8_2:
+    ; rows N,N+1 averaged with N+1,N+2 -> load [r3..N+1] and [r3+stride..N+2]
+    MC_CHROMA_LD2 0, r3, 1
+    MC_CHROMA_LD2 0, r5, 0
+    pavgb      m1, m0
+    MC_CHROMA_MPEG2_STORE2
+    lea        r3, [r3+r4*2]
+    lea        r5, [r5+r4*2]
+    sub        r6d, 2
+    jg .vhpel_8_2
+    jmp .done
+.center_8_2:
+    MC_CHROMA_LD2 0, r3, 0          ; a (rows N,N+1)
+    MC_CHROMA_LD2 2, r3, 2          ; b
+    pavgb      m1, m0, m2           ; p
+    MC_CHROMA_LD2 0, r5, 3          ; c
+    MC_CHROMA_LD2 2, r5, 4          ; d
+    pavgb      m5, m3, m4           ; q
+    pxor       m0, m2               ; a^b
+    pxor       m3, m4               ; c^d
+    por        m0, m3
+    pxor       m2, m1, m5           ; p^q
+    pand       m0, m2
+    pand       m0, m6
+    pavgb      m1, m5
+    psubb      m1, m0
+    MC_CHROMA_MPEG2_STORE2
+    lea        r3, [r3+r4*2]
+    lea        r5, [r5+r4*2]
+    sub        r6d, 2
+    jg .center_8_2
+    jmp .done
+%endmacro
+
+%macro MC_CHROMA_MPEG2 0
+cglobal mc_chroma_mpeg2, 0,9,8
+%if mmsize == 32
+    vbroadcasti128 m7, [mpeg2_ch_deint] ; deinterleave mask in both lanes
+    vbroadcasti128 m6, [pb_1]
+%else
+    movu       m7, [mpeg2_ch_deint]
+    movu       m6, [pb_1]
+%endif
+    movifnidn r5d, r5m               ; mvx
+    movifnidn r6d, r6m               ; mvy
+    movifnidn  r4, r4mp              ; r4 = src_stride (read before clobber)
+    movifnidn  r3, r3mp              ; src
+    ; mvx /= 4, mvy /= 4 with C truncation toward zero (NOT arithmetic shift):
+    ; x/4 == (x + (x<0 ? 3 : 0)) >> 2
+    mov       r7d, r5d
+    sar       r7d, 31
+    and       r7d, 3
+    add       r5d, r7d
+    sar       r5d, 2                 ; mvx /= 4 (trunc)
+    mov       r7d, r6d
+    sar       r7d, 31
+    and       r7d, 3
+    add       r6d, r7d
+    sar       r6d, 2                 ; mvy /= 4 (trunc)
+    ; case bits: low bit of mvx = mvx&1, low bit of mvy = mvy&1
+    mov       r7d, r5d
+    and       r7d, 1                 ; mvx & 1
+    mov       r8d, r6d
+    and       r8d, 1
+    lea       r7d, [r7d + r8d*2]     ; r7d = case: 0=full 1=hhpel 2=vhpel 3=center
+    mov       r8d, r6d
+    sar       r8d, 1                 ; mvy >> 1
+    movsxd     r8, r8d
+    imul       r8, r4               ; (mvy>>1) * src_stride
+    add        r3, r8               ; src += (mvy>>1)*src_stride
+    mov       r8d, r5d
+    sar       r8d, 1                 ; mvx >> 1
+    movsxd     r8, r8d
+    lea        r3, [r3 + r8*2]       ; src += (mvx>>1)*2
+    lea        r5, [r3 + r4]         ; r5 = srcp = src + stride
+    movifnidn  r0, r0mp              ; dstu
+    movifnidn  r1, r1mp              ; dstv
+    movifnidn r2d, r2m               ; dst_stride
+    movsxd     r2, r2d
+    movifnidn r6d, r8m               ; height
+    cmp dword r7m, 8
+    jne .dispatch_w4
+    ; width 8 dispatch
+%if mmsize == 32
+    cmp       r7d, 1
+    je .hhpel_8_2
+    cmp       r7d, 2
+    je .vhpel_8_2
+    cmp       r7d, 3
+    je .center_8_2
+    jmp .full_8_2
+%else
+    cmp       r7d, 1
+    je .hhpel_8
+    cmp       r7d, 2
+    je .vhpel_8
+    cmp       r7d, 3
+    je .center_8
+    jmp .full_8
+%endif
+.dispatch_w4:
+    cmp       r7d, 1
+    je .hhpel_4
+    cmp       r7d, 2
+    je .vhpel_4
+    cmp       r7d, 3
+    je .center_4
+    jmp .full_4
+%if mmsize == 32
+    MC_CHROMA_MPEG2_W8_2ROW
+%else
+    MC_CHROMA_MPEG2_W 8
+%endif
+    MC_CHROMA_MPEG2_W 4
+.done:
+    RET
+%endmacro
+
+INIT_XMM ssse3
+MC_CHROMA_MPEG2
+INIT_XMM avx
+MC_CHROMA_MPEG2
+INIT_YMM avx2
+MC_CHROMA_MPEG2
+%endif ; HAVE_MPEG2 && HIGH_BIT_DEPTH == 0
