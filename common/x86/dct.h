@@ -224,6 +224,14 @@ void x264_zigzag_scan_8x8_field_avx512( dctcoef level[64], dctcoef dct[64] );
 void x264_zigzag_scan_8x8_field_mpeg2_ssse3 ( int16_t level[64], int16_t dct[64] );
 #define x264_zigzag_scan_8x8_field_mpeg2_avx512 x264_template(zigzag_scan_8x8_field_mpeg2_avx512)
 void x264_zigzag_scan_8x8_field_mpeg2_avx512( int16_t level[64], int16_t dct[64] );
+#if ARCH_X86_64
+#define x264_add8x8_idct_mpeg2_sse2 x264_template(add8x8_idct_mpeg2_sse2)
+void x264_add8x8_idct_mpeg2_sse2( uint8_t *pixels, intptr_t stride, int16_t block[64] );
+#define x264_add8x8_idct_mpeg2_sse4 x264_template(add8x8_idct_mpeg2_sse4)
+void x264_add8x8_idct_mpeg2_sse4( uint8_t *pixels, intptr_t stride, int16_t block[64] );
+#define x264_add8x8_idct_mpeg2_avx x264_template(add8x8_idct_mpeg2_avx)
+void x264_add8x8_idct_mpeg2_avx ( uint8_t *pixels, intptr_t stride, int16_t block[64] );
+#endif
 #endif
 #define x264_zigzag_sub_4x4_frame_avx x264_template(zigzag_sub_4x4_frame_avx)
 int  x264_zigzag_sub_4x4_frame_avx    ( int16_t level[16], const uint8_t *src, uint8_t *dst );

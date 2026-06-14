@@ -104,6 +104,11 @@ ifeq ($(SYS_ARCH),X86_64)
 ARCH_X86 = yes
 SRCASM_X += common/x86/dct-64.asm \
             common/x86/trellis-64.asm
+ifneq ($(findstring HAVE_MPEG2 1, $(CONFIG)),)
+ifneq ($(findstring HAVE_BITDEPTH8 1, $(CONFIG)),)
+OBJASM += common/x86/dct-mpeg2-64-8.o
+endif
+endif
 endif
 
 ifdef ARCH_X86
