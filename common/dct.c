@@ -638,128 +638,148 @@ static inline void jpeg_fdct_islow( dctcoef *data )
             XCHG( dctcoef, data[8*i+j], data[8*j+i] );
 }
 
-#define W1 2841 /* 2048*sqrt(2)*cos(1*pi/16) */
-#define W2 2676 /* 2048*sqrt(2)*cos(2*pi/16) */
-#define W3 2408 /* 2048*sqrt(2)*cos(3*pi/16) */
-#define W5 1609 /* 2048*sqrt(2)*cos(5*pi/16) */
-#define W6 1108 /* 2048*sqrt(2)*cos(6*pi/16) */
-#define W7 565  /* 2048*sqrt(2)*cos(7*pi/16) */
+/****************************************************************************
+ * Simple IDCT, ported from FFmpeg (libavcodec/simple_idct_template.c,
+ * BIT_DEPTH == 8). The integer approximation conforms to the IDCT accuracy
+ * requirements of H.262 Annex A, and matches FFmpeg's default MPEG-2 decoder
+ * bit-for-bit. Licensed under the GNU Lesser General Public License version
+ * 2.1 or later.
+ ****************************************************************************/
 
-static short iclip[1024]; /* clipping table */
-static short *iclp;
+#define W1 22725 /* cos(i*M_PI/16)*sqrt(2)*(1<<14) + 0.5 */
+#define W2 21407 /* cos(i*M_PI/16)*sqrt(2)*(1<<14) + 0.5 */
+#define W3 19266 /* cos(i*M_PI/16)*sqrt(2)*(1<<14) + 0.5 */
+#define W4 16383 /* cos(i*M_PI/16)*sqrt(2)*(1<<14) - 0.5 */
+#define W5 12873 /* cos(i*M_PI/16)*sqrt(2)*(1<<14) + 0.5 */
+#define W6 8867  /* cos(i*M_PI/16)*sqrt(2)*(1<<14) + 0.5 */
+#define W7 4520  /* cos(i*M_PI/16)*sqrt(2)*(1<<14) + 0.5 */
+#define ROW_SHIFT 11
+#define COL_SHIFT 20
+#define DC_SHIFT 3
+#define MUL( a, b )    ((int)((uint32_t)(a) * (b)))
+#define MAC( a, b, c ) ((a) += (uint32_t)(b) * (c))
 
-static void x264_idct_init_mpeg2( void )
+static void idctrow( dctcoef *row )
 {
-    iclp = iclip + 512;
-    for( int i = -512; i < 512; i++ )
-        iclp[i] = (i < -256) ? -256 : ((i > 255) ? 255 : i);
-}
+    uint32_t a0, a1, a2, a3, b0, b1, b2, b3;
 
-static void idctrow( dctcoef *blk )
-{
-    int_fast32_t X0, X1, X2, X3, X4, X5, X6, X7, X8;
-
-    if( !( (X1 = blk[4] * 2048) | (X2 = blk[6]) | (X3 = blk[2]) |
-           (X4 = blk[1])        | (X5 = blk[7]) | (X6 = blk[5]) | (X7 = blk[3]) ) )
+    if( !( *(uint32_t*)(row+2) | *(uint32_t*)(row+4) | *(uint32_t*)(row+6) | row[1] ) )
     {
-        blk[0] = blk[1] = blk[2] = blk[3] = blk[4] = blk[5] = blk[6] =
-        blk[7] = blk[0] * 8;
+        dctcoef dc = (dctcoef)((uint32_t)(row[0] << DC_SHIFT) & 0xffff);
+        row[0] = row[1] = row[2] = row[3] = row[4] = row[5] = row[6] = row[7] = dc;
         return;
     }
 
-    X0 = blk[0] * 2048 + 128; /* for proper rounding in the fourth stage  */
+    a0 = ((uint32_t)W4 * row[0]) + (1 << (ROW_SHIFT - 1));
+    a1 = a0;
+    a2 = a0;
+    a3 = a0;
 
-    /* first stage */
-    X8 = W7 * (X4 + X5);
-    X4 = X8 + (W1 - W7) * X4;
-    X5 = X8 - (W1 + W7) * X5;
-    X8 = W3 * (X6 + X7);
-    X6 = X8 - (W3 - W5) * X6;
-    X7 = X8 - (W3 + W5) * X7;
+    a0 += (uint32_t) W2 * row[2];
+    a1 += (uint32_t) W6 * row[2];
+    a2 -= (uint32_t) W6 * row[2];
+    a3 -= (uint32_t) W2 * row[2];
 
-    /* second stage */
-    X8 = X0 + X1;
-    X0 -= X1;
-    X1 = W6 * (X3 + X2);
-    X2 = X1 - (W2 + W6) * X2;
-    X3 = X1 + (W2 - W6) * X3;
-    X1 = X4 + X6;
-    X4 -= X6;
-    X6 = X5 + X7;
-    X5 -= X7;
+    b0 = MUL( W1, row[1] );
+    MAC( b0,  W3, row[3] );
+    b1 = MUL( W3, row[1] );
+    MAC( b1, -W7, row[3] );
+    b2 = MUL( W5, row[1] );
+    MAC( b2, -W1, row[3] );
+    b3 = MUL( W7, row[1] );
+    MAC( b3, -W5, row[3] );
 
-    /* third stage */
-    X7 = X8 + X3;
-    X8 -= X3;
-    X3 = X0 + X2;
-    X0 -= X2;
-    X2 = (181 * (X4 + X5) + 128) >> 8;
-    X4 = (181 * (X4 - X5) + 128) >> 8;
-
-    /* fourth stage */
-    blk[0] = (X7 + X1) >> 8;
-    blk[1] = (X3 + X2) >> 8;
-    blk[2] = (X0 + X4) >> 8;
-    blk[3] = (X8 + X6) >> 8;
-    blk[4] = (X8 - X6) >> 8;
-    blk[5] = (X0 - X4) >> 8;
-    blk[6] = (X3 - X2) >> 8;
-    blk[7] = (X7 - X1) >> 8;
-}
-
-static void idctcol( dctcoef *blk )
-{
-    int_fast32_t X0, X1, X2, X3, X4, X5, X6, X7, X8;
-
-    /* shortcut */
-    if( !( (X1 = blk[8 * 4] * 256) | (X2 = blk[8 * 6]) |
-           (X3 =  blk[8 * 2])      | (X4 = blk[8 * 1]) |
-           (X5 =  blk[8 * 7])      | (X6 = blk[8 * 5]) | (X7 = blk[8 * 3]) ) )
+    if( *(uint32_t*)(row+4) | *(uint32_t*)(row+6) )
     {
-        blk[8 * 0] = blk[8 * 1] = blk[8 * 2] =
-        blk[8 * 3] = blk[8 * 4] = blk[8 * 5] =
-        blk[8 * 6] = blk[8 * 7] = iclp[(blk[8 * 0] + 32) >> 6];
-        return;
+        a0 += (uint32_t)  W4 * row[4] + (uint32_t) W6 * row[6];
+        a1 += (uint32_t)- W4 * row[4] - (uint32_t) W2 * row[6];
+        a2 += (uint32_t)- W4 * row[4] + (uint32_t) W2 * row[6];
+        a3 += (uint32_t)  W4 * row[4] - (uint32_t) W6 * row[6];
+
+        MAC( b0,  W5, row[5] );
+        MAC( b0,  W7, row[7] );
+        MAC( b1, -W1, row[5] );
+        MAC( b1, -W5, row[7] );
+        MAC( b2,  W7, row[5] );
+        MAC( b2,  W3, row[7] );
+        MAC( b3,  W3, row[5] );
+        MAC( b3, -W1, row[7] );
     }
 
-    X0 = blk[8 * 0] * 256 + 8192;
+    row[0] = (int)(a0 + b0) >> ROW_SHIFT;
+    row[7] = (int)(a0 - b0) >> ROW_SHIFT;
+    row[1] = (int)(a1 + b1) >> ROW_SHIFT;
+    row[6] = (int)(a1 - b1) >> ROW_SHIFT;
+    row[2] = (int)(a2 + b2) >> ROW_SHIFT;
+    row[5] = (int)(a2 - b2) >> ROW_SHIFT;
+    row[3] = (int)(a3 + b3) >> ROW_SHIFT;
+    row[4] = (int)(a3 - b3) >> ROW_SHIFT;
+}
 
-    /* first stage */
-    X8 = W7 * (X4 + X5) + 4;
-    X4 = (X8 + (W1 - W7) * X4) >> 3;
-    X5 = (X8 - (W1 + W7) * X5) >> 3;
-    X8 = W3 * (X6 + X7) + 4;
-    X6 = (X8 - (W3 - W5) * X6) >> 3;
-    X7 = (X8 - (W3 + W5) * X7) >> 3;
+static void idctcol( dctcoef *col )
+{
+    uint32_t a0, a1, a2, a3, b0, b1, b2, b3;
 
-    /* second stage */
-    X8 = X0 + X1;
-    X0 -= X1;
-    X1 = W6 * (X3 + X2) + 4;
-    X2 = (X1 - (W2 + W6) * X2) >> 3;
-    X3 = (X1 + (W2 - W6) * X3) >> 3;
-    X1 = X4 + X6;
-    X4 -= X6;
-    X6 = X5 + X7;
-    X5 -= X7;
+    a0 = (uint32_t)W4 * (col[8*0] + ((1 << (COL_SHIFT - 1)) / W4));
+    a1 = a0;
+    a2 = a0;
+    a3 = a0;
 
-    /* third stage */
-    X7 = X8 + X3;
-    X8 -= X3;
-    X3 = X0 + X2;
-    X0 -= X2;
-    X2 = (181 * (X4 + X5) + 128) >> 8;
-    X4 = (181 * (X4 - X5) + 128) >> 8;
+    a0 += (uint32_t) W2 * col[8*2];
+    a1 += (uint32_t) W6 * col[8*2];
+    a2 -= (uint32_t) W6 * col[8*2];
+    a3 -= (uint32_t) W2 * col[8*2];
 
-    /* fourth stage */
-    blk[8 * 0] = iclp[(X7 + X1) >> 14];
-    blk[8 * 1] = iclp[(X3 + X2) >> 14];
-    blk[8 * 2] = iclp[(X0 + X4) >> 14];
-    blk[8 * 3] = iclp[(X8 + X6) >> 14];
-    blk[8 * 4] = iclp[(X8 - X6) >> 14];
-    blk[8 * 5] = iclp[(X0 - X4) >> 14];
-    blk[8 * 6] = iclp[(X3 - X2) >> 14];
-    blk[8 * 7] = iclp[(X7 - X1) >> 14];
+    b0 = MUL( W1, col[8*1] );
+    b1 = MUL( W3, col[8*1] );
+    b2 = MUL( W5, col[8*1] );
+    b3 = MUL( W7, col[8*1] );
+
+    MAC( b0,  W3, col[8*3] );
+    MAC( b1, -W7, col[8*3] );
+    MAC( b2, -W1, col[8*3] );
+    MAC( b3, -W5, col[8*3] );
+
+    if( col[8*4] )
+    {
+        a0 += (uint32_t) W4 * col[8*4];
+        a1 -= (uint32_t) W4 * col[8*4];
+        a2 -= (uint32_t) W4 * col[8*4];
+        a3 += (uint32_t) W4 * col[8*4];
+    }
+
+    if( col[8*5] )
+    {
+        MAC( b0,  W5, col[8*5] );
+        MAC( b1, -W1, col[8*5] );
+        MAC( b2,  W7, col[8*5] );
+        MAC( b3,  W3, col[8*5] );
+    }
+
+    if( col[8*6] )
+    {
+        a0 += (uint32_t) W6 * col[8*6];
+        a1 -= (uint32_t) W2 * col[8*6];
+        a2 += (uint32_t) W2 * col[8*6];
+        a3 -= (uint32_t) W6 * col[8*6];
+    }
+
+    if( col[8*7] )
+    {
+        MAC( b0,  W7, col[8*7] );
+        MAC( b1, -W5, col[8*7] );
+        MAC( b2,  W3, col[8*7] );
+        MAC( b3, -W1, col[8*7] );
+    }
+
+    col[8*0] = (int)(a0 + b0) >> COL_SHIFT;
+    col[8*1] = (int)(a1 + b1) >> COL_SHIFT;
+    col[8*2] = (int)(a2 + b2) >> COL_SHIFT;
+    col[8*3] = (int)(a3 + b3) >> COL_SHIFT;
+    col[8*4] = (int)(a3 - b3) >> COL_SHIFT;
+    col[8*5] = (int)(a2 - b2) >> COL_SHIFT;
+    col[8*6] = (int)(a1 - b1) >> COL_SHIFT;
+    col[8*7] = (int)(a0 - b0) >> COL_SHIFT;
 }
 
 static void add8x8_idct_mpeg2( pixel *p_dst, dctcoef dct[64] )
@@ -782,6 +802,23 @@ static void add8x8_idct_mpeg2( pixel *p_dst, dctcoef dct[64] )
             p_dst[i*FDEC_STRIDE + j] =
                 x264_clip_pixel( p_dst[i*FDEC_STRIDE + j] + tmp[i*8 + j] );
 }
+
+#if HAVE_MMX && ARCH_X86_64
+/* The asm IDCT (FF_IDCT_PERM_TRANSPOSE) consumes the transposed block directly,
+ * so it folds in the "transpose to match zigzag and cqm" step the C does. */
+#define ADD8X8_IDCT_MPEG2_ASM( name, asm_func )\
+static void name( pixel *p_dst, dctcoef dct[64] )\
+{\
+    asm_func( p_dst, FDEC_STRIDE, dct );\
+}\
+static void name##_field( pixel *p_dst, dctcoef dct[64] )\
+{\
+    asm_func( p_dst, FDEC_STRIDE<<1, dct );\
+}
+ADD8X8_IDCT_MPEG2_ASM( add8x8_idct_mpeg2_sse2, x264_add8x8_idct_mpeg2_sse2 )
+ADD8X8_IDCT_MPEG2_ASM( add8x8_idct_mpeg2_sse4, x264_add8x8_idct_mpeg2_sse4 )
+ADD8X8_IDCT_MPEG2_ASM( add8x8_idct_mpeg2_avx,  x264_add8x8_idct_mpeg2_avx )
+#endif
 
 static void add16x16_idct_mpeg2( pixel *p_dst, dctcoef dct[4][64] )
 {
@@ -1145,7 +1182,23 @@ void x264_dct_init( uint32_t cpu, x264_dct_function_t *dctf, int b_mpeg2 )
         dctf->add8x8_idct8_field = add8x8_idct_field_mpeg2;
         dctf->sub16x16_dct8  = sub16x16_dct_mpeg2;
         dctf->add16x16_idct8 = add16x16_idct_mpeg2;
-        x264_idct_init_mpeg2();
+#if HAVE_MMX && ARCH_X86_64
+        if( cpu&X264_CPU_SSE2 )
+        {
+            dctf->add8x8_idct8       = add8x8_idct_mpeg2_sse2;
+            dctf->add8x8_idct8_field = add8x8_idct_mpeg2_sse2_field;
+        }
+        if( cpu&X264_CPU_SSE4 )
+        {
+            dctf->add8x8_idct8       = add8x8_idct_mpeg2_sse4;
+            dctf->add8x8_idct8_field = add8x8_idct_mpeg2_sse4_field;
+        }
+        if( cpu&X264_CPU_AVX )
+        {
+            dctf->add8x8_idct8       = add8x8_idct_mpeg2_avx;
+            dctf->add8x8_idct8_field = add8x8_idct_mpeg2_avx_field;
+        }
+#endif
     }
 #endif
 
