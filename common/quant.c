@@ -721,6 +721,7 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
 #endif
 #if HAVE_MPEG2
         pf->dequant_mpeg2_inter = x264_dequant_mpeg2_inter_sse2;
+        pf->dequant_mpeg2_intra = x264_dequant_mpeg2_intra_sse2;
 #endif
     }
 
@@ -791,6 +792,7 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->denoise_dct = x264_denoise_dct_avx;
 #if HAVE_MPEG2
         pf->dequant_mpeg2_inter = x264_dequant_mpeg2_inter_avx;
+        pf->dequant_mpeg2_intra = x264_dequant_mpeg2_intra_avx;
 #endif
     }
 
@@ -827,6 +829,7 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
 #endif
 #if HAVE_MPEG2
         pf->dequant_mpeg2_inter = x264_dequant_mpeg2_inter_avx2;
+        pf->dequant_mpeg2_intra = x264_dequant_mpeg2_intra_avx2;
 #endif
     }
     if( cpu&X264_CPU_AVX512 )
