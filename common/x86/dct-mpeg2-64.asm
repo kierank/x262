@@ -57,6 +57,34 @@ CONST_DEC  w5_min_w1,    W5sh2,    -W1sh2
 CONST_DEC  w5_plus_w7,   W5sh2,    +W7sh2
 CONST_DEC  w7_min_w5,    W7sh2,    -W5sh2
 
+%define SHIFT_FRW_COL 3
+%define SHIFT_FRW_ROW (3 + 17 - 3)            ; 17
+%define RND_FRW_ROW   (1 << (SHIFT_FRW_ROW-1)); 65536
+
+fdct_tg_1_16: times 8 dw 13036                ; tg(pi/16)   * (2<<16) + 0.5
+fdct_tg_2_16: times 8 dw 27146                ; tg(2pi/16)  * (2<<16) + 0.5
+fdct_tg_3_16: times 8 dw -21746               ; tg(3pi/16)  * (2<<16) + 0.5 (with -1 bias)
+ocos_4_16:    times 8 dw 23170                ; cos(4pi/16) * (2<<15) + 0.5
+fdct_one_corr:times 8 dw 1
+fdct_r_row:   times 4 dd RND_FRW_ROW
+
+; FDCT row coefficient table: 8 rows x 4 quads of 8 int16 each (256 entries).
+%macro FDCT_TABLE_ROW 7 ; C1 C2 C3 C4 C5 C6 C7
+    dw  %4,  %4,  %1,  %3, -%6, -%2, -%1, -%5
+    dw  %4,  %4,  %5,  %7,  %2,  %6,  %3, -%7
+    dw -%4,  %4,  %7,  %3,  %6, -%2,  %7, -%5
+    dw  %4, -%4,  %5, -%1,  %2, -%6,  %3, -%1
+%endmacro
+tab_frw_01234567:
+    FDCT_TABLE_ROW 22725, 21407, 19266, 16384, 12873,  8867,  4520
+    FDCT_TABLE_ROW 31521, 29692, 26722, 22725, 17855, 12299,  6270
+    FDCT_TABLE_ROW 29692, 27969, 25172, 21407, 16819, 11585,  5906
+    FDCT_TABLE_ROW 26722, 25172, 22654, 19266, 15137, 10426,  5315
+    FDCT_TABLE_ROW 22725, 21407, 19266, 16384, 12873,  8867,  4520
+    FDCT_TABLE_ROW 26722, 25172, 22654, 19266, 15137, 10426,  5315
+    FDCT_TABLE_ROW 29692, 27969, 25172, 21407, 16819, 11585,  5906
+    FDCT_TABLE_ROW 31521, 29692, 26722, 22725, 17855, 12299,  6270
+
 ; interleave data while maintaining source
 ; %1=type, %2=dstlo, %3=dsthi, %4=src, %5=interleave
 %macro SBUTTERFLY3 5
@@ -334,5 +362,161 @@ INIT_XMM sse4
 ADD8X8_IDCT_MPEG2
 INIT_XMM avx
 ADD8X8_IDCT_MPEG2
+
+;-----------------------------------------------------------------------------
+; MPEG-2 forward DCT (AP-922 SSE2)
+; Ported from ffmpeg libavcodec/x86/fdct.c
+;
+; void sub8x8_dct_mpeg2_sse2( int16_t dct[64], pixel *pix1, pixel *pix2 )
+; The transform itself operates in place on a 16-bit block. The sub (residual)
+; and the wrapping are done in C; this kernel is the forward DCT on dct[].
+;-----------------------------------------------------------------------------
+
+; Column pass: in -> out (both int16[64]). Clobbers m0-m7; tg/ocos/one_corr
+; read from rodata.
+%macro FDCT_COL 0
+    movdqa  m0, [inq + 16]
+    movdqa  m1, [inq + 96]
+    psubsw  m2, m0, m1
+    movdqa  m3, [inq + 32]
+    paddsw  m0, m1
+    movdqa  m4, [inq + 80]
+    psllw   m0, SHIFT_FRW_COL
+    movdqa  m5, [inq + 0]
+    paddsw  m4, m3
+    paddsw  m5, [inq + 112]
+    psllw   m4, SHIFT_FRW_COL
+    paddsw  m6, m0, m4
+    psubsw  m0, m4
+    movdqa  m7, [inq + 48]
+    pmulhw  m1, m0, [fdct_tg_2_16]
+    paddsw  m7, [inq + 64]
+    psllw   m5, SHIFT_FRW_COL
+    psllw   m7, SHIFT_FRW_COL
+    paddsw  m4, m5, m7
+    psubsw  m5, m7
+    paddsw  m1, m5
+    por     m1, [fdct_one_corr]
+    psllw   m2, SHIFT_FRW_COL + 1
+    pmulhw  m5, [fdct_tg_2_16]
+    paddsw  m7, m4, m6
+    psubsw  m3, [inq + 80]
+    psubsw  m4, m6
+    movdqa  [outq + 32], m1
+    movdqa  m1, [inq + 48]
+    psllw   m3, SHIFT_FRW_COL + 1
+    psubsw  m1, [inq + 64]
+    psubsw  m6, m2, m3
+    movdqa  [outq + 64], m4
+    paddsw  m2, m3
+    pmulhw  m2, [ocos_4_16]
+    pmulhw  m6, [ocos_4_16]
+    psubsw  m5, m0
+    por     m5, [fdct_one_corr]
+    psllw   m1, SHIFT_FRW_COL
+    por     m2, [fdct_one_corr]
+    psubsw  m4, m1, m6
+    movdqa  m3, [inq + 0]
+    paddsw  m1, m6
+    psubsw  m3, [inq + 112]
+    pmulhw  m0, m1, [fdct_tg_1_16]
+    psllw   m3, SHIFT_FRW_COL
+    pmulhw  m6, m4, [fdct_tg_3_16]
+    movdqa  [outq + 0], m7
+    movdqa  [outq + 96], m5
+    psubsw  m7, m3, m2
+    movdqa  m5, [fdct_tg_3_16]
+    paddsw  m3, m2
+    pmulhw  m5, m7
+    paddsw  m0, m3
+    paddsw  m6, m4
+    pmulhw  m3, [fdct_tg_1_16]
+    por     m0, [fdct_one_corr]
+    paddsw  m5, m7
+    psubsw  m7, m6
+    movdqa  [outq + 16], m0
+    paddsw  m5, m4
+    movdqa  [outq + 48], m7
+    psubsw  m3, m1
+    movdqa  [outq + 80], m5
+    movdqa  [outq + 112], m3
+%endmacro
+
+; Row pass: one row.  %1 = in byte offset, %2 = table byte offset, %3 = H2 (1=skip
+; loading m4/m5, reuse).  in=inq, table=tabq, round in m6, out=outq.
+%macro FDCT_ROW_SSE2 3
+    movq       m2, [inq + %1]
+    movq       m0, [inq + %1 + 8]
+    movdqa     m3, [tabq + %2 + 32]
+    movdqa     m7, [tabq + %2 + 48]
+%if %3 == 0
+    movdqa     m4, [tabq + %2 + 0]
+    movdqa     m5, [tabq + %2 + 16]
+%endif
+    pshuflw    m0, m0, 27
+    paddsw     m1, m2, m0
+    psubsw     m2, m0
+    punpckldq  m1, m2
+    pshufd     m2, m1, 78
+    pmaddwd    m3, m2
+    pmaddwd    m7, m1
+    pmaddwd    m2, m5
+    pmaddwd    m1, m4
+    paddd      m3, m7
+    paddd      m1, m2
+    paddd      m3, m6
+    paddd      m1, m6
+    psrad      m3, SHIFT_FRW_ROW
+    psrad      m1, SHIFT_FRW_ROW
+    packssdw   m1, m3
+    movdqa     [outq + %1], m1
+%endmacro
+
+; void fdct_mpeg2( int16_t block[64] ) — forward DCT in place.
+%macro FDCT_MPEG2 0
+cglobal fdct_mpeg2, 1, 4, 9, 0-128, block, in, out, tab
+    ; column pass: block -> stack tmp (rsp)
+    mov         inq, blockq
+    mov         outq, rsp
+    FDCT_COL
+    ; row pass: stack tmp -> block, one row per FDCT_ROW_SSE2 invocation
+    mov         inq, rsp
+    mov         outq, blockq
+    lea         tabq, [tab_frw_01234567]
+    movdqa      m6, [fdct_r_row]
+    FDCT_ROW_SSE2   0,   0, 0
+    FDCT_ROW_SSE2  64,   0, 1
+    FDCT_ROW_SSE2  16,  64, 0
+    FDCT_ROW_SSE2 112,  64, 1
+    FDCT_ROW_SSE2  32, 128, 0
+    FDCT_ROW_SSE2  96, 128, 1
+    FDCT_ROW_SSE2  48, 192, 0
+    FDCT_ROW_SSE2  80, 192, 1
+    ; transpose the 8x8 result in place to match x262's cqm/zigzag layout
+    ; (ff_fdct is natural order; x262's islow transposes its output)
+    mova        m0, [outq+  0]
+    mova        m1, [outq+ 16]
+    mova        m2, [outq+ 32]
+    mova        m3, [outq+ 48]
+    mova        m4, [outq+ 64]
+    mova        m5, [outq+ 80]
+    mova        m6, [outq+ 96]
+    mova        m7, [outq+112]
+    TRANSPOSE8x8W 0, 1, 2, 3, 4, 5, 6, 7, 8
+    mova        [outq+  0], m0
+    mova        [outq+ 16], m1
+    mova        [outq+ 32], m2
+    mova        [outq+ 48], m3
+    mova        [outq+ 64], m4
+    mova        [outq+ 80], m5
+    mova        [outq+ 96], m6
+    mova        [outq+112], m7
+    RET
+%endmacro
+
+INIT_XMM sse2
+FDCT_MPEG2
+INIT_XMM avx
+FDCT_MPEG2
 
 %endif
