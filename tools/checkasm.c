@@ -1292,6 +1292,27 @@ static int check_dct( uint32_t cpu_ref, uint32_t cpu_new )
         TEST_IDCT_MPEG2( add8x8_idct8_field );
 #undef TEST_IDCT_MPEG2
         report( "add_idct8 mpeg2 :" );
+
+        ok = 1; used_asm = 0;
+#define TEST_DCT_MPEG2( name ) \
+        if( dctm_asm.name != dctm_ref.name ) \
+        { \
+            set_func_name( #name "_mpeg2" ); \
+            used_asm = 1; \
+            call_c1( dctm_c.name, (void*)dct1[0], pbuf1, pbuf2 ); \
+            call_a1( dctm_asm.name, (void*)dct2[0], pbuf1, pbuf2 ); \
+            if( memcmp( dct1[0], dct2[0], 64 * sizeof(dctcoef) ) ) \
+            { \
+                ok = 0; \
+                fprintf( stderr, #name "_mpeg2 [FAILED]\n" ); \
+            } \
+            call_c2( dctm_c.name, (void*)dct1[0], pbuf1, pbuf2 ); \
+            call_a2( dctm_asm.name, (void*)dct2[0], pbuf1, pbuf2 ); \
+        }
+        TEST_DCT_MPEG2( sub8x8_dct8 );
+        TEST_DCT_MPEG2( sub8x8_dct8_field );
+#undef TEST_DCT_MPEG2
+        report( "sub_dct8 mpeg2 :" );
     }
 #endif
 

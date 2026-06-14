@@ -2,7 +2,6 @@
  * dct.c: transform and zigzag
  *****************************************************************************
  * Copyright (C) 2003-2025 x264 project
- * Copyright (C) 1991-1996 Thomas G. Lane
  *
  * Authors: Loren Merritt <lorenm@u.washington.edu>
  *          Laurent Aimar <fenrir@via.ecp.fr>
@@ -474,168 +473,126 @@ static void add16x16_idct_dc( pixel *p_dst, dctcoef dct[16] )
 
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
 /****************************************************************************
- * 8x8 DCT transforms (for MPEG-2)
- * These algorithms are part of the Independent JPEG Group's software.
- * Copyright (C) 1991-1996, Thomas G. Lane.
+ * 8x8 forward DCT (for MPEG-2): AP-922 SSE2 algorithm written in C.
+ * This is a scalar model of ffmpeg's SSE2 forward DCT. It reproduces its
+ * 16-bit fixed-point arithmetic bit-for-bit so the C reference matches
+ * x264_fdct_mpeg2_sse2.
  ****************************************************************************/
 
-#define RIGHT_SHIFT(x, n) ((x) >> (n))
-#define DESCALE(x, n)  RIGHT_SHIFT((x) + (1 << ((n) - 1)), n)
+#define FDCT_SHIFT_COL 3
+#define FDCT_SHIFT_ROW (3 + 17 - 3)         /* 17 */
+#define FDCT_RND_ROW   (1 << (FDCT_SHIFT_ROW - 1))
 
-#define CONST_BITS 13
-#define PASS1_BITS  4
-
-#define FIX_0_298631336  ((int32_t)  2446)      /* FIX(0.298631336) */
-#define FIX_0_390180644  ((int32_t)  3196)      /* FIX(0.390180644) */
-#define FIX_0_541196100  ((int32_t)  4433)      /* FIX(0.541196100) */
-#define FIX_0_765366865  ((int32_t)  6270)      /* FIX(0.765366865) */
-#define FIX_0_899976223  ((int32_t)  7373)      /* FIX(0.899976223) */
-#define FIX_1_175875602  ((int32_t)  9633)      /* FIX(1.175875602) */
-#define FIX_1_501321110  ((int32_t)  12299)     /* FIX(1.501321110) */
-#define FIX_1_847759065  ((int32_t)  15137)     /* FIX(1.847759065) */
-#define FIX_1_961570560  ((int32_t)  16069)     /* FIX(1.961570560) */
-#define FIX_2_053119869  ((int32_t)  16819)     /* FIX(2.053119869) */
-#define FIX_2_562915447  ((int32_t)  20995)     /* FIX(2.562915447) */
-#define FIX_3_072711026  ((int32_t)  25172)     /* FIX(3.072711026) */
-
-static inline void jpeg_fdct_islow( dctcoef *data )
+/* SSE2 packed-int16 semantics */
+static ALWAYS_INLINE int16_t fdct_ssat( int x )
 {
-    int_fast32_t tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7;
-    int_fast32_t tmp10, tmp11, tmp12, tmp13;
-    int_fast32_t z1, z2, z3, z4, z5;
-    dctcoef *dataptr;
+    return x > 32767 ? 32767 : (x < -32768 ? -32768 : x);
+}
+static ALWAYS_INLINE int16_t fdct_paddsw( int16_t a, int16_t b ) { return fdct_ssat( (int)a + b ); }
+static ALWAYS_INLINE int16_t fdct_psubsw( int16_t a, int16_t b ) { return fdct_ssat( (int)a - b ); }
+static ALWAYS_INLINE int16_t fdct_psllw ( int16_t a, int n )     { return (int16_t)((uint16_t)a << n); }
+static ALWAYS_INLINE int16_t fdct_pmulhw( int16_t a, int16_t b ) { return (int16_t)(((int32_t)a * b) >> 16); }
 
-    /* Pass 1: process rows. */
-    /* Note results are scaled up by sqrt(8) compared to a true DCT; */
-    /* furthermore, we scale the results by 2**PASS1_BITS. */
+#define FT1 ((int16_t) 13036)  /* tg(pi/16)  * (2<<16) + 0.5 */
+#define FT2 ((int16_t) 27146)  /* tg(2pi/16) * (2<<16) + 0.5 */
+#define FT3 ((int16_t)-21746)  /* tg(3pi/16) * (2<<16) + 0.5 (with -1 bias) */
+#define FOC ((int16_t) 23170)  /* cos(4pi/16) * (2<<15) + 0.5 */
+#define FONE ((int16_t) 1)
 
-    dataptr = data;
-    for( int i = 0; i < 8; i++ )
+/* Column pass: the SSE2 kernel processes all 8 columns in one xmm; modelled
+ * here as the identical op sequence over each of the 8 lanes. */
+static void fdct_col_mpeg2( const dctcoef *in, dctcoef *out )
+{
+    for( int c = 0; c < 8; c++ )
     {
-        tmp0 = dataptr[0] + dataptr[7];
-        tmp7 = dataptr[0] - dataptr[7];
-        tmp1 = dataptr[1] + dataptr[6];
-        tmp6 = dataptr[1] - dataptr[6];
-        tmp2 = dataptr[2] + dataptr[5];
-        tmp5 = dataptr[2] - dataptr[5];
-        tmp3 = dataptr[3] + dataptr[4];
-        tmp4 = dataptr[3] - dataptr[4];
-
-        /* Even part per LL&M figure 1 --- note that published figure is faulty;
-         * rotator "sqrt(2)*c1" should be "sqrt(2)*c6".
-         */
-
-        tmp10 = tmp0 + tmp3;
-        tmp13 = tmp0 - tmp3;
-        tmp11 = tmp1 + tmp2;
-        tmp12 = tmp1 - tmp2;
-
-        dataptr[0] = (dctcoef) ((uint32_t)(tmp10 + tmp11) << PASS1_BITS);
-        dataptr[4] = (dctcoef) ((uint32_t)(tmp10 - tmp11) << PASS1_BITS);
-
-        z1 = (tmp12 + tmp13) * FIX_0_541196100;
-        dataptr[2] = (dctcoef) DESCALE(z1 + tmp13 *   FIX_0_765366865,  CONST_BITS - PASS1_BITS);
-        dataptr[6] = (dctcoef) DESCALE(z1 + tmp12 * (-FIX_1_847759065), CONST_BITS - PASS1_BITS);
-
-        /* Odd part per figure 8 --- note paper omits factor of sqrt(2).
-         * cK represents cos(K*pi/16).
-         * i0..i3 in the paper are tmp4..tmp7 here.
-         */
-
-        z1 = tmp4 + tmp7;
-        z2 = tmp5 + tmp6;
-        z3 = tmp4 + tmp6;
-        z4 = tmp5 + tmp7;
-        z5 = (z3 + z4) * FIX_1_175875602; /* sqrt(2) * c3 */
-
-        tmp4 *=  FIX_0_298631336; /* sqrt(2) * (-c1+c3+c5-c7 ) */
-        tmp5 *=  FIX_2_053119869; /* sqrt(2) * ( c1+c3-c5+c7 ) */
-        tmp6 *=  FIX_3_072711026; /* sqrt(2) * ( c1+c3+c5-c7 ) */
-        tmp7 *=  FIX_1_501321110; /* sqrt(2) * ( c1+c3-c5-c7 ) */
-        z1   *= -FIX_0_899976223; /* sqrt(2) * ( c7-c3 ) */
-        z2   *= -FIX_2_562915447; /* sqrt(2) * (-c1-c3 ) */
-        z3   *= -FIX_1_961570560; /* sqrt(2) * (-c3-c5 ) */
-        z4   *= -FIX_0_390180644; /* sqrt(2) * ( c5-c3 ) */
-
-        z3 += z5;
-        z4 += z5;
-
-        dataptr[7] = (dctcoef) DESCALE(tmp4 + z1 + z3, CONST_BITS-PASS1_BITS);
-        dataptr[5] = (dctcoef) DESCALE(tmp5 + z2 + z4, CONST_BITS-PASS1_BITS);
-        dataptr[3] = (dctcoef) DESCALE(tmp6 + z2 + z3, CONST_BITS-PASS1_BITS);
-        dataptr[1] = (dctcoef) DESCALE(tmp7 + z1 + z4, CONST_BITS-PASS1_BITS);
-
-        dataptr += 8;         /* advance pointer to next row */
+        int16_t m0, m1, m2, m3, m4, m5, m6, m7;
+#define I(r) in[(r)*8 + c]
+#define O(r) out[(r)*8 + c]
+        m0 = I(1); m1 = I(6); m2 = m0; m3 = I(2);
+        m0 = fdct_paddsw( m0, m1 ); m4 = I(5);
+        m0 = fdct_psllw( m0, FDCT_SHIFT_COL ); m5 = I(0);
+        m4 = fdct_paddsw( m4, m3 ); m5 = fdct_paddsw( m5, I(7) );
+        m4 = fdct_psllw( m4, FDCT_SHIFT_COL ); m6 = m0;
+        m2 = fdct_psubsw( m2, m1 ); m1 = FT2;
+        m0 = fdct_psubsw( m0, m4 ); m7 = I(3);
+        m1 = fdct_pmulhw( m1, m0 ); m7 = fdct_paddsw( m7, I(4) );
+        m5 = fdct_psllw( m5, FDCT_SHIFT_COL ); m6 = fdct_paddsw( m6, m4 );
+        m7 = fdct_psllw( m7, FDCT_SHIFT_COL ); m4 = m5;
+        m5 = fdct_psubsw( m5, m7 ); m1 = fdct_paddsw( m1, m5 ); m4 = fdct_paddsw( m4, m7 );
+        m1 = (int16_t)(m1 | FONE); m2 = fdct_psllw( m2, FDCT_SHIFT_COL + 1 );
+        m5 = fdct_pmulhw( m5, FT2 ); m7 = m4;
+        m3 = fdct_psubsw( m3, I(5) ); m4 = fdct_psubsw( m4, m6 ); O(2) = m1;
+        m7 = fdct_paddsw( m7, m6 ); m1 = I(3);
+        m3 = fdct_psllw( m3, FDCT_SHIFT_COL + 1 ); m1 = fdct_psubsw( m1, I(4) ); m6 = m2;
+        O(4) = m4; m2 = fdct_paddsw( m2, m3 ); m2 = fdct_pmulhw( m2, FOC );
+        m6 = fdct_psubsw( m6, m3 ); m6 = fdct_pmulhw( m6, FOC );
+        m5 = fdct_psubsw( m5, m0 ); m5 = (int16_t)(m5 | FONE);
+        m1 = fdct_psllw( m1, FDCT_SHIFT_COL ); m2 = (int16_t)(m2 | FONE);
+        m4 = m1; m3 = I(0); m1 = fdct_paddsw( m1, m6 ); m3 = fdct_psubsw( m3, I(7) ); m4 = fdct_psubsw( m4, m6 );
+        m0 = FT1; m3 = fdct_psllw( m3, FDCT_SHIFT_COL ); m6 = FT3;
+        m0 = fdct_pmulhw( m0, m1 ); O(0) = m7; m6 = fdct_pmulhw( m6, m4 ); O(6) = m5; m7 = m3; m5 = FT3;
+        m7 = fdct_psubsw( m7, m2 ); m3 = fdct_paddsw( m3, m2 ); m5 = fdct_pmulhw( m5, m7 );
+        m0 = fdct_paddsw( m0, m3 ); m6 = fdct_paddsw( m6, m4 ); m3 = fdct_pmulhw( m3, FT1 );
+        m0 = (int16_t)(m0 | FONE); m5 = fdct_paddsw( m5, m7 ); m7 = fdct_psubsw( m7, m6 );
+        O(1) = m0; m5 = fdct_paddsw( m5, m4 ); O(3) = m7; m3 = fdct_psubsw( m3, m1 ); O(5) = m5; O(7) = m3;
+#undef I
+#undef O
     }
+}
 
-    /* Pass 2: process columns.
-    * We remove the PASS1_BITS scaling, but leave the results scaled up
-    * by an overall factor of 8.
-    */
+/* Row coefficient table, identical to the SSE2 tab_frw_01234567 (8 rows x 32). */
+static const int16_t fdct_tab_mpeg2[8][32] = {
+#define FDCT_ROW_C(c1,c2,c3,c4,c5,c6,c7) { \
+    c4, c4, c1, c3, -c6, -c2, -c1, -c5,  c4, c4, c5, c7, c2, c6, c3, -c7, \
+   -c4, c4, c7, c3,  c6, -c2,  c7, -c5,  c4,-c4, c5,-c1, c2,-c6, c3, -c1 }
+    FDCT_ROW_C( 22725, 21407, 19266, 16384, 12873,  8867,  4520 ),
+    FDCT_ROW_C( 31521, 29692, 26722, 22725, 17855, 12299,  6270 ),
+    FDCT_ROW_C( 29692, 27969, 25172, 21407, 16819, 11585,  5906 ),
+    FDCT_ROW_C( 26722, 25172, 22654, 19266, 15137, 10426,  5315 ),
+    FDCT_ROW_C( 22725, 21407, 19266, 16384, 12873,  8867,  4520 ),
+    FDCT_ROW_C( 26722, 25172, 22654, 19266, 15137, 10426,  5315 ),
+    FDCT_ROW_C( 29692, 27969, 25172, 21407, 16819, 11585,  5906 ),
+    FDCT_ROW_C( 31521, 29692, 26722, 22725, 17855, 12299,  6270 ),
+#undef FDCT_ROW_C
+};
 
-    dataptr = data;
-    for( int i = 0; i < 8; i++ )
+/* Row pass for one 8-coefficient row, modelling the SSE2 shuffle+pmaddwd path. */
+static void fdct_row_mpeg2( const dctcoef *in, dctcoef *out, const int16_t *t )
+{
+    int16_t m2[4] = { in[0], in[1], in[2], in[3] };
+    int16_t m0[4] = { in[7], in[6], in[5], in[4] };   /* pshuflw $27 */
+    int16_t s[4], d[4];
+    for( int k = 0; k < 4; k++ ) { s[k] = fdct_paddsw( m2[k], m0[k] ); d[k] = fdct_psubsw( m2[k], m0[k] ); }
+    /* punpckldq of {s} and {d}: [s0,s1,d0,d1,s2,s3,d2,d3]; pshufd $78 swaps halves */
+    int16_t u[8] = { s[0], s[1], d[0], d[1], s[2], s[3], d[2], d[3] };
+    int16_t v[8] = { u[4], u[5], u[6], u[7], u[0], u[1], u[2], u[3] };
+    int32_t a[4], b[4];
+    for( int q = 0; q < 4; q++ )
     {
-        tmp0 = dataptr[0]  + dataptr[56];
-        tmp7 = dataptr[0]  - dataptr[56];
-        tmp1 = dataptr[8]  + dataptr[48];
-        tmp6 = dataptr[8]  - dataptr[48];
-        tmp2 = dataptr[16] + dataptr[40];
-        tmp5 = dataptr[16] - dataptr[40];
-        tmp3 = dataptr[24] + dataptr[32];
-        tmp4 = dataptr[24] - dataptr[32];
-
-        /* Even part per LL&M figure 1 --- note that published figure is faulty;
-         * rotator "sqrt(2)*c1" should be "sqrt(2)*c6".
-         */
-
-        tmp10 = tmp0 + tmp3;
-        tmp13 = tmp0 - tmp3;
-        tmp11 = tmp1 + tmp2;
-        tmp12 = tmp1 - tmp2;
-
-        dataptr[0]  = DESCALE(tmp10 + tmp11, PASS1_BITS);
-        dataptr[32] = DESCALE(tmp10 - tmp11, PASS1_BITS);
-
-        z1 = (tmp12 + tmp13) * FIX_0_541196100;
-        dataptr[16] = DESCALE(z1 + tmp13 *   FIX_0_765366865,  CONST_BITS + PASS1_BITS);
-        dataptr[48] = DESCALE(z1 + tmp12 * (-FIX_1_847759065), CONST_BITS + PASS1_BITS);
-
-        /* Odd part per figure 8 --- note paper omits factor of sqrt(2).
-         * cK represents cos(K*pi/16).
-         * i0..i3 in the paper are tmp4..tmp7 here.
-         */
-
-        z1 = tmp4 + tmp7;
-        z2 = tmp5 + tmp6;
-        z3 = tmp4 + tmp6;
-        z4 = tmp5 + tmp7;
-        z5 = (z3 + z4) * FIX_1_175875602; /* sqrt(2) * c3 */
-
-        tmp4 *=  FIX_0_298631336; /* sqrt(2) * (-c1+c3+c5-c7 ) */
-        tmp5 *=  FIX_2_053119869; /* sqrt(2) * ( c1+c3-c5+c7 ) */
-        tmp6 *=  FIX_3_072711026; /* sqrt(2) * ( c1+c3+c5-c7 ) */
-        tmp7 *=  FIX_1_501321110; /* sqrt(2) * ( c1+c3-c5-c7 ) */
-        z1   *= -FIX_0_899976223; /* sqrt(2) * ( c7-c3 ) */
-        z2   *= -FIX_2_562915447; /* sqrt(2) * (-c1-c3 ) */
-        z3   *= -FIX_1_961570560; /* sqrt(2) * (-c3-c5 ) */
-        z4   *= -FIX_0_390180644; /* sqrt(2) * ( c5-c3 ) */
-
-        z3 += z5;
-        z4 += z5;
-
-        dataptr[56] = (dctcoef) DESCALE(tmp4 + z1 + z3, CONST_BITS + PASS1_BITS);
-        dataptr[40] = (dctcoef) DESCALE(tmp5 + z2 + z4, CONST_BITS + PASS1_BITS);
-        dataptr[24] = (dctcoef) DESCALE(tmp6 + z2 + z3, CONST_BITS + PASS1_BITS);
-        dataptr[8]  = (dctcoef) DESCALE(tmp7 + z1 + z4, CONST_BITS + PASS1_BITS);
-
-        dataptr++; /* advance pointer to next column */
+        /* pmaddwd against table quads: lo = v*t[+16], hi = u*t[+24], etc. (i16 idx) */
+        int32_t r3 = (int32_t)v[2*q] * t[16 + 2*q] + (int32_t)v[2*q+1] * t[16 + 2*q+1];
+        int32_t r7 = (int32_t)u[2*q] * t[24 + 2*q] + (int32_t)u[2*q+1] * t[24 + 2*q+1];
+        int32_t r2 = (int32_t)v[2*q] * t[ 8 + 2*q] + (int32_t)v[2*q+1] * t[ 8 + 2*q+1];
+        int32_t r1 = (int32_t)u[2*q] * t[ 0 + 2*q] + (int32_t)u[2*q+1] * t[ 0 + 2*q+1];
+        a[q] = ((r3 + r7) + FDCT_RND_ROW) >> FDCT_SHIFT_ROW;
+        b[q] = ((r1 + r2) + FDCT_RND_ROW) >> FDCT_SHIFT_ROW;
     }
+    for( int q = 0; q < 4; q++ ) { out[q] = fdct_ssat( b[q] ); out[4+q] = fdct_ssat( a[q] ); }
+}
 
+static void fdct_mpeg2( dctcoef *data )
+{
+    dctcoef col[64], row[64];
+    fdct_col_mpeg2( data, col );
+    /* row order / table offsets match the SSE2 kernel (byte offsets /2 for i16) */
+    static const int ro[8] = { 0, 32, 8, 56, 16, 48, 24, 40 };
+    static const int to[8] = { 0, 0, 1, 1, 2, 2, 3, 3 };
+    for( int k = 0; k < 8; k++ )
+        fdct_row_mpeg2( col + ro[k], row + ro[k], fdct_tab_mpeg2[to[k]] );
     /* transpose to match zigzag and cqm */
     for( int i = 0; i < 8; i++ )
-        for( int j = 0; j < i; j++ )
-            XCHG( dctcoef, data[8*i+j], data[8*j+i] );
+        for( int j = 0; j < 8; j++ )
+            data[i*8 + j] = row[j*8 + i];
 }
 
 /****************************************************************************
@@ -831,14 +788,13 @@ static void add16x16_idct_mpeg2( pixel *p_dst, dctcoef dct[4][64] )
 static void sub8x8_dct_mpeg2( dctcoef dct[64], pixel *pix1, pixel *pix2 )
 {
     pixel_sub_wxh( dct, 8, pix1, FENC_STRIDE, pix2, FDEC_STRIDE );
-    jpeg_fdct_islow( dct );
+    fdct_mpeg2( dct );
 }
 
-/* Field DCT: gather/scatter the 8x8 block from every other line (same field). */
 static void sub8x8_dct_field_mpeg2( dctcoef dct[64], pixel *pix1, pixel *pix2 )
 {
     pixel_sub_wxh( dct, 8, pix1, FENC_STRIDE<<1, pix2, FDEC_STRIDE<<1 );
-    jpeg_fdct_islow( dct );
+    fdct_mpeg2( dct );
 }
 
 static void add8x8_idct_field_mpeg2( pixel *p_dst, dctcoef dct[64] )
@@ -869,6 +825,31 @@ static void sub16x16_dct_mpeg2( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )
     sub8x8_dct_mpeg2( dct[2], &pix1[8*FENC_STRIDE+0], &pix2[8*FDEC_STRIDE+0] );
     sub8x8_dct_mpeg2( dct[3], &pix1[8*FENC_STRIDE+8], &pix2[8*FDEC_STRIDE+8] );
 }
+
+#if HAVE_MMX && ARCH_X86_64
+/* The asm forward DCT (x264_fdct_mpeg2_sse2) runs in place on dct[] and
+ * transposes its output to the cqm/zigzag layout, like the C fdct_mpeg2. */
+#define SUB8X8_DCT_MPEG2_ASM( name, asm_func )\
+static void name( dctcoef dct[64], pixel *pix1, pixel *pix2 )\
+{\
+    pixel_sub_wxh( dct, 8, pix1, FENC_STRIDE, pix2, FDEC_STRIDE );\
+    asm_func( dct );\
+}\
+static void name##_field( dctcoef dct[64], pixel *pix1, pixel *pix2 )\
+{\
+    pixel_sub_wxh( dct, 8, pix1, FENC_STRIDE<<1, pix2, FDEC_STRIDE<<1 );\
+    asm_func( dct );\
+}\
+static void name##_16x16( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )\
+{\
+    name( dct[0], &pix1[0],               &pix2[0] );\
+    name( dct[1], &pix1[8],               &pix2[8] );\
+    name( dct[2], &pix1[8*FENC_STRIDE+0], &pix2[8*FDEC_STRIDE+0] );\
+    name( dct[3], &pix1[8*FENC_STRIDE+8], &pix2[8*FDEC_STRIDE+8] );\
+}
+SUB8X8_DCT_MPEG2_ASM( sub8x8_dct_mpeg2_sse2, x264_fdct_mpeg2_sse2 )
+SUB8X8_DCT_MPEG2_ASM( sub8x8_dct_mpeg2_avx,  x264_fdct_mpeg2_avx )
+#endif
 #endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */
 
 /****************************************************************************
@@ -1187,6 +1168,9 @@ void x264_dct_init( uint32_t cpu, x264_dct_function_t *dctf, int b_mpeg2 )
         {
             dctf->add8x8_idct8       = add8x8_idct_mpeg2_sse2;
             dctf->add8x8_idct8_field = add8x8_idct_mpeg2_sse2_field;
+            dctf->sub8x8_dct8        = sub8x8_dct_mpeg2_sse2;
+            dctf->sub8x8_dct8_field  = sub8x8_dct_mpeg2_sse2_field;
+            dctf->sub16x16_dct8      = sub8x8_dct_mpeg2_sse2_16x16;
         }
         if( cpu&X264_CPU_SSE4 )
         {
@@ -1197,6 +1181,8 @@ void x264_dct_init( uint32_t cpu, x264_dct_function_t *dctf, int b_mpeg2 )
         {
             dctf->add8x8_idct8       = add8x8_idct_mpeg2_avx;
             dctf->add8x8_idct8_field = add8x8_idct_mpeg2_avx_field;
+            dctf->sub8x8_dct8        = sub8x8_dct_mpeg2_avx;
+            dctf->sub8x8_dct8_field  = sub8x8_dct_mpeg2_avx_field;
         }
 #endif
     }
