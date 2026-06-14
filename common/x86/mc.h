@@ -30,5 +30,13 @@
 #define x264_mc_init_mmx x264_template(mc_init_mmx)
 void x264_mc_init_mmx( uint32_t cpu, x264_mc_functions_t *pf );
 
+#if HAVE_MPEG2
+#define x264_hpel_filter_mpeg2_sse2 x264_template(hpel_filter_mpeg2_sse2)
+void x264_hpel_filter_mpeg2_sse2( uint8_t *dsth, uint8_t *dstv, uint8_t *dstc, uint8_t *src, intptr_t stride, int width, int height, int16_t *buf );
+#define x264_hpel_filter_mpeg2_avx x264_template(hpel_filter_mpeg2_avx)
+void x264_hpel_filter_mpeg2_avx( uint8_t *dsth, uint8_t *dstv, uint8_t *dstc, uint8_t *src, intptr_t stride, int width, int height, int16_t *buf );
+#define x264_hpel_filter_mpeg2_avx2 x264_template(hpel_filter_mpeg2_avx2)
+void x264_hpel_filter_mpeg2_avx2( uint8_t *dsth, uint8_t *dstv, uint8_t *dstc, uint8_t *src, intptr_t stride, int width, int height, int16_t *buf );
+#endif
 
 #endif
