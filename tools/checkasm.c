@@ -1260,6 +1260,39 @@ static int check_dct( uint32_t cpu_ref, uint32_t cpu_new )
         }
         report( "zigzag mpeg2 :" );
     }
+
+    if( cpu_ref || cpu_new )
+    {
+        x264_dct_function_t dctm_c, dctm_ref, dctm_asm;
+        x264_dct_init( 0,       &dctm_c,   1 );
+        x264_dct_init( cpu_ref, &dctm_ref, 1 );
+        x264_dct_init( cpu_new, &dctm_asm, 1 );
+
+        ok = 1; used_asm = 0;
+#define TEST_IDCT_MPEG2( name ) \
+        if( dctm_asm.name != dctm_ref.name ) \
+        { \
+            set_func_name( #name "_mpeg2" ); \
+            used_asm = 1; \
+            for( int i = 0; i < 64; i++ ) \
+                dct8[0][i] = dct8[1][i] = rand()&0x1F ? 0 : (rand() & 0x3FF) - 0x200; \
+            memcpy( pbuf3, pbuf1, 32*32 * SIZEOF_PIXEL ); \
+            memcpy( pbuf4, pbuf1, 32*32 * SIZEOF_PIXEL ); \
+            call_c1( dctm_c.name, pbuf3, (void*)dct8[0] ); \
+            call_a1( dctm_asm.name, pbuf4, (void*)dct8[1] ); \
+            if( memcmp( pbuf3, pbuf4, 32*32 * SIZEOF_PIXEL ) ) \
+            { \
+                ok = 0; \
+                fprintf( stderr, #name "_mpeg2 [FAILED]\n" ); \
+            } \
+            call_c2( dctm_c.name, pbuf3, (void*)dct8[0] ); \
+            call_a2( dctm_asm.name, pbuf4, (void*)dct8[1] ); \
+        }
+        TEST_IDCT_MPEG2( add8x8_idct8 );
+        TEST_IDCT_MPEG2( add8x8_idct8_field );
+#undef TEST_IDCT_MPEG2
+        report( "add_idct8 mpeg2 :" );
+    }
 #endif
 
     return ret;
