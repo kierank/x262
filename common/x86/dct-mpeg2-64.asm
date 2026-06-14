@@ -50,17 +50,18 @@ times 4 dw %2, %3
 %define W6sh2  8867 ; W6 = 35468 =  8867<<2
 %define W7sh2  4520 ; W7 = 18081 =  4520<<2 + 1
 
-SECTION_RODATA 32
+SECTION_RODATA 64
 
 cextern pw_32
 
-; 32-byte FDCT constants.
-fdct_tg_1_16: times 16 dw 13036               ; tg(pi/16)   * (2<<16) + 0.5
-fdct_tg_2_16: times 16 dw 27146               ; tg(2pi/16)  * (2<<16) + 0.5
-fdct_tg_3_16: times 16 dw -21746              ; tg(3pi/16)  * (2<<16) + 0.5 (with -1 bias)
-ocos_4_16:    times 16 dw 23170               ; cos(4pi/16) * (2<<15) + 0.5
-fdct_one_corr:times 16 dw 1
-fdct_r_row:   times 8 dd RND_FRW_ROW
+; 64-byte FDCT constants: the same operand serves an xmm (low 16), ymm (low 32)
+; or zmm forward-DCT load.
+fdct_tg_1_16: times 32 dw 13036               ; tg(pi/16)   * (2<<16) + 0.5
+fdct_tg_2_16: times 32 dw 27146               ; tg(2pi/16)  * (2<<16) + 0.5
+fdct_tg_3_16: times 32 dw -21746              ; tg(3pi/16)  * (2<<16) + 0.5 (with -1 bias)
+ocos_4_16:    times 32 dw 23170               ; cos(4pi/16) * (2<<15) + 0.5
+fdct_one_corr:times 32 dw 1
+fdct_r_row:   times 16 dd RND_FRW_ROW
 ; FDCT row coefficient table: 8 rows x 4 quads of 8 int16 each (256 entries).
 tab_frw_01234567:
     FDCT_TABLE_ROW 22725, 21407, 19266, 16384, 12873,  8867,  4520
@@ -540,84 +541,106 @@ INIT_XMM avx
 FDCT_MPEG2
 
 ;-----------------------------------------------------------------------------
-; AVX2 forward DCT, two 8x8 blocks per ymm (block0 in the low 128-bit lane,
-; block1 in the high lane). Every op in the col/row/transpose pass is in-lane,
-; so the SSE2 arithmetic runs unchanged on both blocks at once; the kernel just
-; works on a 256-byte (2-block) interleaved temp with ymm-width memory operands.
-; Constants and each row-table quad are broadcast to both lanes.
+; Batched forward DCT: N horizontally-adjacent 8x8 blocks, one per 128-bit lane
+; (block i in lane i). Every op in the col/row/transpose pass is in-lane, so the
+; SSE2 arithmetic runs unchanged on all blocks at once. N = 2 (ymm) or 4 (zmm);
+; the row stride is N*16 and the kernel works on an N-block interleaved temp.
+; The pixel subtraction is folded into the load. TRANSPOSE8x8W does N independent
+; in-lane 8x8 transposes; each row-table quad and the round bias are broadcast to
+; every lane (vbroadcasti128 EVEX-promotes to vbroadcasti32x4 on zmm).
 ;-----------------------------------------------------------------------------
 
-; Load+subtract row r of two horizontally-adjacent 8x8 blocks (block0 at pix+0,
-; block1 at pix+8) into one ymm: block0 in the low lane, block1 in the high lane.
-; %1 = dst reg, %2 = row, m9 = zero. pix1q/pix2q are fenc/fdec.
-%macro LOAD_DIFF_X2 2
-    movq        xm%1, [pix1q + %2*FENC_STRIDE]
-    vinserti128 m%1, m%1, [pix1q + %2*FENC_STRIDE + 8], 1
-    movq        xm8, [pix2q + %2*FDEC_STRIDE]
-    vinserti128 m8, m8, [pix2q + %2*FDEC_STRIDE + 8], 1
-    punpcklbw   m%1, m9
-    punpcklbw   m8, m9
-    psubw       m%1, m8
+; Load+subtract row %2 of N blocks into m%1, one block per 128-bit lane. Blocks
+; are arranged 2 per grid row (the 16x16 macroblock's 8x8 quadrants), so lane i
+; reads block i at column (i&1)*8 and macroblock-row (i>>1)*8.
+; %1 = dst reg, %2 = row, %3 = block count. m8 = scratch, m9 = zero.
+%macro LOAD_DIFF_XN 3
+%assign %%i 0
+%rep %3
+    %assign %%fo (%2 + (%%i>>1)*8)*FENC_STRIDE + (%%i&1)*8
+    %assign %%go (%2 + (%%i>>1)*8)*FDEC_STRIDE + (%%i&1)*8
+%if %%i == 0
+    movq         xm%1, [pix1q + %%fo]
+    movq         xm8,  [pix2q + %%go]
+%else
+    vinserti128  m%1, m%1, [pix1q + %%fo], %%i
+    vinserti128  m8,  m8,  [pix2q + %%go], %%i
+%endif
+%assign %%i %%i+1
+%endrep
+    punpcklbw    m%1, m9
+    punpcklbw    m8,  m9
+    psubw        m%1, m8
 %endmacro
 
-; void fdct_mpeg2_x2( int16_t dct[2][64], pixel *pix1, pixel *pix2 ) — subtract
-; two horizontally-adjacent 8x8 blocks and forward-DCT both, writing block0 then
-; block1 to dct. pix1 = fenc (FENC_STRIDE), pix2 = fdec (FDEC_STRIDE).
-%macro FDCT_MPEG2_X2 0
-cglobal fdct_mpeg2_x2, 3, 6, 10, 0-256, block, pix1, pix2, in, out, tab
-    ; load+subtract each row directly into the interleaved stack temp
-    ; (row r -> [rsp+r*32], block0 low lane, block1 high lane).
-    pxor        m9, m9
+; void fdct_mpeg2_xN( int16_t dct[N][64], pixel *pix1, pixel *pix2 ) — subtract N
+; horizontally-adjacent 8x8 blocks and forward-DCT them, writing block0..N-1 to
+; dct. pix1 = fenc (FENC_STRIDE), pix2 = fdec (FDEC_STRIDE). %1 = block count.
+%macro FDCT_MPEG2_XN 1
+%assign %%stride (%1*16)
+cglobal fdct_mpeg2_x%1, 3, 6, 10, 0-(8*%%stride), block, pix1, pix2, in, out, tab
+    ; load+subtract each row into the interleaved stack temp (row r -> rsp+r*N*16,
+    ; block i in lane i).
+    pxor         m9, m9
 %assign %%r 0
 %rep 8
-    LOAD_DIFF_X2 0, %%r
-    mova        [rsp + %%r*32], m0
+    LOAD_DIFF_XN 0, %%r, %1
+    mova         [rsp + %%r*%%stride], m0
 %assign %%r %%r+1
 %endrep
-    mov         inq, rsp
-    mov         outq, rsp
-    FDCT_COL 32
-    mov         inq, rsp
-    mov         outq, rsp
-    lea         tabq, [tab_frw_01234567]
+    mov          inq, rsp
+    mov          outq, rsp
+    FDCT_COL %%stride
+    mov          inq, rsp
+    mov          outq, rsp
+    lea          tabq, [tab_frw_01234567]
     vbroadcasti128 m6, [fdct_r_row]
-    FDCT_ROW    0,   0
-    FDCT_ROW  128,   0
-    FDCT_ROW   32,  64
-    FDCT_ROW  224,  64
-    FDCT_ROW   64, 128
-    FDCT_ROW  192, 128
-    FDCT_ROW   96, 192
-    FDCT_ROW  160, 192
-    mova        m0, [rsp+  0]
-    mova        m1, [rsp+ 32]
-    mova        m2, [rsp+ 64]
-    mova        m3, [rsp+ 96]
-    mova        m4, [rsp+128]
-    mova        m5, [rsp+160]
-    mova        m6, [rsp+192]
-    mova        m7, [rsp+224]
+    FDCT_ROW   0*%%stride,   0
+    FDCT_ROW   4*%%stride,   0
+    FDCT_ROW   1*%%stride,  64
+    FDCT_ROW   7*%%stride,  64
+    FDCT_ROW   2*%%stride, 128
+    FDCT_ROW   6*%%stride, 128
+    FDCT_ROW   3*%%stride, 192
+    FDCT_ROW   5*%%stride, 192
+    mova         m0, [rsp+0*%%stride]
+    mova         m1, [rsp+1*%%stride]
+    mova         m2, [rsp+2*%%stride]
+    mova         m3, [rsp+3*%%stride]
+    mova         m4, [rsp+4*%%stride]
+    mova         m5, [rsp+5*%%stride]
+    mova         m6, [rsp+6*%%stride]
+    mova         m7, [rsp+7*%%stride]
     TRANSPOSE8x8W 0, 1, 2, 3, 4, 5, 6, 7, 8
-    movdqa      [blockq +   0], xm0
-    movdqa      [blockq +  16], xm1
-    movdqa      [blockq +  32], xm2
-    movdqa      [blockq +  48], xm3
-    movdqa      [blockq +  64], xm4
-    movdqa      [blockq +  80], xm5
-    movdqa      [blockq +  96], xm6
-    movdqa      [blockq + 112], xm7
-    vextracti128 [blockq + 128], m0, 1
-    vextracti128 [blockq + 144], m1, 1
-    vextracti128 [blockq + 160], m2, 1
-    vextracti128 [blockq + 176], m3, 1
-    vextracti128 [blockq + 192], m4, 1
-    vextracti128 [blockq + 208], m5, 1
-    vextracti128 [blockq + 224], m6, 1
-    vextracti128 [blockq + 240], m7, 1
+    ; de-interleave: lane i of each transposed row -> block i (16 bytes/row).
+    ; lane 0 is a plain 128-bit store; lanes 1..N-1 via vextracti128.
+    movdqa       [blockq +   0], xm0
+    movdqa       [blockq +  16], xm1
+    movdqa       [blockq +  32], xm2
+    movdqa       [blockq +  48], xm3
+    movdqa       [blockq +  64], xm4
+    movdqa       [blockq +  80], xm5
+    movdqa       [blockq +  96], xm6
+    movdqa       [blockq + 112], xm7
+%assign %%i 1
+%rep %1-1
+%assign %%b %%i*128
+    vextracti128 [blockq + %%b +   0], m0, %%i
+    vextracti128 [blockq + %%b +  16], m1, %%i
+    vextracti128 [blockq + %%b +  32], m2, %%i
+    vextracti128 [blockq + %%b +  48], m3, %%i
+    vextracti128 [blockq + %%b +  64], m4, %%i
+    vextracti128 [blockq + %%b +  80], m5, %%i
+    vextracti128 [blockq + %%b +  96], m6, %%i
+    vextracti128 [blockq + %%b + 112], m7, %%i
+%assign %%i %%i+1
+%endrep
     RET
 %endmacro
 
 INIT_YMM avx2
-FDCT_MPEG2_X2
+FDCT_MPEG2_XN 2
+INIT_ZMM avx512
+FDCT_MPEG2_XN 4
 
 %endif
