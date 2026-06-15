@@ -797,13 +797,12 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
     if( MPEG2 )
     {
         int i_satd = 0;
-        pixel *p_src, *p_dst;
         for( int i = 0; i < 4; i++ )
         {
-            p_src = &h->mb.pic.p_fenc[0][8 * (i&1) + 8 * (i>>1) * FENC_STRIDE];
-            p_dst = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
-            h->predict_8x8_mpeg2( p_dst, 0 );
-            i_satd += h->pixf.mbcmp[PIXEL_8x8]( p_dst, FDEC_STRIDE, p_src, FENC_STRIDE );
+            pixel *fenc = &h->mb.pic.p_fenc[0][8 * (i&1) + 8 * (i>>1) * FENC_STRIDE];
+            pixel *fdec = &h->mb.pic.p_fdec[0][8 * (i&1) + 8 * (i>>1) * FDEC_STRIDE];
+            h->predict_8x8_mpeg2( fdec, 0 );
+            i_satd += h->pixf.mbcmp[PIXEL_8x8]( fdec, FDEC_STRIDE, fenc, FENC_STRIDE );
         }
 
         COPY1_IF_LT( a->i_satd_i16x16, i_satd );
