@@ -87,8 +87,12 @@
 
 #if HAVE_MPEG2
 #   define MPEG2 h->param.b_mpeg2
+/* First MB of an MPEG-2 slice (h->mb.i_mb_x valid only after cache load). */
+#   define MPEG2_SLICE_START ( h->mb.i_mb_x == 0 || \
+        ( h->i_mpeg2_slice_max_mbs && h->mb.i_mb_x % h->i_mpeg2_slice_max_mbs == 0 ) )
 #else
 #   define MPEG2 0
+#   define MPEG2_SLICE_START 0
 #endif
 
 #define LOG2_16(x) (31 - x264_clz((x)|1))
@@ -341,6 +345,12 @@ struct x264_t
     x264_param_t    param;
     /* opaque pointer to bit depth independent interface */
     void            *api;
+
+#if HAVE_MPEG2
+    /* MPEG-2: max MBs per slice, clamped to the row. 0 = one slice per row.
+     * Derived from param.i_slice_max_mbs at encoder open. */
+    int             i_mpeg2_slice_max_mbs;
+#endif
 
     x264_t          *thread[X264_THREAD_MAX+1];
     x264_t          *lookahead_thread[X264_LOOKAHEAD_THREAD_MAX];

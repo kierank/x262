@@ -1421,6 +1421,17 @@ static ALWAYS_INLINE void macroblock_cache_load( x264_t *h, int mb_x, int mb_y, 
         else if( MB_INTERLACED )
             h->mb.b_allow_skip = 0;
     }
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && !MB_INTERLACED )
+    {
+        int k = h->i_mpeg2_slice_max_mbs;
+        int slice_last = mb_x == h->mb.i_mb_width-1 || ( k && (mb_x+1) % k == 0 );
+        /* First and last MB of a slice cannot be a skip; in B-frames a skip cannot follow an intra MB. */
+        if( MPEG2_SLICE_START || slice_last ||
+            ( h->sh.i_type == SLICE_TYPE_B && IS_INTRA( h->mb.i_mb_type_left[0] ) ) )
+            h->mb.b_allow_skip = 0;
+    }
+#endif
 
     if( h->param.b_cabac )
     {
@@ -1910,7 +1921,7 @@ void x264_macroblock_cache_save( x264_t *h )
     }
     else
     {
-        if( MPEG2 && !h->mb.i_mb_x )
+        if( MPEG2 && MPEG2_SLICE_START )
             h->mb.i_last_qp = h->mb.i_qp;
         if( h->mb.i_type != I_16x16 && h->mb.i_cbp_luma == 0 && h->mb.i_cbp_chroma == 0
 #if HAVE_MPEG2
