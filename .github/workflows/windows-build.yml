@@ -1,0 +1,347 @@
+name: Windows static build
+
+# Manually triggered only. Cross-compiles a fully static 64-bit Windows x262.exe
+# on an Ubuntu runner using mingw-w64, links it against from-source static builds
+# of dav1d, ffmpeg (lavf+swscale, AV1 via dav1d), l-smash and ffms2 (avisynth is
+# loaded at runtime), runs a PGO pass under Wine, and publishes a zip
+# (x262.exe + COPYING + BUILD-INFO.txt) as both a workflow artifact and a
+# per-build "x262-<YYYYMMDDHHMMSS>" release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit / branch / tag to build (default: current HEAD)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-build-${{ github.event.inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CROSS: x86_64-w64-mingw32
+  PREFIX: ${{ github.workspace }}/deps-prefix
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # version.sh needs full history + origin/master for the revision string.
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.ref }}
+
+      # Fetch the PGO clip first: if media.xiph.org is down, fail in seconds rather
+      # than after the long toolchain install + from-source dependency build.
+      - name: Download PGO clip
+        run: curl -fLo foreman_cif.y4m https://media.xiph.org/video/derf/y4m/foreman_cif.y4m
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 \
+            nasm mingw-w64-tools pkg-config \
+            autoconf automake libtool \
+            meson ninja-build \
+            libz-mingw-w64-dev \
+            wine64 wine-binfmt binfmt-support xvfb zip
+          # binfmt-support provides update-binfmts; register so a Windows .exe runs
+          # transparently (needed for the fprofiled PGO pass under Wine).
+          sudo update-binfmts --import wine
+
+      - name: Verify cross toolchain and Wine
+        run: |
+          ${CROSS}-gcc --version
+          # Newer Ubuntu/Wine packaging drops the separate wine64 binary; fall back to wine.
+          WINE="$(command -v wine64 || command -v wine)"
+          echo "WINE=$WINE" >> "$GITHUB_ENV"
+          "$WINE" --version
+          update-binfmts --display | grep -i wine || true
+          # Confirm binfmt_misc transparently runs a Windows .exe before relying on
+          # it for the PGO pass.
+          WINEDEBUG=-all "$WINE" cmd /c "echo wine-ok"
+
+      - name: Date stamp for cache key
+        id: date
+        run: echo "ymd=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Dependency cache
+        id: depcache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.PREFIX }}
+          key: windeps-${{ env.CROSS }}-${{ hashFiles('.github/workflows/windows-build.yml') }}-${{ steps.date.outputs.ymd }}
+          restore-keys: |
+            windeps-${{ env.CROSS }}-${{ hashFiles('.github/workflows/windows-build.yml') }}-
+
+      - name: Build static dependencies
+        if: steps.depcache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          mkdir -p "$PREFIX"
+          export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
+          jobs="$(nproc)"
+          : > "$PREFIX/versions.env"
+
+          # --- dav1d (fast AV1 decoder; ffmpeg links it for AV1 input) ---
+          # Built first so ffmpeg's configure finds it via pkg-config. Uses meson/ninja
+          # with a cross file rather than autoconf.
+          git clone --depth 1 https://code.videolan.org/videolan/dav1d.git dav1d
+          ( cd dav1d
+            echo "DAV1D_URL=https://code.videolan.org/videolan/dav1d" >> "$PREFIX/versions.env"
+            echo "DAV1D_SHA=$(git rev-parse HEAD)" >> "$PREFIX/versions.env"
+            echo "DAV1D_DESC=$(git describe --tags --always 2>/dev/null || true)" >> "$PREFIX/versions.env"
+            {
+              echo "[binaries]"
+              echo "c = '${CROSS}-gcc'"
+              echo "cpp = '${CROSS}-g++'"
+              echo "ar = '${CROSS}-ar'"
+              echo "strip = '${CROSS}-strip'"
+              echo "pkgconfig = 'pkg-config'"
+              echo "windres = '${CROSS}-windres'"
+              echo "[host_machine]"
+              echo "system = 'windows'"
+              echo "cpu_family = 'x86_64'"
+              echo "cpu = 'x86_64'"
+              echo "endian = 'little'"
+            } > cross-mingw64.txt
+            meson setup build --cross-file cross-mingw64.txt \
+              --prefix="$PREFIX" --libdir="$PREFIX/lib" \
+              --default-library=static --buildtype=release \
+              -Denable_tools=false -Denable_tests=false
+            ninja -C build
+            ninja -C build install )
+
+          # --- ffmpeg (provides libavformat/swscale + dav1d AV1 decode; input only) ---
+          git clone --depth 1 https://github.com/FFmpeg/FFmpeg ffmpeg
+          ( cd ffmpeg
+            echo "FFMPEG_URL=https://github.com/FFmpeg/FFmpeg" >> "$PREFIX/versions.env"
+            echo "FFMPEG_SHA=$(git rev-parse HEAD)" >> "$PREFIX/versions.env"
+            echo "FFMPEG_DESC=$(git describe --tags --always 2>/dev/null || true)" >> "$PREFIX/versions.env"
+            # x262 uses ffmpeg for INPUT only (demux + decode + swscale); it never
+            # encodes or muxes via ffmpeg (muxing is l-smash). So keep all decoders/
+            # demuxers/parsers for broad input coverage, but strip everything an
+            # input-only path never touches. No --enable-gpl: it gates only encoders/
+            # filters/postproc we already disable, so it pulls in nothing here and an
+            # LGPL ffmpeg keeps the dependency chain cleaner (x262 itself is GPL).
+            ./configure --prefix="$PREFIX" \
+              --enable-cross-compile --target-os=mingw32 --arch=x86_64 \
+              --cross-prefix=${CROSS}- \
+              --enable-static --disable-shared --enable-libdav1d \
+              --disable-programs --disable-doc --disable-debug \
+              --disable-network --disable-protocols --enable-protocol=file,pipe \
+              --disable-encoders --disable-muxers \
+              --disable-filters --enable-filter=scale \
+              --disable-devices
+            make -j"$jobs"
+            make install )
+
+          # --- l-smash (mp4 muxing) ---
+          git clone --depth 1 https://github.com/l-smash/l-smash l-smash
+          ( cd l-smash
+            echo "LSMASH_URL=https://github.com/l-smash/l-smash" >> "$PREFIX/versions.env"
+            echo "LSMASH_SHA=$(git rev-parse HEAD)" >> "$PREFIX/versions.env"
+            echo "LSMASH_DESC=$(git describe --tags --always 2>/dev/null || true)" >> "$PREFIX/versions.env"
+            # l-smash uses a custom configure: --target-os/--cross-prefix, not --host.
+            # Static lib is the default.
+            ./configure --target-os=mingw32 --cross-prefix=${CROSS}- --prefix="$PREFIX"
+            make -j"$jobs"
+            make install )
+
+          # --- ffms2 (linked against the static ffmpeg above) ---
+          git clone --depth 1 https://github.com/FFMS/ffms2 ffms2
+          ( cd ffms2
+            echo "FFMS2_URL=https://github.com/FFMS/ffms2" >> "$PREFIX/versions.env"
+            echo "FFMS2_SHA=$(git rev-parse HEAD)" >> "$PREFIX/versions.env"
+            echo "FFMS2_DESC=$(git describe --tags --always 2>/dev/null || true)" >> "$PREFIX/versions.env"
+            # NOCONFIGURE stops autogen.sh from running its own (host) configure; we
+            # invoke the cross configure ourselves below.
+            NOCONFIGURE=1 ./autogen.sh
+            PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" \
+              ./configure --host=${CROSS} --enable-static --disable-shared --prefix="$PREFIX"
+            make -j"$jobs"
+            make install )
+
+      - name: Configure x262
+        run: |
+          # x262's configure links the optional libs via `pkg-config --libs` WITHOUT
+          # --static, so the static .a files' transitive deps are not pulled and the
+          # final link fails. Resolve them in dependency order from pkg-config --static:
+          #   --static --cflags : provides ffms2's -DFFMS_STATIC, without which ffms.h
+          #                       marks the API __declspec(dllimport) -> __imp_* link
+          #                       errors and configure reports `ffms: no`.
+          #   --static --libs   : pulls dav1d, bcrypt, z, etc. in correct order.
+          # ffms2 is C++ but is linked by the C driver, so -lstdc++ is added explicitly
+          # (ffms2.pc does not declare it).
+          export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
+          PC_MODS="ffms2 liblsmash libavformat libavcodec libswscale libavutil"
+          STATIC_CFLAGS="$(pkg-config --static --cflags $PC_MODS)"
+          STATIC_LIBS="$(pkg-config --static --libs $PC_MODS)"
+          ./configure \
+            --host=${CROSS} --cross-prefix=${CROSS}- \
+            --enable-mpeg2 --enable-static \
+            --extra-cflags="-I$PREFIX/include $STATIC_CFLAGS" \
+            --extra-ldflags="-static -L$PREFIX/lib $STATIC_LIBS -lstdc++ -lbcrypt"
+          # These optional inputs are the whole point of the build: fail if configure's
+          # autodetect did not enable any of them (configure writes #define HAVE_X 1/0).
+          for sym in HAVE_SWSCALE HAVE_LAVF HAVE_FFMS HAVE_LSMASH HAVE_AVS; do
+            if ! grep -q "#define $sym 1" config.h; then
+              echo "error: $sym not enabled -- a dependency was not found by configure" >&2
+              exit 1
+            fi
+          done
+
+      - name: Build with PGO
+        run: |
+          set -eux
+          # The instrumented x264.exe is run by the fprofiled rule under Wine via
+          # binfmt_misc. If the profile pass fails (Wine / .gcda write-back), the job
+          # fails here rather than silently producing a non-PGO build.
+          # xvfb-run provides a display: the runner is headless and some Wine paths
+          # touch X even for console programs.
+          export WINEDEBUG=-all
+          xvfb-run -a make fprofiled VIDS="$(pwd)/foreman_cif.y4m"
+          # `make` already created x262.exe as a symlink to x264.exe; replace it with a
+          # real copy so it survives zipping and works standalone on Windows.
+          rm -f x262.exe
+          cp x264.exe x262.exe
+
+      - name: Verify fully static
+        run: |
+          set -eux
+          dlls="$(${CROSS}-objdump -p x262.exe | grep -i 'DLL Name' | awk '{print $3}')"
+          echo "$dlls"
+          # Blocklist the DLLs that signal a failed static link (mingw runtimes and the
+          # optional libs). The set of legitimate Win32 system DLLs is large/unpredictable
+          # (CRYPT32, RPCRT4, ntdll, ...), so allowlisting would false-positive a correct
+          # build; the failure set is small and known.
+          if echo "$dlls" | grep -iqE 'libgcc_s|libstdc\+\+|libwinpthread|^libav|^libsw|libffms2|liblsmash|libdav1d'; then
+            echo "non-static dependency found -- not fully static" >&2
+            exit 1
+          fi
+
+      - name: Check for AVX-512 leaking into non-avx512 code
+        run: |
+          set -eux
+          # x86inc emits some mnemonics as EVEX when that is the only encoding for
+          # the given operands (e.g. `vpbroadcastq ymm, r64` has no VEX form), so
+          # writing one under INIT_YMM/INIT_XMM silently produces an AVX-512
+          # instruction. It runs on AVX-512 hardware but is an illegal instruction
+          # on the plain-AVX2 runners, crashing the PGO pass. In 64-bit code a
+          # leading 0x62 byte is always the EVEX prefix; flag any such instruction
+          # whose enclosing function name does not end in avx512/avx512icl.
+          # The scanner is written to a runner-local temp file (not committed) so
+          # its stdin stays free for the objdump pipe.
+          cat > "$RUNNER_TEMP/evex_scan.py" <<'PY'
+          import re, sys
+          def is_avx512(name):
+              # objdump prints local labels as "parent.locallabel" (e.g.
+              # "dav1d_pal_idx_finish_avx512icl.w4"); the ISA tier suffix is on
+              # the parent symbol, before the first '.'. A bare "..@NNNN.label"
+              # x86inc macro-local has no parent part at all -- callers keep
+              # the previous global label's name in that case.
+              base = name.split(".", 1)[0]
+              return base.rsplit("_", 1)[-1] in ("avx512", "avx512icl")
+          label = re.compile(r"^[0-9a-f]+ <([^>]+)>:")
+          insn  = re.compile(r"\s+([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*(\S.*)?$")
+          cur, scanned, leaks = "?", 0, []
+          for line in sys.stdin:
+              m = label.match(line)
+              if m:
+                  name = m.group(1)
+                  # Only a real global symbol establishes ISA context; a
+                  # dot-prefixed local label (no parent part) does not reset it.
+                  if name.split(".", 1)[0]:
+                      cur = name
+                  scanned += 1
+                  continue
+              m = insn.match(line)
+              # A wrapped continuation line (long instruction's trailing encoding
+              # bytes on their own line) has no decoded mnemonic; its first byte
+              # being 0x62 does not mean an instruction starts there.
+              if m and m.group(3) and m.group(2).split()[0] == "62" and not is_avx512(cur):
+                  leaks.append((m.group(1), cur, m.group(3).strip()))
+          if not scanned:
+              sys.exit("error: no function labels in disassembly (stripped?)")
+          if leaks:
+              print("error: %d AVX-512 (EVEX) instruction(s) in non-avx512 "
+                    "function(s):" % len(leaks), file=sys.stderr)
+              seen = set()
+              for va, fn, text in leaks:
+                  if fn not in seen:
+                      seen.add(fn)
+                      print("  0x%s  %s  |  %s" % (va, fn, text), file=sys.stderr)
+              sys.exit(1)
+          print("no EVEX leak (%d functions scanned)" % scanned)
+          PY
+          ${CROSS}-objdump -d x262.exe | python3 "$RUNNER_TEMP/evex_scan.py"
+
+      - name: Package zip
+        id: package
+        run: |
+          set -eux
+          [ -f "$PREFIX/versions.env" ] && . "$PREFIX/versions.env" || true
+          x264ver="$(./version.sh --mpeg2 | sed -n 's/.*X264_VERSION "\(.*\)".*/\1/p')"
+          x262ver="$(./version.sh --mpeg2 | sed -n 's/.*X262_VERSION "\(.*\)".*/\1/p')"
+          sha="$(git rev-parse --short HEAD)"
+          {
+            echo "x262 Windows 64-bit static build"
+            echo "================================="
+            echo
+            echo "x262 version:   ${x262ver:-unknown}"
+            echo "x264 base:      ${x264ver:-unknown}"
+            echo "x262 commit:    $(git rev-parse HEAD)"
+            echo "Build date:     $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "Runner image:   ${ImageOS:-ubuntu} ${ImageVersion:-}"
+            echo
+            echo "External libraries (statically linked)"
+            echo "--------------------------------------"
+            echo "dav1d:   ${DAV1D_URL:-?}  ${DAV1D_SHA:-?}  ${DAV1D_DESC:-}"
+            echo "ffmpeg:  ${FFMPEG_URL:-?}  ${FFMPEG_SHA:-?}  ${FFMPEG_DESC:-}  (LGPL, +dav1d +zlib)"
+            echo "l-smash: ${LSMASH_URL:-?}  ${LSMASH_SHA:-?}  ${LSMASH_DESC:-}"
+            echo "ffms2:   ${FFMS2_URL:-?}  ${FFMS2_SHA:-?}  ${FFMS2_DESC:-}"
+            echo "avisynth: loaded at runtime (no link-time version)"
+            echo
+            echo "Compiler / tool versions"
+            echo "------------------------"
+            ${CROSS}-gcc --version | sed -n 1p
+            ${CROSS}-g++ --version | sed -n 1p
+            echo "mingw-w64 crt: $(dpkg-query -W -f='${Version}' mingw-w64-x86-64-dev 2>/dev/null || echo unknown)"
+            nasm --version
+            echo "pkg-config $(pkg-config --version)"
+            "${WINE:-wine}" --version
+            make --version | sed -n 1p
+          } > BUILD-INFO.txt
+
+          zipname="x262-win64-${sha}.zip"
+          zip -j "$zipname" x262.exe COPYING BUILD-INFO.txt
+          echo "zipname=$zipname" >> "$GITHUB_OUTPUT"
+          echo "ver=${x262ver:-$sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.zipname }}
+          path: ${{ steps.package.outputs.zipname }}
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Unique tag per run so every build stays downloadable (for bisecting a
+          # regression). A UTC timestamp is unique and sorts chronologically.
+          tag="x262-$(date -u +%Y%m%d%H%M%S)"
+          gh release create "$tag" \
+            "${{ steps.package.outputs.zipname }}" \
+            --target "$(git rev-parse HEAD)" \
+            --title "x262 win64 ${{ steps.package.outputs.ver }}" \
+            --notes "Fully static 64-bit Windows build of x262, cross-compiled with mingw-w64.
+          Built from $(git rev-parse HEAD).
+          See BUILD-INFO.txt inside the zip for exact library and toolchain versions."
