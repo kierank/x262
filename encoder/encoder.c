@@ -1092,6 +1092,18 @@ static int validate_parameters( x264_t *h, int b_open )
     if( h->param.i_slice_count_max > 0 )
         h->param.i_slice_count_max = X264_MAX( h->param.i_slice_count, h->param.i_slice_count_max );
 
+#if HAVE_MPEG2
+    /* MPEG-2 emits its own slice headers. Skip the H.264 slicing machinery. */
+    if( MPEG2 )
+    {
+        h->i_mpeg2_slice_max_mbs = h->param.i_slice_max_mbs;
+        h->param.i_slice_max_mbs = 0;
+        h->param.i_slice_max_size = 0;
+        h->param.i_slice_count = 0;
+        h->param.i_slice_count_max = 0;
+    }
+#endif
+
     if( h->param.b_bluray_compat )
     {
         h->param.i_bframe_pyramid = X264_MIN( X264_B_PYRAMID_STRICT, h->param.i_bframe_pyramid );
@@ -2894,6 +2906,7 @@ static inline void slice_init( x264_t *h, int i_nal_type, int i_global_qp )
 typedef struct
 {
     int skip;
+    int i_nal;
     uint8_t cabac_prevbyte;
     bs_t bs;
     x264_cabac_t cabac;
@@ -2934,6 +2947,7 @@ static ALWAYS_INLINE void bitstream_backup( x264_t *h, x264_bs_bak_t *bak, int i
     {
         bak->bs = h->out.bs;
         bak->skip = i_skip;
+        bak->i_nal = h->out.i_nal;
     }
 }
 
@@ -2963,6 +2977,7 @@ static ALWAYS_INLINE void bitstream_restore( x264_t *h, x264_bs_bak_t *bak, int 
     {
         h->out.bs = bak->bs;
         *skip = bak->skip;
+        h->out.i_nal = bak->i_nal;
     }
 }
 
@@ -3056,14 +3071,19 @@ static intptr_t slice_write( x264_t *h )
         }
 
 #if HAVE_MPEG2
-        if( MPEG2 && ( i_skip || i_mb_x == 0 || !IS_INTRA( h->mb.i_type ) ) )
+        int b_mpeg2_slice_start = i_mb_x == 0 ||
+            ( h->i_mpeg2_slice_max_mbs && i_mb_x % h->i_mpeg2_slice_max_mbs == 0 );
+
+        if( MPEG2 && ( i_skip || b_mpeg2_slice_start || !IS_INTRA( h->mb.i_type ) ) )
             x264_reset_intra_dc_mpeg2( h );
 
-        if( MPEG2 && i_mb_x == 0 )
+        if( MPEG2 && b_mpeg2_slice_start )
         {
-            i_skip = 0;
+            i_skip = i_mb_x;
             x264_reset_mv_predictor_mpeg2( h );
         }
+#else
+        int b_mpeg2_slice_start = 0;
 #endif
 
         if( PARAM_INTERLACED )
@@ -3099,8 +3119,14 @@ static intptr_t slice_write( x264_t *h )
             h->mb.field[mb_xy] = MB_INTERLACED;
 
 #if HAVE_MPEG2
-        if( MPEG2 && i_mb_x == 0 )
+        if( MPEG2 && b_mpeg2_slice_start )
         {
+            if( i_mb_x != 0 )
+            {
+                bs_align_0( &h->out.bs );
+                if( nal_end( h ) )
+                    return -1;
+            }
             nal_start( h, (i_mb_y % 175) + 1, h->i_nal_ref_idc );
             slice_header_write_mpeg2( h, &h->out.bs, i_mb_y );
         }

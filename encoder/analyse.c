@@ -2201,7 +2201,7 @@ static void mb_analyse_inter_b16x16( x264_t *h, x264_mb_analysis_t *a )
     intptr_t stride0 = 16, stride1 = 16;
     int i_ref, i_mvc;
     ALIGNED_ARRAY_8( int16_t, mvc,[9],[2] );
-    int try_skip = a->b_try_skip;
+    int try_skip = a->b_try_skip && !( MPEG2 && !h->mb.b_allow_skip );
     int list1_skipped = 0;
     int i_halfpel_thresh[2] = {INT_MAX, INT_MAX};
     int *p_halfpel_thresh[2] = {(a->b_early_terminate && h->mb.pic.i_fref[0]>1) ? &i_halfpel_thresh[0] : NULL,
@@ -3486,8 +3486,8 @@ intra_analysis:
             /* If the current macroblock is off the frame, just skip it. */
             if( HAVE_INTERLACED && !MB_INTERLACED && h->mb.i_mb_y * 16 >= h->param.i_height && !skip_invalid )
                 b_skip = 1;
-            /* Fast P_SKIP detection */
-            else if( h->param.analyse.b_fast_pskip )
+            /* Fast P_SKIP detection (MPEG-2 forbids skip on the first and last MB of a slice) */
+            else if( h->param.analyse.b_fast_pskip && !( MPEG2 && !h->mb.b_allow_skip ) )
             {
                 if( skip_invalid )
                     // FIXME don't need to check this if the reference frame is done
@@ -3907,6 +3907,8 @@ skip_analysis:
                 if( h->param.analyse.i_subpel_refine < 3 )
                     b_skip = analysis.b_try_skip;
             }
+            if( MPEG2 && !h->mb.b_allow_skip )
+                b_skip = analysis.b_try_skip = 0;
             /* Set up MVs for future predictors */
             if( b_skip )
             {

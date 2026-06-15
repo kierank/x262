@@ -104,7 +104,7 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
     int cbp420 = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma;
     int cbp = cbp420 << 2 | h->mb.i_cbp_chroma422;
     int coded = !!cbp;
-    int quant = h->mb.i_last_qp != h->mb.i_qp && h->mb.i_mb_x;
+    int quant = h->mb.i_last_qp != h->mb.i_qp && !MPEG2_SLICE_START;
     int mcoded = !!M32( h->mb.cache.mv[0][X264_SCAN8_0] );
     if( MB_INTERLACED )
         mcoded =  mcoded || (!!M32( h->mb.cache.mv[0][X264_SCAN8_0 + 2*8] ))

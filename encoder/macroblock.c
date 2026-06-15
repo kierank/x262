@@ -888,31 +888,6 @@ static ALWAYS_INLINE void macroblock_encode_internal( x264_t *h, int plane_count
         }
     }
 
-#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
-    if( MPEG2 && ( (h->mb.i_mb_x == 0 || h->mb.i_mb_x == h->mb.i_mb_width-1) ||
-                   (h->sh.i_type == SLICE_TYPE_B && IS_INTRA( h->mb.i_mb_type_left[0])) ))
-    {
-        /* First and last macroblock in a slice is not allowed to be a skip.
-         * In B-frames a skip cannot follow an intra mb. */
-        b_force_no_skip = 1;
-        if( h->mb.i_type == P_SKIP )
-            h->mb.i_type = P_L0;
-        else if( h->mb.i_type == B_SKIP )
-            h->mb.i_type = h->mb.i_mb_type_left[0];
-        /* Do motion compensation if we have a non-zero mv */
-        if( h->mb.i_type == P_L0 )
-        {
-            if( M32( h->mb.cache.mv[0][X264_SCAN8_0] ) )
-                x264_mb_mc( h );
-        }
-        else if( h->mb.i_type != I_16x16 )
-        {
-            if( M32( h->mb.cache.mv[0][X264_SCAN8_0] ) | M32( h->mb.cache.mv[1][X264_SCAN8_0] ) )
-                x264_mb_mc( h );
-        }
-    }
-#endif
-
     if( h->mb.i_type == P_SKIP )
     {
         /* don't do pskip motion compensation if it was already done in macroblock_analyse */
