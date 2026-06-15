@@ -416,8 +416,16 @@ OPT4 = --crf 22 -b3 -m7 -r4 --me esa -t2 -A all --psy-rd 1.0:1.0 --slices 4
 OPT5 = --frames 50 --crf 24 -b3 -m10 -r3 --me tesa -t2
 OPT6 = --frames 50 -q0 -m9 -r2 --me hex -Aall
 OPT7 = --frames 50 -q0 -m2 -r1 --me hex --no-cabac
+PROF_OPTS = 0 1 2 3 4 5 6 7
 ifneq ($(findstring HAVE_MPEG2 1, $(CONFIG)),)
 OPT8 = --mpeg2 --crf 6 -b2 -m9 --me esa -t2 -I15
+OPT9 = --mpeg2 --crf 14 -b2 -m6 --me umh -I12
+OPT10 = --mpeg2 --interlaced --tff --crf 8 -b2 -m9 --me umh -I12
+PROF_OPTS += 8 9 10
+ifneq ($(findstring HAVE_SWSCALE 1, $(CONFIG)),)
+OPT11 = --mpeg2 --profile 422 --no-altscan --dc 10 --interlaced --tff --output-csp i422 -I1 -b0 --bitrate 50000 --vbv-maxrate 50000 --vbv-bufsize 2000 --vbv-init 1.0
+PROF_OPTS += 11
+endif
 endif
 
 ifeq (,$(VIDS))
@@ -428,7 +436,7 @@ fprofiled:
 else
 fprofiled: clean
 	$(MAKE) x264$(EXE) CFLAGSPROF="$(PROF_GEN_CC)" LDFLAGSPROF="$(PROF_GEN_LD)"
-	$(foreach V, $(VIDS), $(foreach I, 0 1 2 3 4 5 6 7 8, ./x264$(EXE) $(OPT$I) --threads 1 $(V) -o $(DEVNULL) ;))
+	$(foreach V, $(VIDS), $(foreach I, $(PROF_OPTS), ./x264$(EXE) $(OPT$I) --threads 1 $(V) -o $(DEVNULL) ;))
 ifeq ($(COMPILER),CL)
 # Because Visual Studio timestamps the object files within the PGD, it fails to build if they change - only the executable should be deleted
 	rm -f x264$(EXE)
