@@ -4394,9 +4394,9 @@ static int encoder_frame_end( x264_t *h, x264_t *thread_current,
     pic_out->hrd_timing = h->fenc->hrd_timing;
     pic_out->prop.f_crf_avg = h->fdec->f_crf_avg;
 
-    /* Filler in AVC-Intra mode is written as zero bytes to the last slice
+    /* Filler in AVC-Intra and MPEG-2 is written as zero bytes to the last slice
      * We don't know the size of the last slice until encapsulation so we add filler to the encapsulated NAL */
-    if( h->param.i_avcintra_class )
+    if( h->param.i_avcintra_class || MPEG2 )
     {
         if( check_encapsulated_buffer( h, h->thread[0], h->out.i_nal, frame_size, (int64_t)frame_size + filler ) < 0 )
             return -1;
@@ -4408,7 +4408,7 @@ static int encoder_frame_end( x264_t *h, x264_t *thread_current,
         frame_size += filler;
 
         /* Fix up the size header for mp4/etc */
-        if( !h->param.b_annexb )
+        if( !h->param.b_annexb && !MPEG2 )
         {
             /* Size doesn't include the size of the header we're writing now. */
             uint8_t *nal_data = nal->p_payload;
