@@ -2193,7 +2193,7 @@ static int update_vbv( x264_t *h, int bits )
         {
             int64_t scale = (int64_t)h->sps->vui.i_time_scale * 8;
             filler = (rct->buffer_fill_final - buffer_size + scale - 1) / scale;
-            bits = h->param.i_avcintra_class ? filler * 8 : X264_MAX( (FILLER_OVERHEAD - h->param.b_annexb), filler ) * 8;
+            bits = (h->param.i_avcintra_class || MPEG2) ? filler * 8 : X264_MAX( (FILLER_OVERHEAD - h->param.b_annexb), filler ) * 8;
             buffer_diff = (uint64_t)bits * h->sps->vui.i_time_scale;
             rct->buffer_fill_final -= buffer_diff;
             rct->buffer_fill_final_min -= buffer_diff;
