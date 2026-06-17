@@ -166,6 +166,9 @@ struct x264_ratecontrol_t
     int bframes;                /* # consecutive B-frames before this P-frame */
     int bframe_bits;            /* total cost of those frames */
 
+    int b_reencode_active;      /* suppress predictor updates during re-encode attempts */
+    int i_reencode_count;       /* number of re-encode attempts for current frame */
+
     int i_zones;
     x264_zone_t *zones;
     x264_zone_t *prev_zone;
@@ -186,6 +189,8 @@ static int update_vbv( x264_t *h, int bits );
 static void update_vbv_plan( x264_t *h, int overhead );
 static float predict_size( predictor_t *p, float q, float var );
 static void update_predictor( predictor_t *p, float q, float var, float bits );
+
+#define X264_MAX_FRAME_REENCODE 4
 
 #define CMP_OPT_FIRST_PASS( opt, param_val )\
 {\
@@ -1475,6 +1480,8 @@ void x264_ratecontrol_start( x264_t *h, int i_force_qp, int overhead )
         memset( h->fdec->f_row_qp, 0, h->mb.i_mb_height * sizeof(float) );
         memset( h->fdec->f_row_qscale, 0, h->mb.i_mb_height * sizeof(float) );
         rc->row_pred = rc->row_preds[h->sh.i_type];
+        rc->b_reencode_active = 0;
+        rc->i_reencode_count = 0;
         rc->buffer_rate = h->fenc->i_cpb_duration * rc->vbv_max_rate * h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
         update_vbv_plan( h, overhead );
 
@@ -1488,6 +1495,11 @@ void x264_ratecontrol_start( x264_t *h, int i_force_qp, int overhead )
             mincr = 4;
 
         /* MPEG-2 and H.264 profiles above High don't require minCR, so just set the maximum to a large value. */
+#if HAVE_MPEG2
+        if( h->param.i_imx_class )
+            rc->frame_size_maximum = (int64_t)h->i_mpeg2_cbg_bytes * 8;
+        else
+#endif
         if( MPEG2 || h->sps->i_profile_idc > PROFILE_HIGH )
             rc->frame_size_maximum = 1e9;
         else
@@ -1604,12 +1616,27 @@ static float predict_row_size_to_end( x264_t *h, int y, float qp )
  *  eliminate all use of qp in row ratecontrol: make it entirely qscale-based.
  *  make this function stop being needlessly O(N^2)
  *  update more often than once per row? */
+/* Reset per-frame RC accumulators and suppress predictor updates during re-encode attempts. */
+void x264_ratecontrol_reencode_reset( x264_t *h, int active )
+{
+    x264_ratecontrol_t *rc = h->rc;
+    memset( h->fdec->i_row_bits, 0, h->mb.i_mb_height * sizeof(int) );
+    memset( h->fdec->i_mb_bits, 0, h->mb.i_mb_count * sizeof(int) );
+    memset( h->fdec->f_row_qp, 0, h->mb.i_mb_height * sizeof(float) );
+    memset( h->fdec->f_row_qscale, 0, h->mb.i_mb_height * sizeof(float) );
+    rc->qpa_rc = rc->qpa_rc_prev = 0;
+    rc->qpa_aq = rc->qpa_aq_prev = 0;
+    h->fdec->f_qp_avg_rc = h->fdec->f_qp_avg_aq = 0;
+    rc->b_reencode_active = active;
+}
+
 int x264_ratecontrol_mb( x264_t *h, int bits )
 {
     x264_ratecontrol_t *rc = h->rc;
     const int y = h->mb.i_mb_y;
 
     h->fdec->i_row_bits[y] += bits;
+    h->fdec->i_mb_bits[h->mb.i_mb_xy] = bits;
     rc->qpa_aq += h->mb.i_qp;
 
     if( h->mb.i_mb_x != h->mb.i_mb_width - 1 )
@@ -1625,17 +1652,22 @@ int x264_ratecontrol_mb( x264_t *h, int bits )
     h->fdec->f_row_qp[y] = rc->qpm;
     h->fdec->f_row_qscale[y] = qscale;
 
-    update_predictor( &rc->row_pred[0], qscale, h->fdec->i_row_satd[y], h->fdec->i_row_bits[y] );
-    if( h->sh.i_type != SLICE_TYPE_I && rc->qpm < h->fref[0][0]->f_row_qp[y] )
-        update_predictor( &rc->row_pred[1], qscale, h->fdec->i_row_satds[0][0][y], h->fdec->i_row_bits[y] );
+    if( !rc->b_reencode_active )
+    {
+        update_predictor( &rc->row_pred[0], qscale, h->fdec->i_row_satd[y], h->fdec->i_row_bits[y] );
+        if( h->sh.i_type != SLICE_TYPE_I && rc->qpm < h->fref[0][0]->f_row_qp[y] )
+            update_predictor( &rc->row_pred[1], qscale, h->fdec->i_row_satds[0][0][y], h->fdec->i_row_bits[y] );
+    }
 
     /* update ratecontrol per-mbpair in MBAFF */
     if( SLICE_MBAFF && !(y&1) )
         return 0;
 
     /* FIXME: We don't currently support the case where there's a slice
-     * boundary in between. */
-    int can_reencode_row = h->sh.i_first_mb <= ((h->mb.i_mb_y - SLICE_MBAFF) * h->mb.i_mb_stride);
+     * boundary in between. Per-MB slices are safe because the row-VBV
+     * backup is taken before any slice NALs are written. */
+    int can_reencode_row = h->param.i_imx_class ||
+        h->sh.i_first_mb <= ((h->mb.i_mb_y - SLICE_MBAFF) * h->mb.i_mb_stride);
 
     /* tweak quality based on difference from predicted size */
     float prev_row_qp = h->fdec->f_row_qp[y];
@@ -1644,7 +1676,9 @@ int x264_ratecontrol_mb( x264_t *h, int bits )
         qp_absolute_max = X264_MIN( qp_absolute_max, rc->qp_novbv + rc->rate_factor_max_increment );
     float qp_max = X264_MIN( prev_row_qp + h->param.rc.i_qp_step, qp_absolute_max );
     float qp_min = X264_MAX( prev_row_qp - h->param.rc.i_qp_step, h->param.rc.i_qp_min );
-    float step_size = 0.5f;
+    if( rc->b_reencode_active )
+        qp_min = X264_MAX( qp_min, h->fdec->f_row_qp[0] );
+    float step_size = h->param.i_imx_class ? 0.03125f : 0.5f;
     float slice_size_planned = h->param.b_sliced_threads ? rc->slice_size_planned : rc->frame_size_planned;
     float bits_so_far = row_bits_so_far( h, y );
     rc->bits_so_far = bits_so_far;
@@ -1682,6 +1716,10 @@ int x264_ratecontrol_mb( x264_t *h, int bits )
         float rc_tol = buffer_left_planned / h->param.i_threads * rc->rate_tolerance;
         float b1 = bits_so_far + predict_row_size_to_end( h, y, rc->qpm ) + size_of_other_slices;
         float trust_coeff = x264_clip3f( bits_so_far / slice_size_planned, 0.0, 1.0 );
+        /* Per-MB slices in IMX starve the bits-based trust counter on the first
+         * few rows; use row count as a floor. */
+        if( h->param.i_imx_class )
+            trust_coeff = X264_MAX( trust_coeff, (float)(y + 1) / h->mb.i_mb_height );
 
         /* Don't increase the row QPs until a sufficient amount of the bits of the frame have been processed, in case a flat */
         /* area at the top of the frame was measured inaccurately. */
@@ -1703,7 +1741,7 @@ int x264_ratecontrol_mb( x264_t *h, int bits )
             b1 = bits_so_far + predict_row_size_to_end( h, y, rc->qpm ) + size_of_other_slices;
         }
 
-        float b_max = b1 + ((rc->buffer_fill - rc->buffer_size + rc->buffer_rate) * 0.90f - b1) * trust_coeff;
+        float b_max = b1 + ((rc->buffer_fill - rc->buffer_size + rc->buffer_rate) * (h->param.i_imx_class ? 0.97f : 0.90f) - b1) * trust_coeff;
         rc->qpm -= step_size;
         float b2 = bits_so_far + predict_row_size_to_end( h, y, rc->qpm ) + size_of_other_slices;
         while( rc->qpm > qp_min && rc->qpm < prev_row_qp
@@ -1781,7 +1819,83 @@ int x264_ratecontrol_mb_qp( x264_t *h )
             qp_offset *= (QP_MAX - qp) / (QP_MAX - QP_MAX_SPEC);
         qp += qp_offset;
     }
+    if( h->fenc->f_reencode_qp_offset )
+        qp += h->fenc->f_reencode_qp_offset[h->mb.i_mb_xy];
     return x264_clip3( qp + 0.5f, h->param.rc.i_qp_min, h->param.rc.i_qp_max );
+}
+
+/* Check whether an encoded frame fits within frame_size_maximum.
+ * If not, adjust QP and reset row state for a re-encode attempt.
+ * Returns: 0 = accept, >0 = retry (remaining attempts), -1 = give up. */
+int x264_ratecontrol_check_reencode( x264_t *h, int frame_bits )
+{
+    x264_ratecontrol_t *rc = h->rc;
+
+    int total_bits = frame_bits + h->out.i_nal * 4 * 8;
+
+    if( total_bits <= rc->frame_size_maximum )
+    {
+        rc->b_reencode_active = 0;
+        rc->i_reencode_count = 0;
+        return 0;
+    }
+
+    if( rc->i_reencode_count >= X264_MAX_FRAME_REENCODE ||
+        rc->qpm >= h->param.rc.i_qp_max - 0.125f )
+    {
+        rc->b_reencode_active = 0;
+        rc->i_reencode_count = 0;
+        return -1;
+    }
+
+    /* Uniform boost: just enough to make forward progress.
+     * Per-MB offsets carry the precision — they accumulate across
+     * retries and redistribute bits to close the gap. */
+    float overshoot_ratio = (float)total_bits / (float)rc->frame_size_maximum;
+    float qp_boost = log2f( overshoot_ratio ) * 0.5f;
+    qp_boost = x264_clip3f( qp_boost, 0.03125f, 4.0f );
+    rc->qpm += qp_boost;
+    rc->qpm = X264_MIN( rc->qpm, h->param.rc.i_qp_max );
+    if( !h->fenc->f_reencode_qp_offset )
+    {
+        h->fenc->f_reencode_qp_offset = x264_malloc( h->mb.i_mb_count * sizeof(float) );
+        if( h->fenc->f_reencode_qp_offset )
+            memset( h->fenc->f_reencode_qp_offset, 0, h->mb.i_mb_count * sizeof(float) );
+    }
+
+    /* Per-MB adaptive QP: redistribute bits within the frame.
+     * Overspending MBs get positive offsets (fewer bits), underspending
+     * MBs get negative offsets (more bits).  Net sum ≈ zero. */
+    if( h->fenc->f_reencode_qp_offset )
+    {
+        int mb_count = h->mb.i_mb_count;
+        float fair_share = (float)rc->frame_size_maximum / mb_count;
+        if( fair_share > 0 )
+        {
+            for( int mb = 0; mb < mb_count; mb++ )
+            {
+                float ratio = (float)h->fdec->i_mb_bits[mb] / fair_share;
+                /* Each doubling of bit spend moves QP by ~1.0, scaled down
+                 * for stability.  Clip to [-0.5, +0.5] so redistribution
+                 * doesn't create new overspenders. */
+                float offset = log2f( X264_MAX( ratio, 0.5f ) ) * 0.5f;
+                offset = x264_clip3f( offset, -0.5f, 0.5f );
+                h->fenc->f_reencode_qp_offset[mb] += offset;
+            }
+        }
+    }
+
+    memset( h->fdec->i_row_bits, 0, h->mb.i_mb_height * sizeof(int) );
+    memset( h->fdec->i_mb_bits, 0, h->mb.i_mb_count * sizeof(int) );
+    memset( h->fdec->f_row_qp, 0, h->mb.i_mb_height * sizeof(float) );
+    memset( h->fdec->f_row_qscale, 0, h->mb.i_mb_height * sizeof(float) );
+    rc->qpa_rc = rc->qpa_rc_prev = 0;
+    rc->qpa_aq = rc->qpa_aq_prev = 0;
+    h->fdec->f_qp_avg_rc = h->fdec->f_qp_avg_aq = 0;
+
+    rc->i_reencode_count++;
+    rc->b_reencode_active = 1;
+    return X264_MAX_FRAME_REENCODE - rc->i_reencode_count;
 }
 
 /* In 2pass, force the same frame types as in the 1st pass */
@@ -2186,6 +2300,17 @@ static int update_vbv( x264_t *h, int bits )
         buffer_diff = (uint64_t)bitrate * h->sps->vui.i_num_units_in_tick * h->fenc->i_cpb_duration;
     rct->buffer_fill_final += buffer_diff;
     rct->buffer_fill_final_min += buffer_diff;
+
+#if HAVE_MPEG2
+    if( h->i_mpeg2_cbg_bytes && h->param.rc.b_filler )
+    {
+        filler = X264_MAX( 0, h->i_mpeg2_cbg_bytes - bits / 8 );
+        buffer_diff = (uint64_t)filler * 8 * h->sps->vui.i_time_scale;
+        rct->buffer_fill_final -= buffer_diff;
+        rct->buffer_fill_final_min -= buffer_diff;
+        return filler;
+    }
+#endif
 
     if( rct->buffer_fill_final > buffer_size )
     {
