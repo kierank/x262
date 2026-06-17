@@ -418,6 +418,7 @@ typedef struct x264_param_t
     int         b_bluray_compat;
     int         i_avcintra_class;
     int         i_avcintra_flavor;
+    int         i_imx_class;     /* MPEG-2 D-10/IMX class: 50, 40 or 30 Mb/s; 0 = disabled */
 
     int         b_deblocking_filter;
     int         i_deblocking_filter_alphac0;    /* [-6, 6] -6 light filter, 6 strong */

@@ -148,6 +148,9 @@ static cli_output_t cli_output;
 static cli_vid_filter_t filter;
 
 const char * const x264_avcintra_class_names[] = { "50", "100", "200", "300", "480", 0 };
+#if HAVE_MPEG2
+const char * const x264_imx_class_names[] = { "30", "40", "50", 0 };
+#endif
 const char * const x264_cqm_names[] = { "flat", "jvt", 0 };
 const char * const x264_log_level_names[] = { "none", "error", "warning", "info", "debug", 0 };
 const char * const x264_partition_names[] = { "p8x8", "p4x4", "b8x8", "i8x8", "i4x4", "none", "all", 0 };
@@ -983,6 +986,8 @@ static void help( x264_param_t *defaults, int longhelp )
 #if HAVE_MPEG2
     H2( "MPEG-2 (H.262):\n" );
     H0( "      --mpeg2                 Encode as MPEG-2 instead of H.264\n" );
+    H0( "      --imx-class <integer>   Use compatibility hacks for MPEG-2 D-10/IMX\n"
+        "                                  - %s (Mb/s)\n", stringify_names( buf, x264_imx_class_names ) );
     H2( "      --dc <integer>          Specify intra DC precision to use (8 to 11) [%d]\n", defaults->i_intra_dc_precision + 8);
     H2( "      --altscan               Use alternate MPEG-2 VLC scan order, not zigzag\n" );
     H2( "      --linear-quant          Use MPEG-2 linear quantization table\n" );
@@ -1828,6 +1833,10 @@ generic_option:
     param->i_timebase_den = info.timebase_den;
     param->vui.i_sar_width  = info.sar_width;
     param->vui.i_sar_height = info.sar_height;
+
+    /* IMX defaults to 4:3 DAR but allows user override */
+    if( param->i_imx_class && !b_user_sar )
+        param->vui.i_sar_width = param->vui.i_sar_height = 0;
 
     info.num_frames = X264_MAX( info.num_frames - opt->i_seek, 0 );
     if( (!info.num_frames || param->i_frame_total < info.num_frames)
