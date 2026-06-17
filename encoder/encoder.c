@@ -958,6 +958,77 @@ static int validate_parameters( x264_t *h, int b_open )
         }
     }
 
+#if HAVE_MPEG2
+    if( h->param.i_imx_class )
+    {
+        int mbits = h->param.i_imx_class;
+        if( !MPEG2 )
+        {
+            x264_log( h, X264_LOG_ERROR, "IMX requires MPEG-2\n" );
+            return -1;
+        }
+#if X264_CHROMA_FORMAT && X264_CHROMA_FORMAT != CHROMA_422
+        x264_log( h, X264_LOG_ERROR, "IMX requires a build with 4:2:2 support\n" );
+        return -1;
+#endif
+        if( mbits != 50 && mbits != 40 && mbits != 30 )
+        {
+            x264_log( h, X264_LOG_ERROR, "invalid IMX class %d (must be 50, 40 or 30)\n", mbits );
+            return -1;
+        }
+        /* 625/50: 720x608 25fps; 525/60: 720x512 30000/1001fps. */
+        int b_625 = h->param.i_fps_num == 25 && h->param.i_fps_den == 1;
+        int b_525 = h->param.i_fps_num == 30000 && h->param.i_fps_den == 1001;
+        if( !b_625 && !b_525 )
+        {
+            x264_log( h, X264_LOG_ERROR, "IMX requires 25 or 30000/1001 fps\n" );
+            return -1;
+        }
+        if( h->param.i_width != 720 || h->param.i_height != (b_625 ? 608 : 512) )
+        {
+            x264_log( h, X264_LOG_ERROR, "IMX requires 720x%d for %s\n", b_625 ? 608 : 512, b_625 ? "PAL 625/50" : "NTSC 525/60" );
+            return -1;
+        }
+        if( i_csp < X264_CSP_I422 || i_csp >= X264_CSP_I444 )
+        {
+            x264_log( h, X264_LOG_ERROR, "IMX requires 4:2:2 encoding (use --output-csp i422)\n" );
+            return -1;
+        }
+
+        /* Exact bytes per the SMPTE 356M/365M operating points. */
+        static const int cbg_bytes[2][3] = /* [625|525][50|40|30] */
+        {
+            { 250000, 200000, 150000 },
+            { 208541, 166833, 125125 },
+        };
+        int rate_idx = mbits == 50 ? 0 : mbits == 40 ? 1 : 2;
+        h->i_mpeg2_cbg_bytes = cbg_bytes[b_525][rate_idx];
+
+        h->param.b_mpeg2 = 1;
+        h->param.b_422_profile = 1;
+        h->param.i_level_idc = X264_MPEG2_LEVEL_MAIN;
+        h->param.b_interlaced = 1;
+        h->param.b_tff = 1;
+        h->param.i_keyint_max = 1;
+        h->param.i_bframe = 0;
+        h->param.i_intra_dc_precision = X264_INTRA_DC_10_BIT;
+        h->param.b_nonlinear_quant = 1;
+        h->param.b_alt_intra_vlc = 1;
+        h->param.b_alternate_scan = 0;
+        h->param.i_slice_max_mbs = 1;
+        if( h->param.vui.i_aspect_ratio_information == X264_MPEG2_DAR_AUTO &&
+            !h->param.vui.i_sar_width && !h->param.vui.i_sar_height )
+            h->param.vui.i_aspect_ratio_information = X264_MPEG2_DAR_43;
+
+        h->param.rc.i_rc_method = X264_RC_ABR;
+        h->param.rc.i_bitrate =
+        h->param.rc.i_vbv_max_bitrate = mbits * 1000;
+        h->param.rc.i_vbv_buffer_size = (int)((int64_t)mbits * 1000
+            * h->param.i_fps_den / h->param.i_fps_num);
+        h->param.rc.f_vbv_buffer_init = 1.0;
+    }
+#endif
+
     h->param.rc.f_rf_constant = x264_clip3f( h->param.rc.f_rf_constant, -QP_BD_OFFSET, 51 );
     h->param.rc.f_rf_constant_max = x264_clip3f( h->param.rc.f_rf_constant_max, -QP_BD_OFFSET, 51 );
     h->param.rc.i_qp_constant = x264_clip3( h->param.rc.i_qp_constant, -1, QP_MAX );
@@ -2981,6 +3052,24 @@ static ALWAYS_INLINE void bitstream_restore( x264_t *h, x264_bs_bak_t *bak, int 
     }
 }
 
+typedef struct
+{
+    bs_t  bs;
+    int   i_nal;
+} x264_bs_bak_frame_t;
+
+static ALWAYS_INLINE void bitstream_backup_frame( x264_t *h, x264_bs_bak_frame_t *bak )
+{
+    bak->bs = h->out.bs;
+    bak->i_nal = h->out.i_nal;
+}
+
+static ALWAYS_INLINE void bitstream_restore_frame( x264_t *h, x264_bs_bak_frame_t *bak )
+{
+    h->out.bs = bak->bs;
+    h->out.i_nal = bak->i_nal;
+}
+
 static intptr_t slice_write( x264_t *h )
 {
     int i_skip;
@@ -4026,7 +4115,7 @@ int     x264_encoder_encode( x264_t *h,
                 overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
             }
 
-            if( h->fenc->b_keyframe && h->fenc->i_frame == 0 )
+            if( h->fenc->b_keyframe && h->fenc->i_frame == 0 && !h->param.i_imx_class )
             {
                 /* identify ourself */
                 nal_start( h, MPEG2_USER_DATA, NAL_PRIORITY_HIGHEST );
@@ -4309,6 +4398,16 @@ int     x264_encoder_encode( x264_t *h,
         h->fdec->i_poc_l0ref0 = h->fref[0][0]->i_poc;
 
     /* ------------------------ Create slice header  ----------------------- */
+#if HAVE_MPEG2
+    if( h->param.i_imx_class )
+    {
+        h->reencode_bs_bak    = h->out.bs;
+        h->reencode_nal_bak   = h->out.i_nal;
+        h->reencode_nal_type  = i_nal_type;
+        h->reencode_global_qp = i_global_qp;
+    }
+#endif
+
     slice_init( h, i_nal_type, i_global_qp );
 
     /*------------------------- Weights -------------------------------------*/
@@ -4323,6 +4422,8 @@ int     x264_encoder_encode( x264_t *h,
     /* Write frame */
     h->i_threadslice_start = 0;
     h->i_threadslice_end = h->mb.i_mb_height;
+
+
     if( h->i_thread_frames > 1 )
     {
         x264_threadpool_run( h->threadpool, (void*)slices_write, h );
@@ -4352,6 +4453,43 @@ static int encoder_frame_end( x264_t *h, x264_t *thread_current,
         if( (intptr_t)x264_threadpool_wait( h->threadpool, h ) )
             return -1;
     }
+
+#if HAVE_MPEG2
+    /* Re-encode the frame at higher QP while it overflows the constant-bitrate
+     * CBG budget. Safe only because IMX is all-intra */
+    if( h->param.i_imx_class && h->out.i_nal )
+    {
+        for( ;; )
+        {
+            int frame_bits = bs_pos( &h->out.bs );
+            if( x264_ratecontrol_check_reencode( h, frame_bits ) <= 0 )
+                break;
+
+            h->out.bs = h->reencode_bs_bak;
+            h->out.i_nal = h->reencode_nal_bak;
+            h->reencode_global_qp = x264_ratecontrol_qp( h );
+            pic_out->i_qpplus1 =
+            h->fdec->i_qpplus1 = h->reencode_global_qp + 1;
+            slice_init( h, h->reencode_nal_type, h->reencode_global_qp );
+
+            if( h->i_thread_frames > 1 )
+            {
+                x264_threadpool_run( h->threadpool, (void*)slices_write, h );
+                if( (intptr_t)x264_threadpool_wait( h->threadpool, h ) )
+                    return -1;
+            }
+            else if( h->param.b_sliced_threads )
+            {
+                if( threaded_slices_write( h ) )
+                    return -1;
+            }
+            else
+                if( (intptr_t)slices_write( h ) )
+                    return -1;
+        }
+    }
+#endif
+
     if( !h->out.i_nal )
     {
         pic_out->i_type = X264_TYPE_AUTO;

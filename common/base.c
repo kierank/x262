@@ -536,6 +536,7 @@ REALIGN_STACK void x264_param_default( x264_param_t *param )
     param->psz_clbin_file = NULL;
     param->i_avcintra_class = 0;
     param->i_avcintra_flavor = X264_AVCINTRA_FLAVOR_PANASONIC;
+    param->i_imx_class = 0;
     param->b_mpeg2 = 0;
 }
 
@@ -1137,6 +1138,8 @@ REALIGN_STACK int x264_param_parse( x264_param_t *p, const char *name, const cha
         p->b_nonlinear_quant = !atobool(value);
     OPT("altintra")
         p->b_alt_intra_vlc = atobool(value);
+    OPT("imx-class")
+        p->i_imx_class = atoi(value);
 #endif /* HAVE_MPEG2 */
     OPT("bluray-compat")
         p->b_bluray_compat = atobool(value);

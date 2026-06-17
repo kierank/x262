@@ -350,6 +350,12 @@ struct x264_t
     /* MPEG-2: max MBs per slice, clamped to the row. 0 = one slice per row.
      * Derived from param.i_slice_max_mbs at encoder open. */
     int             i_mpeg2_slice_max_mbs;
+    int             i_mpeg2_cbg_bytes;
+
+    bs_t            reencode_bs_bak;
+    int             reencode_nal_bak;
+    int             reencode_nal_type;
+    int             reencode_global_qp;
 #endif
 
     x264_t          *thread[X264_THREAD_MAX+1];

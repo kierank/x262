@@ -61,6 +61,8 @@ void x264_thread_sync_ratecontrol( x264_t *cur, x264_t *prev, x264_t *next );
 void x264_ratecontrol_zone_init( x264_t * );
 #define x264_ratecontrol_start x264_template(ratecontrol_start)
 void x264_ratecontrol_start( x264_t *, int i_force_qp, int overhead );
+#define x264_ratecontrol_reencode_reset x264_template(ratecontrol_reencode_reset)
+void x264_ratecontrol_reencode_reset( x264_t *h, int active );
 #define x264_ratecontrol_slice_type x264_template(ratecontrol_slice_type)
 int  x264_ratecontrol_slice_type( x264_t *, int i_frame );
 #define x264_ratecontrol_set_weights x264_template(ratecontrol_set_weights)
@@ -71,6 +73,8 @@ int  x264_ratecontrol_mb( x264_t *, int bits );
 int  x264_ratecontrol_qp( x264_t * );
 #define x264_ratecontrol_mb_qp x264_template(ratecontrol_mb_qp)
 int  x264_ratecontrol_mb_qp( x264_t *h );
+#define x264_ratecontrol_check_reencode x264_template(ratecontrol_check_reencode)
+int  x264_ratecontrol_check_reencode( x264_t *h, int frame_bits );
 #define x264_ratecontrol_end x264_template(ratecontrol_end)
 int  x264_ratecontrol_end( x264_t *, int bits, int *filler );
 #define x264_ratecontrol_summary x264_template(ratecontrol_summary)

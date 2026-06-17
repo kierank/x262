@@ -192,6 +192,7 @@ static x264_frame_t *frame_new( x264_t *h, int b_fdec )
             frame->ref[1] = NULL;
         }
         PREALLOC( frame->i_row_bits, i_lines/16 * sizeof(int) );
+        PREALLOC( frame->i_mb_bits, i_mb_count * sizeof(int) );
         PREALLOC( frame->f_row_qp, i_lines/16 * sizeof(float) );
         PREALLOC( frame->f_row_qscale, i_lines/16 * sizeof(float) );
         if( h->param.analyse.i_me_method >= X264_ME_ESA )
@@ -317,6 +318,7 @@ void x264_frame_delete( x264_frame_t *frame )
     if( !frame->b_duplicate )
     {
         x264_free( frame->base );
+        x264_free( frame->f_reencode_qp_offset );
 
         if( frame->param && frame->param->param_free )
         {
