@@ -385,6 +385,7 @@ void x264_param_force_mpeg2( x264_param_t *param )
 static void x264_param_tune_mpeg2( x264_param_t *param )
 {
     param->pf_log = x264_log_mpeg2;
+    param->rc.f_qcompress = 0.45;
     param->i_intra_dc_precision = X264_INTRA_DC_8_BIT;
     param->b_nonlinear_quant = 1;
     param->b_alt_intra_vlc = 1;
