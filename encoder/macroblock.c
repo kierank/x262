@@ -721,11 +721,16 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
     if( h->mb.b_noise_reduction)
         h->quantf.denoise_dct( dct8x8, h->nr_residual_sum[chroma], h->nr_offset[chroma], 64 );
 
-    nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8IY+chroma422][i_qp],
-                              h->quant8_bias[CQM_8IY+chroma422][i_qp] );
+    if( h->mb.b_trellis )
+        nz = x264_quant_8x8_trellis_mpeg2( h, dct8x8, CQM_8IY+chroma422, i_qp, 1 );
+    else
+    {
+        nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8IY+chroma422][i_qp],
+                                  h->quant8_bias[CQM_8IY+chroma422][i_qp] );
 
-    if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 1, h->param.b_alternate_scan ) )
-        nz = !!dct8x8[0];
+        if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 1, h->param.b_alternate_scan ) )
+            nz = !!dct8x8[0];
+    }
 
     // DC prediction
     dc_diff = dct8x8[0] - cur_dc_predictor;
@@ -816,10 +821,16 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
     if( h->mb.b_noise_reduction)
         h->quantf.denoise_dct( dct8x8, h->nr_residual_sum[chroma], h->nr_offset[chroma], 64 );
 
-    int nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8PY+chroma422][i_qp],
+    int nz;
+    if( h->mb.b_trellis )
+        nz = x264_quant_8x8_trellis_mpeg2( h, dct8x8, CQM_8PY+chroma422, i_qp, 0 );
+    else
+    {
+        nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8PY+chroma422][i_qp],
                                           h->quant8_bias[CQM_8PY+chroma422][i_qp] );
-    if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 0, h->param.b_alternate_scan ) )
-        nz = 0;
+        if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 0, h->param.b_alternate_scan ) )
+            nz = 0;
+    }
     if( nz )
     {
         int fdec_stride = b_field_block ? FDEC_STRIDE<<1 : FDEC_STRIDE;

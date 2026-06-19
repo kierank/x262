@@ -32,6 +32,22 @@
 
 #define bs_write_vlc(s,v) bs_write( s, (v).i_size, (v).i_bits )
 
+/* Bit cost of coding one non-zero coefficient (run-level VLC + sign), matching
+ * x264_write_dct_vlc_mpeg2 exactly. b_first is true for the first coded
+ * coefficient in scan order (prev == -1), enabling the table B.14 special case
+ * for an inter DC of magnitude 1. */
+static ALWAYS_INLINE int mpeg2_coef_bits( int level, int run, int intra_tab, int inter, int b_first )
+{
+    int abs_level = abs( level );
+    if( abs_level <= 40 && run <= dct_vlc_largest_run[abs_level] )
+    {
+        if( b_first && run == 0 && abs_level == 1 && inter )
+            return 1 + 1; /* special case in table B.14 + sign */
+        return dct_vlcs[intra_tab][abs_level][run].i_size + 1; /* VLC + sign */
+    }
+    return 6 + 6 + 12; /* escape: prefix + run + level */
+}
+
 static void x264_write_dct_vlc_mpeg2( x264_t *h, dctcoef *l, int intra_tab )
 {
     bs_t *s = &h->out.bs;

@@ -762,6 +762,7 @@ struct x264_t
 
         /* lambda values */
         int     i_trellis_lambda2[2][2]; /* [luma,chroma][inter,intra] */
+        int     i_trellis_lambda2_mpeg2; /* single scalar; MPEG-2 uses one quantizer_scale per MB */
         int     i_psy_rd_lambda;
         int     i_chroma_lambda2_offset;
 

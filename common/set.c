@@ -309,6 +309,7 @@ int x264_cqm_init_mpeg2( x264_t *h )
     for( int i = 0; i < matrices; i++ )
     {
         CHECKED_MALLOC( h->quant8_bias[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(udctcoef) );
+        CHECKED_MALLOC( h->quant8_bias0[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(udctcoef) );
         CHECKED_MALLOC( h->  quant8_mf[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(udctcoef) );
         CHECKED_MALLOC( h->dequant8_mf[i], (QP_MAX_SPEC_MPEG2+1)*64*sizeof(int) );
     }
@@ -321,11 +322,13 @@ int x264_cqm_init_mpeg2( x264_t *h )
                 h->  quant8_mf[m][q][i] = j = ( 1 << 17 ) / ( qscale[q] * h->sps->scaling_list[m][i] );
                 h->dequant8_mf[m][q][i] = 2 * qscale[q] * h->sps->scaling_list[m][i];
                 h->quant8_bias[m][q][i] = X264_MIN( DIV(deadzone[m&1]<<10, j), (1<<15)/j );
+                h->quant8_bias0[m][q][i] = (1<<15)/j; // round-to-nearest bias for trellis
             }
             if( !( m & 1 ) ) // intra dc
             {
                 h->  quant8_mf[m][q][0] = intra_mf;
                 h->quant8_bias[m][q][0] = intra_bias;
+                h->quant8_bias0[m][q][0] = (1<<15)/intra_mf;
             }
         }
     }
