@@ -368,7 +368,7 @@ void x264_param_force_mpeg2( x264_param_t *param )
     param->analyse.b_weighted_bipred = 0;
     param->analyse.i_direct_mv_pred = X264_DIRECT_PRED_NONE;
     param->analyse.b_mixed_references = 0;
-    param->analyse.i_trellis = 0;
+    param->analyse.f_psy_trellis = 0;
     param->b_constrained_intra = 0;
     param->b_aud = 0;
     param->b_bluray_compat = 0;
@@ -391,6 +391,7 @@ static void x264_param_tune_mpeg2( x264_param_t *param )
     param->b_nonlinear_quant = 1;
     param->b_alt_intra_vlc = 1;
     param->b_alternate_scan = -1;
+    param->analyse.i_trellis = 1;
 }
 #endif /* HAVE_MPEG2 */
 
