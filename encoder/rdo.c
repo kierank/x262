@@ -1217,3 +1217,291 @@ int x264_quant_8x8_trellis( x264_t *h, dctcoef *dct, int i_quant_cat,
     STORE_8x8_NNZ( 0, idx, 0 );
     return nzaccum;
 }
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+#define DIST_SHIFT 8 // distortion scaled into the (bits*lambda)>>8 RD domain
+#define FDCT_SCALE 3 // sub8x8_dct_mpeg2 output is 2^3 larger than IDCT space
+#define TRELLIS_LAMBDA_MPEG2 128 // lambda2 multiplier, tuned by CQP XPSNR sweep
+/* Exact reconstruction of one quantized level for the MPEG-2 dequant, matching
+ * dequant_mpeg2_inter / dequant_mpeg2_intra in common/quant.c (without the
+ * block-wide mismatch-control XOR, which is independent of the trellis choice). */
+static ALWAYS_INLINE int mpeg2_dequant_one( int level, int dequant_mf, int intra )
+{
+    int sign, r;
+    if( !level )
+        return 0;
+    sign = level >> 15;
+    if( intra )
+        r = (level * dequant_mf + (sign & 31)) >> 5;
+    else
+        r = ((level * 2 + (sign|1)) * dequant_mf + (sign & 63)) >> 6;
+    return x264_clip3( r, -2048, 2047 );
+}
+
+/* MPEG-2 trellis quantization.
+ *
+ * Unlike H.264 (CABAC/CAVLC adaptive state makes the exact problem intractable),
+ * MPEG-2's run-level VLC has no inter-coefficient state and its dequant is
+ * per-coefficient independent. So an exact dynamic program over the rate model
+ * finds the optimal kept-level set. The DP state is the last kept (non-zero)
+ * scan position; processing forward, the run to the previous kept coefficient
+ * (hence its VLC rate) and the per-coefficient distortion are all that couple
+ * the choices.
+ *
+ * Candidates per coefficient are {0, n-1, n} where n is the round-to-nearest
+ * quantized magnitude (quant8_bias0). Round-to-nearest excludes n+1 by
+ * domination (monotone dequant + non-decreasing VLC rate); adding n+1 moved
+ * BD-rate by 0.01% in testing, so {0,n-1,n} is the standard set.
+ *
+ * Distortion is transform-domain (the MPEG-2 8x8 DCT is orthonormal, so DCT-domain
+ * SSD equals pixel SSD up to a uniform scale folded into lambda). See the score-
+ * domain comment below for the exact scaling. */
+int x264_quant_8x8_trellis_mpeg2( x264_t *h, dctcoef *dct, int i_quant_cat, int i_qp, int b_intra )
+{
+    udctcoef *quant_mf = h->quant8_mf[i_quant_cat][i_qp];
+    udctcoef *quant_bias0 = h->quant8_bias0[i_quant_cat][i_qp];
+    int *dequant_mf = h->dequant8_mf[i_quant_cat][i_qp];
+    const int inter = !b_intra;
+    const int intra_tab = b_intra ? h->param.b_alt_intra_vlc : 0;
+    /* Score domain: distortion is (c - r<<FDCT_SCALE)^2 << DIST_SHIFT, where the
+     * <<FDCT_SCALE lifts the dequantized reconstruction into the forward-DCT
+     * scale of c (the MPEG-2 forward DCT outputs 2^FDCT_SCALE larger than IDCT
+     * space). Rate is bits*lambda. The trellis lambda is the MPEG-2 mode-decision
+     * lambda2 times a tuned multiplier chosen by CQP XPSNR sweep (optimum ~128:
+     * 64x for the 2*FDCT_SCALE distortion inflation plus ~2x the trellis
+     * preference; BD-rate -2.6% vs deadzone on foreman, larger on HD/4:2:2). */
+    int64_t lambda = (int64_t)h->mb.i_trellis_lambda2_mpeg2 * TRELLIS_LAMBDA_MPEG2;
+    /* At the minimum quantiser_scale, drop the rate term so the trellis keeps every
+     * coefficient: a request for the lowest quant means near-lossless, not bit-saving. */
+    if( i_qp == 1 )
+        lambda = 0;
+    const uint8_t *scan = h->param.b_alternate_scan ? x264_zigzag_field_mpeg2_to_flat
+                                                    : x264_zigzag_frame_to_flat;
+    const int first = inter ? 0 : 1; // intra DC (scan pos 0) is coded separately
+
+    /* Intra DC is not run-level coded (it is a DC-size + differential): quantize
+     * it exactly as quant_8x8 would (deadzone bias) and leave it out of the DP.
+     * dct[0] is the DC for both frame and field scans (scan[0]==0). */
+    if( b_intra )
+    {
+        udctcoef *quant_bias = h->quant8_bias[i_quant_cat][i_qp];
+        int c = dct[0];
+        if( c > 0 )
+            dct[0] = ((uint32_t)quant_bias[0] + (uint32_t)c) * quant_mf[0] >> 16;
+        else
+            dct[0] = -(int32_t)(((uint32_t)quant_bias[0] + (uint32_t)(-c)) * quant_mf[0] >> 16);
+    }
+
+    /* Round-to-nearest quantize each coefficient and precompute the per-position
+     * candidate distortions (independent of the DP path). n[] is the candidate
+     * centre magnitude, sgn[] the sign, orig[] the forward-DCT coefficient.
+     *
+     * Distortion is scaled by 2^DIST_SHIFT to match the MPEG-2 mode-decision RD
+     * domain, where rate enters as (bits*lambda2)>>8 (rdo.c rd_cost_mb); scaling
+     * distortion up rather than rate down keeps the integer comparison exact. The
+     * MPEG-2 forward DCT outputs 2^FDCT_SCALE larger than dequant/IDCT space, so
+     * the reconstruction r is lifted by FDCT_SCALE before differencing against c. */
+    int n[64], sgn[64];
+    int64_t dist_zero[64], dist_n[64], dist_nm1[64];
+    int any = 0;
+    for( int s = first; s < 64; s++ )
+    {
+        int f = scan[s];
+        int c = dct[f];
+        int abs_c = abs(c);
+        int q = ( quant_bias0[f] + (uint32_t)abs_c ) * quant_mf[f] >> 16;
+        n[s] = q;
+        sgn[s] = c < 0 ? -1 : 1;
+        any |= q;
+
+        dist_zero[s] = ((int64_t)abs_c * abs_c) << DIST_SHIFT;
+        int rn = mpeg2_dequant_one( q, dequant_mf[f], b_intra ) << FDCT_SCALE;
+        dist_n[s] = ((int64_t)(abs_c - rn) * (abs_c - rn)) << DIST_SHIFT;
+        if( q >= 2 )
+        {
+            int rm = mpeg2_dequant_one( q-1, dequant_mf[f], b_intra ) << FDCT_SCALE;
+            dist_nm1[s] = ((int64_t)(abs_c - rm) * (abs_c - rm)) << DIST_SHIFT;
+        }
+        else
+            dist_nm1[s] = dist_zero[s]; // n-1 == 0 collapses to the drop candidate
+    }
+    if( !any )
+    {
+        for( int s = first; s < 64; s++ )
+            dct[scan[s]] = 0;
+        return b_intra && dct[0]; // intra: DC may still be non-zero
+    }
+
+    /* DP. State = scan position of the last kept (non-zero) coefficient.
+     *
+     * Every position contributes a distortion regardless of keep/drop, so the
+     * total drop distortion of a block is a constant minus the per-kept savings.
+     * Minimizing total RD cost is therefore equivalent to minimizing, over the
+     * kept set, the sum of each kept coefficient's "gain":
+     *     gain = (dist_chosen - dist_zero) + rate*lambda      (dist_chosen <= dist_zero)
+     * plus EOB. Folding dist_zero into the gain makes drop distortion cancel
+     * entirely, so the DP needs no per-step running-constant pass over states.
+     * cost[p] holds the minimum gain-sum of a path whose last kept coef is at p.
+     *
+     * The predecessor scan is bounded by the VLC run cap (MAX_VLC_RUN=31): for a
+     * run longer than the cap the (run,level) is escape-coded at a constant 24
+     * bits, so all far predecessors share the same rate and the best is simply the
+     * minimum cost[p] in that region — tracked as a running minimum rather than
+     * rescanned. Only the near window (run <= cap) is scanned explicitly, making
+     * the DP O(positions * cap). */
+    const int NONE = first - 1;
+    const int MAX_VLC_RUN = 31;
+    const int64_t INF = (int64_t)1 << 62;
+    int64_t cost[64];
+    int back[64]; // for state p, the previous kept scan pos
+    int lev[64];  // for state p, the chosen level magnitude at p
+    for( int p = first; p < 64; p++ )
+        cost[p] = INF;
+    int64_t min_far = INF;   // min cost[p] over far predecessors (run > cap)
+    int min_far_p = NONE;    // position owning min_far (for back-pointer recovery)
+    int far_idx = first;     // next position to roll into the far region
+
+    /* Per-block run-rate table in lambda units: rate_lam[L][run] =
+     * mpeg2_coef_bits(L, run)*lambda for the non-escape range (L in 1..40,
+     * run in 0..cap). Out-of-range (L>40 or run>largest_run[L]) is escape, a
+     * constant. Building it once moves the VLC lookup and the *lambda multiply
+     * out of the inner DP loops, which then index a flat array. The b_first
+     * inter-DC-1 special case (run 0, L 1) is handled at the NONE edge only. */
+    const int64_t esc_lam = (int64_t)(6+6+12) * lambda;
+    int64_t rate_lam_buf[41][MAX_VLC_RUN+1];
+    int64_t (*rate_lam)[MAX_VLC_RUN+1] = rate_lam_buf;
+    int max_lev = 0;
+    uint8_t present[41] = {0};
+    for( int s = first; s < 64; s++ )
+    {
+        int L = n[s]; // candidates are L and L-1
+        if( L > max_lev ) max_lev = L;
+        if( L <= 40 ) present[L] = 1;
+        if( L >= 2 && L-1 <= 40 ) present[L-1] = 1;
+    }
+    if( max_lev > 40 ) max_lev = 40;
+    /* build only the rows for levels that actually occur as candidates */
+    for( int L = 1; L <= max_lev; L++ )
+    {
+        if( !present[L] )
+            continue;
+        int lr = dct_vlc_largest_run[L];
+        const vlc_large_t *vrow = dct_vlcs[intra_tab][L];
+        int64_t *rrow = rate_lam[L];
+        for( int run = 0; run <= lr; run++ )
+            rrow[run] = (int64_t)(vrow[run].i_size + 1) * lambda;
+        for( int run = lr+1; run <= MAX_VLC_RUN; run++ )
+            rrow[run] = esc_lam;
+    }
+
+    for( int s = first; s < 64; s++ )
+    {
+        /* roll predecessors that have crossed the run cap into the far set:
+         * position p is far from s when s-p-1 > cap, i.e. p < s-1-cap. */
+        for( ; far_idx < s - 1 - MAX_VLC_RUN; far_idx++ )
+            if( cost[far_idx] < min_far ) { min_far = cost[far_idx]; min_far_p = far_idx; }
+
+        /* a coefficient that quantizes to 0 (both candidates < 1) can never be a
+         * kept state; skip it. Common for high-frequency positions. */
+        if( !n[s] )
+        {
+            cost[s] = INF;
+            back[s] = NONE;
+            lev[s] = 0;
+            continue;
+        }
+
+        int64_t best_keep = INF;
+        int best_prev = NONE, best_cand = 0;
+        int p_lo = X264_MAX( first, s - 1 - MAX_VLC_RUN );
+        for( int cand = 0; cand < 2; cand++ )
+        {
+            int L = cand == 0 ? n[s] : n[s]-1;
+            if( L < 1 )
+                continue;
+            int64_t gain = (cand == 0 ? dist_n[s] : dist_nm1[s]) - dist_zero[s];
+            const int64_t *rl = L <= max_lev ? rate_lam[L] : NULL; // NULL => all escape
+            /* from NONE (run = zeros since block start) */
+            {
+                int bits = mpeg2_coef_bits( L, s - first, intra_tab, inter, 1 );
+                int64_t sc = gain + bits * lambda;
+                int better = sc < best_keep;
+                best_keep = better ? sc : best_keep;
+                best_prev = better ? NONE : best_prev;
+                best_cand = better ? cand : best_cand;
+            }
+            /* near predecessors: sc[p] = cost[p] + gain + rate(s-p-1). rate is a
+             * flat table load (rate_lam, lambda already folded in); no VLC lookup
+             * or multiply in the hot loop, and the min/argmin is branchless (cmov)
+             * since the running-min update mispredicts badly on real coefficients. */
+            int64_t g = gain;
+            if( rl )
+                for( int p = p_lo; p < s; p++ )
+                {
+                    int64_t sc = cost[p] + g + rl[s-p-1];
+                    int better = sc < best_keep;
+                    best_keep = better ? sc : best_keep;
+                    best_prev = better ? p : best_prev;
+                    best_cand = better ? cand : best_cand;
+                }
+            else
+                for( int p = p_lo; p < s; p++ )
+                {
+                    int64_t sc = cost[p] + g + esc_lam;
+                    int better = sc < best_keep;
+                    best_keep = better ? sc : best_keep;
+                    best_prev = better ? p : best_prev;
+                    best_cand = better ? cand : best_cand;
+                }
+            /* far predecessors: run > cap, escape-coded at constant bits */
+            if( min_far < INF )
+            {
+                int64_t sc = min_far + gain + esc_lam;
+                int better = sc < best_keep;
+                best_keep = better ? sc : best_keep;
+                best_prev = better ? min_far_p : best_prev;
+                best_cand = better ? cand : best_cand;
+            }
+        }
+
+        cost[s] = best_keep;
+        back[s] = best_prev;
+        lev[s] = best_cand == 0 ? n[s] : n[s]-1;
+    }
+
+    /* terminal: choose the surviving path. cost[] is the gain-sum (drop
+     * distortion folded out), so the all-drop path has gain 0. EOB is paid only
+     * when >=1 coef is kept (inter); for intra the block is always coded (DC),
+     * so EOB is a constant and omitted. */
+    int64_t best = 0; // all coefficients dropped (gain 0)
+    int best_last = NONE;
+    for( int p = first; p < 64; p++ )
+    {
+        if( cost[p] >= INF )
+            continue;
+        int64_t sc = cost[p] + (inter ? 2 * lambda : 0); // EOB = 2 bits
+        if( sc < best )
+        {
+            best = sc;
+            best_last = p;
+        }
+    }
+
+    /* write the chosen levels back into dct in raster order */
+    for( int s = first; s < 64; s++ )
+        dct[scan[s]] = 0;
+    int p = best_last;
+    int nz = 0;
+    while( p != NONE )
+    {
+        dct[scan[p]] = sgn[p] * lev[p];
+        nz = 1;
+        p = back[p];
+    }
+    /* match quant_8x8's contract: nz reflects any non-zero coef, DC included */
+    return nz || (b_intra && dct[0]);
+}
+#undef DIST_SHIFT
+#undef FDCT_SCALE
+#undef TRELLIS_LAMBDA_MPEG2
+#endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */

@@ -350,10 +350,20 @@ static void mb_analyse_init_qp( x264_t *h, x264_mb_analysis_t *a, int qp )
     h->mb.b_trellis = h->param.analyse.i_trellis > 1 && a->i_mbrd;
     if( h->param.analyse.i_trellis )
     {
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        /* MPEG-2 uses one quantizer_scale per MB (no chroma QP offset), so a
+         * single scalar suffices. The constant trellis scale factor is applied
+         * in x264_quant_8x8_trellis_mpeg2 (TRELLIS_LAMBDA_MPEG2). */
+        if( MPEG2 )
+            h->mb.i_trellis_lambda2_mpeg2 = a->i_lambda2;
+        else
+#endif
+        {
         h->mb.i_trellis_lambda2[0][0] = x264_trellis_lambda2_tab[0][qp];
         h->mb.i_trellis_lambda2[0][1] = x264_trellis_lambda2_tab[1][qp];
         h->mb.i_trellis_lambda2[1][0] = x264_trellis_lambda2_tab[0][effective_chroma_qp];
         h->mb.i_trellis_lambda2[1][1] = x264_trellis_lambda2_tab[1][effective_chroma_qp];
+        }
     }
     h->mb.i_psy_rd_lambda = a->i_lambda;
     /* Adjusting chroma lambda based on QP offset hurts PSNR but improves visual quality. */

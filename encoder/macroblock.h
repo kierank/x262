@@ -97,6 +97,10 @@ int x264_quant_4x4_trellis( x264_t *h, dctcoef *dct, int i_quant_cat,
 #define x264_quant_8x8_trellis x264_template(quant_8x8_trellis)
 int x264_quant_8x8_trellis( x264_t *h, dctcoef *dct, int i_quant_cat,
                              int i_qp, int ctx_block_cat, int b_intra, int b_chroma, int idx );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+#define x264_quant_8x8_trellis_mpeg2 x264_template(quant_8x8_trellis_mpeg2)
+int x264_quant_8x8_trellis_mpeg2( x264_t *h, dctcoef *dct, int i_quant_cat, int i_qp, int b_intra );
+#endif
 
 #define x264_noise_reduction_update x264_template(noise_reduction_update)
 void x264_noise_reduction_update( x264_t *h );
