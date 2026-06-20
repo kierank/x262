@@ -2788,6 +2788,312 @@ static int check_quant_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
     return ret;
 }
 
+static int check_trellis_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
+{
+    x264_quant_function_t qf_c, qf_ref, qf_a;
+    int ret = 0, ok = 1, used_asm = 0;
+    x264_t h_buf;
+    x264_t *h = &h_buf;
+    memset( h, 0, sizeof(*h) );
+    h->sps->i_chroma_format_idc = 1;
+    h->param.b_mpeg2 = 1;
+    x264_param_default( &h->param );
+    x264_param_apply_profile( &h->param, "high" );
+
+    x264_quant_init( h, 0, &qf_c );
+    x264_quant_init( h, cpu_ref, &qf_ref );
+    x264_quant_init( h, cpu_new, &qf_a );
+
+
+    if( qf_a.trellis_rate_build_mpeg2 != qf_ref.trellis_rate_build_mpeg2 )
+    {
+        ALIGNED_ARRAY_64( int64_t, dst1,[32] );
+        ALIGNED_ARRAY_64( int64_t, dst2,[32] );
+        uint16_t bits[32];
+        set_func_name( "trellis_rate_build_mpeg2" );
+        used_asm = 1;
+        ok = 1;
+        for( int t = 0; t < 200 && ok; t++ )
+        {
+            for( int i = 0; i < 32; i++ )
+                bits[i] = rand() & 0x3f;           // VLC sizes are small (<= ~24)
+            int64_t lambda = (rand30() & 0x3ffff) + 1;
+            call_c1( qf_c.trellis_rate_build_mpeg2, dst1, bits, lambda );
+            call_a1( qf_a.trellis_rate_build_mpeg2, dst2, bits, lambda );
+            if( memcmp( dst1, dst2, 32*sizeof(int64_t) ) )
+            {
+                ok = 0;
+                fprintf( stderr, "trellis_rate_build_mpeg2 [FAILED]\n" );
+                break;
+            }
+            call_c2( qf_c.trellis_rate_build_mpeg2, dst1, bits, lambda );
+            call_a2( qf_a.trellis_rate_build_mpeg2, dst2, bits, lambda );
+        }
+    }
+    report( "trellis rate mpeg2 :" );
+
+    if( qf_a.trellis_setup_mpeg2 != qf_ref.trellis_setup_mpeg2 )
+    {
+        ALIGNED_ARRAY_64( int, n1,[64] );      ALIGNED_ARRAY_64( int, n2,[64] );
+        ALIGNED_ARRAY_64( int, sg1,[64] );     ALIGNED_ARRAY_64( int, sg2,[64] );
+        ALIGNED_ARRAY_64( int64_t, dz1,[64] ); ALIGNED_ARRAY_64( int64_t, dz2,[64] );
+        ALIGNED_ARRAY_64( int64_t, dn1,[64] ); ALIGNED_ARRAY_64( int64_t, dn2,[64] );
+        ALIGNED_ARRAY_64( int64_t, dm1,[64] ); ALIGNED_ARRAY_64( int64_t, dm2,[64] );
+        ALIGNED_ARRAY_64( dctcoef, dct,[64] );
+        ALIGNED_ARRAY_64( udctcoef, mf,[64] );
+        ALIGNED_ARRAY_64( udctcoef, bias0,[64] );
+        ALIGNED_ARRAY_64( int, dqmf,[64] );
+        set_func_name( "trellis_setup_mpeg2" );
+        used_asm = 1;
+        ok = 1;
+        for( int t = 0; t < 300 && ok; t++ )
+        {
+            int intra = t & 1;
+            for( int i = 0; i < 64; i++ )
+            {
+                /* full forward-DCT coefficient range; mf/bias0/dequant_mf in the
+                 * ranges the MPEG-2 cqm produces. Every 4th iteration draws
+                 * coefficients from {-1,0,1}, which quantize to 0 for any mf in
+                 * [1,0x4000] ((bias0+1)*mf <= 32768+mf < 65536), exercising the
+                 * all-zero early-out (return 0, dist arrays untouched). */
+                dct[i] = (t & 3) == 3 ? rand() % 3 - 1 : (rand30() % 32767) - 16383;
+                mf[i] = 1 + rand() % 0x4000;
+                bias0[i] = (1<<15) / mf[i];
+                dqmf[i] = 2 + rand() % 0xfffe;
+            }
+            /* identical sentinel in both dist buffer sets: the memcmp below then
+             * also verifies the arrays stay untouched when the return is 0. */
+            memset( dz1, 0xCD, sizeof(int64_t)*64 ); memset( dz2, 0xCD, sizeof(int64_t)*64 );
+            memset( dn1, 0xCD, sizeof(int64_t)*64 ); memset( dn2, 0xCD, sizeof(int64_t)*64 );
+            memset( dm1, 0xCD, sizeof(int64_t)*64 ); memset( dm2, 0xCD, sizeof(int64_t)*64 );
+            int any_c = call_c1( qf_c.trellis_setup_mpeg2, n1, sg1, dz1, dn1, dm1, dct, mf, bias0, dqmf, intra );
+            int any_a = call_a1( qf_a.trellis_setup_mpeg2, n2, sg2, dz2, dn2, dm2, dct, mf, bias0, dqmf, intra );
+            if( any_c != any_a ||
+                memcmp(n1,n2,sizeof(n1)) || memcmp(sg1,sg2,sizeof(sg1)) ||
+                memcmp(dz1,dz2,sizeof(dz1)) || memcmp(dn1,dn2,sizeof(dn1)) ||
+                memcmp(dm1,dm2,sizeof(dm1)) )
+            {
+                ok = 0;
+                fprintf( stderr, "trellis_setup_mpeg2(intra=%d) [FAILED]\n", intra );
+                if( any_c != any_a )
+                    fprintf( stderr, "  return c=%d a=%d\n", any_c, any_a );
+                for( int i=0;i<64;i++ ) if(n1[i]!=n2[i]) { fprintf(stderr,"  n[%d] c=%d a=%d (dct=%d mf=%d b0=%d dq=%d)\n",i,n1[i],n2[i],dct[i],mf[i],bias0[i],dqmf[i]); break; }
+                for( int i=0;i<64;i++ ) if(sg1[i]!=sg2[i]) { fprintf(stderr,"  sgn[%d] c=%d a=%d\n",i,sg1[i],sg2[i]); break; }
+                for( int i=0;i<64;i++ ) if(dz1[i]!=dz2[i]) { fprintf(stderr,"  dz[%d] c=%lld a=%lld\n",i,(long long)dz1[i],(long long)dz2[i]); break; }
+                for( int i=0;i<64;i++ ) if(dn1[i]!=dn2[i]) { fprintf(stderr,"  dn[%d] c=%lld a=%lld (dct=%d dq=%d)\n",i,(long long)dn1[i],(long long)dn2[i],dct[i],dqmf[i]); break; }
+                for( int i=0;i<64;i++ ) if(dm1[i]!=dm2[i]) { fprintf(stderr,"  dm[%d] c=%lld a=%lld\n",i,(long long)dm1[i],(long long)dm2[i]); break; }
+                break;
+            }
+            call_c2( qf_c.trellis_setup_mpeg2, n1, sg1, dz1, dn1, dm1, dct, mf, bias0, dqmf, intra );
+            call_a2( qf_a.trellis_setup_mpeg2, n2, sg2, dz2, dn2, dm2, dct, mf, bias0, dqmf, intra );
+        }
+    }
+    report( "trellis setup mpeg2 :" );
+
+    if( qf_a.trellis_dp_mpeg2 != qf_ref.trellis_dp_mpeg2 )
+    {
+        ALIGNED_ARRAY_64( int, n,[64] );
+        ALIGNED_ARRAY_64( int64_t, dz,[64] );
+        ALIGNED_ARRAY_64( int64_t, dn,[64] );
+        ALIGNED_ARRAY_64( int64_t, dm,[64] );
+        ALIGNED_ARRAY_64( int64_t, rate,[41],[32] );
+        int64_t esc_row[32];
+        uint8_t scan[64], list[64];
+        int back1[64], back2[64], lev1[64], lev2[64];
+        set_func_name( "trellis_dp_mpeg2" );
+        used_asm = 1;
+        ok = 1;
+        for( int t = 0; t < 500 && ok; t++ )
+        {
+            int intra = t & 1;
+            /* random scan permutation: the DP is agnostic to the actual zigzag */
+            for( int i = 0; i < 64; i++ )
+                scan[i] = i;
+            for( int i = 63; i > 0; i-- )
+            {
+                int j = rand() % (i+1);
+                uint8_t tmp = scan[i]; scan[i] = scan[j]; scan[j] = tmp;
+            }
+            /* candidate levels: variable density; occasionally > 40 (escape row) */
+            int density = 1 + t % 40;
+            for( int f = 0; f < 64; f++ )
+                n[f] = rand() % 64 < density ? 1 + rand() % ((t & 4) ? 60 : 8) : 0;
+            /* force the inter first-coefficient magnitude-1 special case sometimes */
+            if( !(t & 7) )
+                n[scan[intra]] = 1 + rand() % 2;
+            int cnt = 0;
+            for( int s = intra; s < 64; s++ )
+                if( n[scan[s]] )
+                    list[cnt++] = s;
+            if( cnt < 2 )
+                continue; /* caller contract: cnt <= 1 never reaches the DP */
+            int max_lev = 0;
+            for( int i = 0; i < cnt; i++ )
+                max_lev = X264_MAX( max_lev, n[scan[list[i]]] );
+            max_lev = X264_MIN( max_lev, 40 );
+            int64_t lambda = 1 + rand() % (1<<20);
+            int64_t esc_lam = 24 * lambda;
+            for( int L = 1; L <= max_lev; L++ )
+                for( int run = 0; run < 32; run++ )
+                    rate[L][run] = ((int64_t)rand() << 10 ^ rand()) & ((1ULL<<40)-1);
+            for( int run = 0; run < 32; run++ )
+                esc_row[run] = esc_lam;
+            for( int f = 0; f < 64; f++ )
+            {
+                dz[f] = ((int64_t)rand() << 10 ^ rand()) & ((1ULL<<40)-1);
+                dn[f] = ((int64_t)rand() << 10 ^ rand()) & ((1ULL<<40)-1);
+                dm[f] = ((int64_t)rand() << 10 ^ rand()) & ((1ULL<<40)-1);
+            }
+            memset( back1, 0xCD, sizeof(back1) ); memset( back2, 0xCD, sizeof(back2) );
+            memset( lev1, 0xCD, sizeof(lev1) );   memset( lev2, 0xCD, sizeof(lev2) );
+            x264_trellis_dp_ctx_t ctx;
+            ctx.n = n;
+            ctx.dist_zero = dz;
+            ctx.dist_n = dn;
+            ctx.dist_nm1 = dm;
+            ctx.scan = scan;
+            ctx.list = list;
+            ctx.cnt = cnt;
+            ctx.first = intra;
+            ctx.inter = !intra;
+            ctx.lambda = lambda;
+            ctx.esc_lam = esc_lam;
+            ctx.rate_lam = (const int64_t (*)[32])rate;
+            ctx.max_lev = max_lev;
+            ctx.esc_row = esc_row;
+            ctx.back = back1;
+            ctx.lev = lev1;
+            int last_c = call_c1( qf_c.trellis_dp_mpeg2, &ctx );
+            ctx.back = back2;
+            ctx.lev = lev2;
+            int last_a = call_a1( qf_a.trellis_dp_mpeg2, &ctx );
+            if( last_c != last_a || memcmp( back1, back2, sizeof(back1) ) ||
+                memcmp( lev1, lev2, sizeof(lev1) ) )
+            {
+                ok = 0;
+                fprintf( stderr, "trellis_dp_mpeg2(intra=%d cnt=%d) [FAILED]\n", intra, cnt );
+                if( last_c != last_a )
+                    fprintf( stderr, "  best_last c=%d a=%d\n", last_c, last_a );
+                for( int i=0;i<64;i++ ) if(back1[i]!=back2[i]) { fprintf(stderr,"  back[%d] c=%d a=%d\n",i,back1[i],back2[i]); break; }
+                for( int i=0;i<64;i++ ) if(lev1[i]!=lev2[i]) { fprintf(stderr,"  lev[%d] c=%d a=%d\n",i,lev1[i],lev2[i]); break; }
+                break;
+            }
+            ctx.back = back1;
+            ctx.lev = lev1;
+            call_c2( qf_c.trellis_dp_mpeg2, &ctx );
+            ctx.back = back2;
+            ctx.lev = lev2;
+            call_a2( qf_a.trellis_dp_mpeg2, &ctx );
+        }
+    }
+    report( "trellis dp mpeg2 :" );
+
+    if( qf_a.trellis_list_mpeg2 != qf_ref.trellis_list_mpeg2 )
+    {
+        ALIGNED_ARRAY_64( int, n,[64] );
+        uint8_t scan[64];
+        uint8_t list1[64], list2[64];
+        set_func_name( "trellis_list_mpeg2" );
+        used_asm = 1;
+        ok = 1;
+        for( int t = 0; t < 500 && ok; t++ )
+        {
+            for( int i = 0; i < 64; i++ )
+                scan[i] = i;
+            for( int i = 63; i > 0; i-- )
+            {
+                int j = rand() % (i+1);
+                uint8_t tmp = scan[i]; scan[i] = scan[j]; scan[j] = tmp;
+            }
+            int density = t % 65; /* 0 (all-zero) .. 64 (all nonzero) */
+            for( int f = 0; f < 64; f++ )
+                n[f] = rand() % 64 < density ? 1 + rand() % 2047 : 0;
+            memset( list1, 0xCD, sizeof(list1) );
+            memset( list2, 0xCD, sizeof(list2) );
+            int c1 = call_c1( qf_c.trellis_list_mpeg2, list1, n, scan );
+            int c2 = call_a1( qf_a.trellis_list_mpeg2, list2, n, scan );
+            /* entries past the count are undefined; compare only the count */
+            if( c1 != c2 || memcmp( list1, list2, c1 ) )
+            {
+                ok = 0;
+                fprintf( stderr, "trellis_list_mpeg2(density=%d): cnt c=%d a=%d [FAILED]\n",
+                         density, c1, c2 );
+                break;
+            }
+            call_c2( qf_c.trellis_list_mpeg2, list1, n, scan );
+            call_a2( qf_a.trellis_list_mpeg2, list2, n, scan );
+        }
+    }
+    report( "trellis list mpeg2 :" );
+
+    if( qf_a.trellis_setup_mpeg2 != qf_ref.trellis_setup_mpeg2 ||
+        qf_a.trellis_dp_mpeg2 != qf_ref.trellis_dp_mpeg2 ||
+        qf_a.trellis_list_mpeg2 != qf_ref.trellis_list_mpeg2 ||
+        qf_a.trellis_rate_build_mpeg2 != qf_ref.trellis_rate_build_mpeg2 )
+    {
+        /* Whole-pipeline cross-check: run the actual encoder-side trellis
+         * (x264_quant_8x8_trellis_mpeg2) with the C function table vs the asm
+         * table installed in h->quantf, over real quant tables. Catches
+         * kernel-contract or integration mismatches the per-kernel tests'
+         * synthetic inputs can miss. */
+        ALIGNED_ARRAY_64( dctcoef, dct1,[64] );
+        ALIGNED_ARRAY_64( dctcoef, dct2,[64] );
+        static const int lam2s[4] = { 1, 32, 700, 9000 };
+        set_func_name( "quant_8x8_trellis_mpeg2" );
+        used_asm = 1;
+        ok = 1;
+        h->param.b_nonlinear_quant = 1;
+        for( int i = 0; i < 8; i++ )
+            h->sps->scaling_list[i] = x264_cqm_flat16;
+        h->sps->scaling_list[CQM_8IY] = x264_cqm_intra_mpeg2;
+        h->sps->scaling_list[CQM_8IC] = x264_cqm_intra_mpeg2;
+        h->param.i_cqm_preset = h->sps->i_cqm_preset = X264_CQM_FLAT;
+        x264_cqm_init_mpeg2( h );
+        for( int t = 0; t < 2000 && ok; t++ )
+        {
+            int intra = t & 1;
+            int qp = 1 + t % 31;
+            h->param.b_alternate_scan = (t >> 1) & 1;
+            h->mb.i_trellis_lambda2_mpeg2 = lam2s[(t >> 2) & 3];
+            int mode = (t >> 4) & 3;
+            for( int i = 0; i < 64; i++ )
+            {
+                if( mode == 0 )      /* sparse */
+                    dct1[i] = (rand() & 15) ? 0 : (rand() & 0x7ff) - 0x400;
+                else if( mode == 1 ) /* dense small (tie-rich near the deadzone) */
+                    dct1[i] = (rand() & 0xff) - 0x80;
+                else if( mode == 2 ) /* dense full range (escape levels) */
+                    dct1[i] = (rand() & 0x7fff) - 0x4000;
+                else                 /* clustered low-frequency */
+                    dct1[i] = i < 16 ? (rand() & 0xfff) - 0x800
+                                     : (rand() & 7) ? 0 : (rand() & 0x3f) - 0x20;
+            }
+            if( intra )
+                dct1[0] = rand() & 0x7ff; /* intra DC is nonnegative pre-quant */
+            memcpy( dct2, dct1, sizeof(dctcoef)*64 );
+            int cat = intra ? CQM_8IY : CQM_8PY;
+            h->quantf = qf_c;
+            int nz_c = x264_quant_8x8_trellis_mpeg2( h, dct1, cat, qp, intra );
+            h->quantf = qf_a;
+            int nz_a = x264_quant_8x8_trellis_mpeg2( h, dct2, cat, qp, intra );
+            if( nz_c != nz_a || memcmp( dct1, dct2, sizeof(dctcoef)*64 ) )
+            {
+                ok = 0;
+                fprintf( stderr, "quant_8x8_trellis_mpeg2(intra=%d qp=%d alt=%d lam2=%d mode=%d): nz c=%d a=%d [FAILED]\n",
+                         intra, qp, h->param.b_alternate_scan, h->mb.i_trellis_lambda2_mpeg2, mode, nz_c, nz_a );
+                for( int i = 0; i < 64; i++ )
+                    if( dct1[i] != dct2[i] )
+                        fprintf( stderr, "  dct[%d]: c=%d a=%d\n", i, dct1[i], dct2[i] );
+                break;
+            }
+        }
+        x264_cqm_delete( h );
+    }
+    report( "trellis quant mpeg2 :" );
+
+    return ret;
+}
+
 static int check_mc_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
 {
     x264_mc_functions_t mc_c;
@@ -3271,6 +3577,7 @@ static int check_all_funcs( uint32_t cpu_ref, uint32_t cpu_new )
          + check_quant( cpu_ref, cpu_new )
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
          + check_quant_mpeg2( cpu_ref, cpu_new )
+         + check_trellis_mpeg2( cpu_ref, cpu_new )
          + check_mc_mpeg2( cpu_ref, cpu_new )
 #endif
          + check_cabac( cpu_ref, cpu_new )

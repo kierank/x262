@@ -43,6 +43,16 @@ mpeg2_clip_max: times 32 dw 2047
 mpeg2_clip_min: times 32 dw -2048
 mpeg2_dc_summask: dw 0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
 ALIGN 64
+; reverse 8 qwords (for aligning the backward-indexed rl window with forward p)
+trellis_rev8_q: dq 7, 6, 5, 4, 3, 2, 1, 0
+; per-lane index ramp 0..7 (added into the packed key's low bits)
+trellis_idx8_q: dq 0, 1, 2, 3, 4, 5, 6, 7
+; byte iota 0..63 (compressed by the scan-order nonzero mask into the trellis
+; candidate list)
+trellis_iota_b: db  0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15
+                db 16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
+                db 32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47
+                db 48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63
 %endif
 
 %macro DQM4 3
@@ -1111,6 +1121,867 @@ INIT_XMM avx
 DEQUANT_MPEG2_INTRA
 INIT_YMM avx2
 DEQUANT_MPEG2_INTRA
+
+; Signed int64 min helpers for the trellis DP's packed-key argmin on ISAs
+; without native vpminsq. Legacy (non-VEX) pblendvb's blend mask is implicitly
+; xmm0, so the SSE4.2 variant reserves xm0 as mask scratch.
+%macro A2_MINQ 3 ; %1=acc %2=other %3=scratch (ymm idx): %1 = min(%1,%2) signed qword
+    vpcmpgtq     ym%3, ym%1, ym%2     ; %1 > %2
+    vpblendvb    ym%1, ym%1, ym%2, ym%3
+%endmacro
+%macro S4_MINQ 2 ; %1=acc %2=other(preserved): %1 = min(%1,%2) signed qword. clobbers xmm0
+    movdqa       m0, m%1
+    pcmpgtq      m0, m%2           ; xmm0 = (%1 > %2) qword mask
+    pblendvb     m%1, m%2          ; %1 = %2 where %1>%2 (implicit xmm0 mask) -> min
+%endmacro
+
+
+;-----------------------------------------------------------------------------
+; void trellis_rate_build_mpeg2( int64_t *dst, const uint16_t *bits, int64_t lambda )
+; dst[run] = bits[run] * lambda for run 0..31 (4 groups of 8 qwords).
+;-----------------------------------------------------------------------------
+INIT_ZMM avx512
+cglobal trellis_rate_build_mpeg2, 3,3,3
+    vpbroadcastq m2, r2
+    vpmovzxwq    m0, [r1+0]         ; bits[0..7]  -> int64
+    vpmovzxwq    m1, [r1+16]        ; bits[8..15]
+    vpmullq      m0, m0, m2
+    vpmullq      m1, m1, m2
+    mova         [r0+0],   m0       ; dst rows are ALIGNED_ARRAY_64 (each row 256B)
+    mova         [r0+64],  m1
+    vpmovzxwq    m0, [r1+32]        ; bits[16..23]
+    vpmovzxwq    m1, [r1+48]        ; bits[24..31]
+    vpmullq      m0, m0, m2
+    vpmullq      m1, m1, m2
+    mova         [r0+128], m0
+    mova         [r0+192], m1
+    RET
+
+; AVX2 has no vpmullq, so emulate bits*lambda (bits<=16 bits) with two vpmuludq:
+;   prod = bits*lambda_lo + (bits*lambda_hi << 32)   (exact; product < 2^56).
+INIT_YMM avx2
+cglobal trellis_rate_build_mpeg2, 3,3,5
+    movq         xm2, r2
+    vpbroadcastq m2, xm2           ; lambda (vpmuludq uses each qword's low 32 = lambda_lo)
+    shr          r2, 32
+    movq         xm3, r2
+    vpbroadcastq m3, xm3           ; lambda_hi (in each qword's low 32)
+%assign i 0
+%rep 8
+    vpmovzxwq    m0, [r1+i*8]      ; bits[4i..4i+3] -> int64 (4 lanes)
+    vpmuludq     m1, m0, m3        ; bits * lambda_hi
+    vpsllq       m1, m1, 32
+    vpmuludq     m0, m0, m2        ; bits * lambda_lo
+    vpaddq       m0, m0, m1        ; full product
+    mova         [r0+i*32], m0
+%assign i i+1
+%endrep
+    RET
+
+; SSE4.2 version (2 int64 lanes). Same vpmuludq emulation of bits*lambda.
+INIT_XMM sse42
+cglobal trellis_rate_build_mpeg2, 3,3,4
+    movq         xm2, r2
+    punpcklqdq   m2, m2            ; lambda broadcast (low 32 of each = lambda_lo)
+    shr          r2, 32
+    movq         xm3, r2
+    punpcklqdq   m3, m3            ; lambda_hi broadcast
+%assign i 0
+%rep 16
+    pmovzxwq     m0, [r1+i*4]      ; bits[2i..2i+1] -> int64 (2 lanes)
+    movdqa       m1, m0
+    pmuludq      m1, m3            ; bits * lambda_hi
+    psllq        m1, 32
+    pmuludq      m0, m2            ; bits * lambda_lo
+    paddq        m0, m1
+    mova         [r0+i*16], m0
+%assign i i+1
+%endrep
+    RET
+
+;-----------------------------------------------------------------------------
+; int trellis_setup_mpeg2( int *n, int *sgn, int64_t *dist_zero, int64_t *dist_n,
+;                          int64_t *dist_nm1, const dctcoef *dct,
+;                          const udctcoef *quant_mf, const udctcoef *quant_bias0,
+;                          const int *dequant_mf, int intra )
+; r0=n r1=sgn r2=dist_zero r3=dist_n r4=dist_nm1 r5=dct; stack: mf,bias0,dqmf,intra.
+; Two passes over flat positions 0..63. Quant pass (always):
+;   absc = |dct[f]|;  sgn = dct[f]<0 ? -1 : 1
+;   q    = (bias0[f] + absc) * mf[f] >> 16
+; Returns 0 with the dist arrays untouched when every q is zero (the common
+; case for inter at mid/high QP); otherwise runs the dist pass and returns 1:
+;   rn   = clip3( intra ? (q*dq)>>5 : ((2q+1)*dq)>>6, -2048, 2047 ) << 3   (0 if q==0)
+;   rm   = same with (q-1)                                                 (used iff q>=2)
+;   dist_zero = (i64)absc^2 << 8 ;  dist_n = (absc-rn)^2 << 8
+;   dist_nm1  = q>=2 ? (absc-rm)^2 << 8 : dist_zero
+; q is always >= 0 so the dequant rounding has no sign term; all 32-bit
+; intermediates fit int32; squares widen to int64. Constants are broadcast from
+; GPRs (no rodata) to avoid disturbing the section's alignment groups.
+;-----------------------------------------------------------------------------
+; dequant a level vector into ym7 = clip3( deq, -2048, 2047 ) << 3, branchlessly
+; for both intra and inter. Identity: intra (q*dq)>>5 == (2q*dq)>>6, and inter is
+; ((2q+1)*dq)>>6, so both are ((2*level + ym14)*dq)>>6 with ym14 = inter?1:0.
+; Split so the (2*level+inter)*dq product (the only multiply) can be shared between
+; q and q-1: dequant(q-1) = dequant(q)-2*dq pre-shift. TRELLIS_PROD -> ym6 (product),
+; TRELLIS_FIN ym6 -> ym7 = clip3(product>>6)<<3.  dq in ym5, inter-bit in ym14.
+%macro TRELLIS_PROD 1                  ; %1 = level -> ym15 = (2*level + inter)*dq
+    vpaddd       ym15, %1, %1          ; 2*level
+    vpaddd       ym15, ym15, ym14      ; 2*level + (inter ? 1 : 0)
+    vpmulld      ym15, ym15, ym5       ; * dq
+%endmacro
+%macro TRELLIS_FIN 0                   ; ym15 (product) -> ym7 = clip3(product>>6)<<3
+    vpsrad       ym7, ym15, 6          ; >> 6
+    vpmaxsd      ym7, ym7, ym10        ; clip lo (-2048)
+    vpminsd      ym7, ym7, ym11        ; clip hi (2047)
+    vpslld       ym7, ym7, 3           ; << FDCT_SCALE
+%endmacro
+
+; Broadcast a 32-bit immediate into vector reg %1 (no rodata; uses eax as scratch,
+; so call before loading pointers that may map onto rax). Picks the per-ISA idiom.
+%macro BCASTI 2 ; %1 = dest vreg, %2 = imm32
+    mov          eax, %2
+%if cpuflag(avx512)
+    vpbroadcastd m%1, eax             ; AVX-512 broadcasts straight from a GPR
+%elif cpuflag(avx2)
+    movd         xm%1, eax
+    vpbroadcastd m%1, xm%1            ; AVX2 broadcast source must be xmm/mem
+%else
+    movd         xm%1, eax
+    pshufd       m%1, m%1, 0
+%endif
+%endmacro
+
+; m8 = (absc - r)^2 << 8 from ym1 (absc) and ym7 (r).  (compute only)
+%macro TRELLIS_SQ 0
+    vpsubd       ym8, ym1, ym7
+    vpmovsxdq    m8, ym8
+    vpmullq      m8, m8, m8
+    vpsllq       m8, m8, 8
+%endmacro
+INIT_ZMM avx512
+cglobal trellis_setup_mpeg2, 6,11,16
+    ; broadcast constants first (uses eax as scratch) BEFORE loading pointers,
+    ; since x86inc may map one of r6..r8 onto rax.
+    BCASTI       10, -2048             ; clip lo
+    BCASTI       11, 2047              ; clip hi
+    BCASTI       12, 1                 ; +1 (for q-1)
+    BCASTI       13, 2                 ; threshold 2 (q<2 test)
+    mov          eax, r9m              ; intra (10th arg): 1 if intra, 0 if inter
+    xor          eax, 1                ; -> inter bit (0 intra, 1 inter)
+    vpbroadcastd m14, eax              ; ym14 = inter ? 1 : 0
+    mov          r6, r6mp              ; quant_mf    (7th arg, on stack)
+    mov          r7, r7mp              ; quant_bias0 (8th)
+    mov          r8, r8mp              ; dequant_mf  (9th)
+    ; quant pass: n, sgn, and an any-nonzero accumulator; the dist pass below
+    ; is skipped entirely when every position quantizes to zero.
+    vpxord       ym9, ym9, ym9         ; any-accumulator
+    xor          r9d, r9d              ; f = group base
+.qloop:
+    vpmovsxwd    ym0, [r5+r9*2]        ; c = dct[f..f+7] (int16 -> int32)
+    vpabsd       ym1, ym0              ; absc
+    vpsrad       ym2, ym0, 31          ; c<0 ? -1 : 0
+    vpord        ym2, ym2, ym12        ; sgn = that | 1
+    movu         [r1+r9*4], ym2        ; sgn[f..]
+    vpmovzxwd    ym3, [r7+r9*2]        ; bias0
+    vpmovzxwd    ym4, [r6+r9*2]        ; mf
+    vpaddd       ym3, ym3, ym1         ; bias0 + absc
+    vpmulld      ym3, ym3, ym4         ; * mf
+    vpsrld       ym3, ym3, 16          ; q
+    movu         [r0+r9*4], ym3        ; n[f..] = q
+    vpord        ym9, ym9, ym3         ; any |= q
+    add          r9d, 8
+    cmp          r9d, 64
+    jl .qloop
+    xor          eax, eax
+    vptestmd     k2, ym9, ym9          ; k2 = per-lane (any != 0)
+    kortestb     k2, k2
+    jz .end                            ; all-zero: return 0, dist arrays untouched
+    mov          eax, 1
+    xor          r9d, r9d
+.dloop:
+    vpmovsxwd    ym0, [r5+r9*2]        ; c (reload)
+    vpabsd       ym1, ym0              ; absc
+    movu         ym3, [r0+r9*4]        ; q (reload from n[])
+    movu         ym5, [r8+r9*4]        ; dq = dequant_mf[f..]
+    ; dist_zero = absc^2 << 8  (kept in m6 for the dist_nm1 select)
+    vpmovsxdq    m6, ym1
+    vpmullq      m6, m6, m6
+    vpsllq       m6, m6, 8
+    movu         [r2+r9*8], m6
+    ; dist_n = (absc - rn)^2 << 8.  dequant(0)==0 by definition; intra yields 0 at
+    ; q==0 but inter's +1 oddification does not, so force rn=0 where q==0 (a no-op
+    ; for intra, since rn is already 0 there).
+    TRELLIS_PROD ym3                   ; ym15 = (2q+inter)*dq  (shared with q-1 below)
+    TRELLIS_FIN                        ; ym7 = rn
+    vptestmd     k2, ym3, ym3          ; k2 = (q != 0)
+    vmovdqa32    ym7{k2}{z}, ym7       ; zero rn where q==0
+    TRELLIS_SQ                         ; m8 = dist_n
+    movu         [r3+r9*8], m8
+    ; dist_nm1 = q>=2 ? (absc - rm)^2<<8 : dist_zero   (q-1 >= 1 so no q==0 guard).
+    ; dequant(q-1) = dequant(q) - 2*dq pre-shift, so reuse the product in ym15.
+    vpaddd       ym9, ym5, ym5         ; 2*dq
+    vpsubd       ym15, ym15, ym9       ; product for q-1
+    TRELLIS_FIN
+    TRELLIS_SQ                         ; m8 = (q-1) distortion
+    vpcmpd       k1, ym3, ym13, 1      ; k1 = (q < 2)
+    vmovdqa64    m8{k1}, m6            ; where q<2, use dist_zero
+    movu         [r4+r9*8], m8
+    add          r9d, 8
+    cmp          r9d, 64
+    jl .dloop
+.end:
+    RET
+
+; AVX2 setup. Same math; AVX2 lacks mask regs and vpmullq. The squared diffs fit
+; int32 (|d|<=16383 => d^2 < 2^31), so all distortion selection is done in int32
+; (8-wide) and only the final result is widened 8 int32 -> 8 int64 (two halves)
+; and shifted <<8 for the int64 outputs. Selects use vpblendvb with compare masks.
+; ym10=clip lo, ym11=clip hi, ym12=+1, ym13=2, ym14=inter bit.
+; Split as AVX-512: PROD computes the (only) multiply into ym15 so q and q-1 can
+; share it (dequant(q-1)=dequant(q)-2*dq pre-shift); FIN does >>6/clip/<<3 -> ym7.
+; Shared AVX2/SSE4.2 setup (the "narrow" ISAs: no mask regs, no cheap vpmullq, so
+; squares are computed in int32 and widened to int64<<8 by the per-ISA WIDEN macro).
+; Written with non-v mnemonics + 3-operand forms so x86inc emits SSE under INIT_XMM
+; and AVX under INIT_YMM. PROD does the one multiply into m15 (shared by q and q-1
+; via dequant(q-1)=dequant(q)-2*dq pre-shift); FIN does >>6/clip/<<3 -> m7.
+%macro TRELLIS_PROD_N 1 ; %1=level -> m15 = (2*level+inter)*dq
+    paddd        m15, %1, %1
+    paddd        m15, m14
+    pmulld       m15, m5
+%endmacro
+%macro TRELLIS_FIN_N 0  ; m15 -> m7 = clip3(m15>>6)<<3
+    psrad        m7, m15, 6
+    pmaxsd       m7, m10
+    pminsd       m7, m11
+    pslld        m7, 3
+%endmacro
+; widen 8 int32 squares in ym%2 to 8 int64<<8 (two 128-bit halves) and store at [%1].
+%macro TRELLIS_WIDEN_STORE_A2 2
+    vpmovsxdq    m6,  xm%2
+    vextracti128 xm%2, ym%2, 1
+    vpmovsxdq    m%2, xm%2
+    vpsllq       m6, m6, 8
+    vpsllq       m%2, m%2, 8
+    movu         [%1],    m6
+    movu         [%1+32], m%2
+%endmacro
+; widen 4 int32 squares in m%2 to 4 int64<<8 (low-2 then high-2) and store at [%1].
+%macro TRELLIS_WIDEN_STORE_S4 2
+    pmovsxdq     m6, xm%2
+    psllq        m6, 8
+    movu         [%1], m6
+    punpckhqdq   m%2, m%2
+    pmovsxdq     m%2, xm%2
+    psllq        m%2, 8
+    movu         [%1+16], m%2
+%endmacro
+; One setup loop body for both narrow ISAs. %1 = the WIDEN_STORE macro name. The
+; only ISA divergence is the q<2 select (vpblendvb on AVX2 vs and/andn/or on SSE4.2,
+; whose legacy pblendvb mask must be xmm0). Lane count is implicit in mmsize.
+%macro TRELLIS_SETUP_NARROW 1
+    BCASTI       10, -2048         ; clip lo
+    BCASTI       11, 2047          ; clip hi
+    BCASTI       12, 1             ; +1
+    BCASTI       13, 2             ; 2
+    mov          eax, r9m
+    xor          eax, 1            ; inter bit
+    BCASTI       14, eax           ; (eax already holds the value; BCASTI re-movs it)
+    mov          r6, r6mp
+    mov          r7, r7mp
+    mov          r8, r8mp
+    ; quant pass: n, sgn, any-accumulator; the dist pass is skipped when all-zero.
+    pxor         m9, m9
+    xor          r9d, r9d
+%%qloop:
+    pmovsxwd     m0, [r5+r9*2]     ; c
+    pabsd        m1, m0            ; absc
+    psrad        m2, m0, 31
+    por          m2, m12           ; sgn
+    movu         [r1+r9*4], m2
+    pmovzxwd     m3, [r7+r9*2]     ; bias0
+    pmovzxwd     m4, [r6+r9*2]     ; mf
+    paddd        m3, m1
+    pmulld       m3, m4
+    psrld        m3, 16            ; q
+    movu         [r0+r9*4], m3
+    por          m9, m3            ; any |= q
+    add          r9d, mmsize/4
+    cmp          r9d, 64
+    jl %%qloop
+    xor          eax, eax
+    ptest        m9, m9
+    jz %%end                       ; all-zero: return 0, dist arrays untouched
+    mov          eax, 1
+    xor          r9d, r9d
+%%dloop:
+    pmovsxwd     m0, [r5+r9*2]     ; c (reload)
+    pabsd        m1, m0            ; absc
+    movu         m3, [r0+r9*4]     ; q (reload from n[])
+    movu         m5, [r8+r9*4]     ; dq
+    ; dist_zero: absc^2 (int32) kept in m0 for the q<2 select; m8 copy for the store
+    pmulld       m0, m1, m1        ; absc^2 (m1=absc preserved)
+    movdqa       m8, m0
+    %1           r2+r9*8, 8
+    ; dist_n = (absc - rn)^2, rn forced 0 where q==0 (no-op for intra)
+    TRELLIS_PROD_N m3             ; m15 = (2q+inter)*dq  (shared with q-1 below)
+    TRELLIS_FIN_N
+    pxor         m4, m4
+    pcmpeqd      m4, m3            ; q==0 mask
+    pandn        m4, m7            ; rn where q!=0 (~m4 & m7)
+    movdqa       m7, m4            ; keep rn in m7 (reused for dist_nm1)
+    psubd        m8, m1, m7        ; absc - rn
+    pmulld       m8, m8            ; (absc-rn)^2 int32
+    %1           r3+r9*8, 8
+    ; dist_nm1 = q<2 ? absc^2 : (absc-rm)^2. dequant(q-1)=dequant(q)-2*dq pre-shift.
+    paddd        m9, m5, m5        ; 2*dq
+    psubd        m15, m9           ; product for q-1
+    TRELLIS_FIN_N
+    psubd        m8, m1, m7        ; absc - rm
+    pmulld       m8, m8            ; (absc-rm)^2 int32
+%if cpuflag(avx2)
+    vpcmpgtd     m4, m13, m3       ; q < 2
+    vpblendvb    m8, m8, m0, m4    ; where q<2 take absc^2 (m0)
+    %1           r4+r9*8, 8
+%else
+    movdqa       m4, m13
+    pcmpgtd      m4, m3            ; (2 > q) = (q < 2) mask
+    pand         m0, m4            ; absc^2 where q<2  (no pblendvb: mask must be xmm0)
+    pandn        m4, m8            ; (absc-rm)^2 where q>=2
+    por          m4, m0            ; selected dist_nm1 (int32) in m4
+    %1           r4+r9*8, 4
+%endif
+    add          r9d, mmsize/4     ; 8 lanes (avx2) or 4 (sse)
+    cmp          r9d, 64
+    jl %%dloop
+%%end:
+    RET
+%endmacro
+
+INIT_YMM avx2
+cglobal trellis_setup_mpeg2, 6,11,16
+    TRELLIS_SETUP_NARROW TRELLIS_WIDEN_STORE_A2
+
+INIT_XMM sse42
+cglobal trellis_setup_mpeg2, 6,11,16
+    TRELLIS_SETUP_NARROW TRELLIS_WIDEN_STORE_S4
+
+;-----------------------------------------------------------------------------
+; int trellis_dp_mpeg2( const x264_trellis_dp_ctx_t *t )
+; Whole-DP kernel: the predecessor DP over the candidate list with the near-
+; window argmin inlined, then the terminal scan. Uniting the DP with the argmin
+; removes per-position call overhead and hoists the argmin's vector constants
+; once per block. One shared scalar skeleton, instantiated for SSE4.2/AVX2/
+; AVX-512 with per-ISA window-argmin bodies. Semantics and tie-breaks must
+; match the C reference trellis_dp_mpeg2 (common/quant.c) exactly. Field
+; offsets below are ABI with x264_trellis_dp_ctx_t (static-asserted in
+; common/quant.c).
+;-----------------------------------------------------------------------------
+%define t_n         0
+%define t_dist_zero 8
+%define t_dist_n    16
+%define t_dist_nm1  24
+%define t_scan      32
+%define t_list      40
+%define t_cnt       48
+%define t_first     52
+%define t_inter     56
+%define t_lambda    64
+%define t_esc_lam   72
+%define t_rate_lam  80
+%define t_max_lev   88
+%define t_esc_row   96
+%define t_back      104
+%define t_lev       112
+
+; stack frame: int64 cost[64] then scalar slots
+%define v_first     rsp+512
+%define v_maxlev    rsp+516
+%define v_cnt       rsp+520
+%define v_nf        rsp+524
+%define v_plo       rsp+528
+%define v_width     rsp+532
+%define v_inter     rsp+536
+%define v_esclam    rsp+544
+%define v_lam2      rsp+552
+%define v_eob       rsp+560
+%define v_inf       rsp+568
+%define v_gain0     rsp+576
+%define v_gain1     rsp+584
+%define v_rl0       rsp+592
+%define v_rl1       rsp+600
+%define v_gain      rsp+608
+%define v_rl        rsp+616
+%define v_rllo      rsp+624
+%define v_costlo    rsp+632
+
+; Per-block constant setup: INF-fill the cost array (r6 = INF on entry) and
+; hoist the window-argmin's vector constants. m5=INF_CAP m7=index advance
+; m8=max-key m13=index base; avx512 also m4=reverse-permute.
+%macro TRELLIS_DP_CONSTS 0
+%if cpuflag(avx512)
+    vpbroadcastq m1, r6
+%elif cpuflag(avx2)
+    movq         xm1, r6
+    vpbroadcastq m1, xm1
+%else
+    movq         xm1, r6
+    punpcklqdq   m1, m1
+%endif
+%assign %%i 0
+%rep 512/mmsize
+    movu         [rsp+%%i*mmsize], m1
+%assign %%i %%i+1
+%endrep
+    mova         m13, [trellis_idx8_q] ; index ramp: low mmsize/8 qwords
+%if cpuflag(avx512)
+    mova         m4, [trellis_rev8_q]
+%endif
+    mov          r6, 1
+    shl          r6, 56                ; INF_CAP
+%if cpuflag(avx512)
+    vpbroadcastq m5, r6
+    vpternlogd   m8, m8, m8, 0xff
+    vpsrlq       m8, m8, 1             ; max key
+%elif cpuflag(avx2)
+    movq         xm5, r6
+    vpbroadcastq m5, xm5
+    vpcmpeqd     m8, m8, m8
+    vpsrlq       m8, m8, 1
+%else
+    movq         xm5, r6
+    punpcklqdq   m5, m5
+    pcmpeqd      m8, m8
+    psrlq        m8, 1
+%endif
+    mov          r6d, mmsize/8
+%if cpuflag(avx512)
+    vpbroadcastq m7, r6                ; per-group index advance
+%elif cpuflag(avx2)
+    movq         xm7, r6
+    vpbroadcastq m7, xm7
+%else
+    movq         xm7, r6
+    punpcklqdq   m7, m7
+%endif
+%endmacro
+
+; One candidate level's three predecessor merges (NONE edge, near-window
+; argmin, far running-min), %1 = cand (0: L=nf, 1: L=nf-1). Persistent regs:
+; r0=ctx r1=list r2=scan r3=n r4=li r7=s r8=min_far r9=min_far_p r10=far_li
+; r12=best_keep r13=best_meta(=prev*2+cand). Scratch: r5 r6 r11 r14; m2 holds
+; the per-candidate gain broadcast. The near-window argmin uses the packed-key
+; method: key = min(sc,INF_CAP)*64 | (p-p_lo); one signed-qword min resolves
+; the minimum and the lowest-p tie-break; the winner's true score is
+; recomputed scalar and merged with strict < (so an all-INF window can never
+; beat the always-finite NONE edge).
+%macro DP_CAND 1
+%if %1 == 1
+    mov          r5d, [v_nf]
+    cmp          r5d, 2
+    jl           %%skip            ; L = nf-1 < 1: no such candidate
+    dec          r5d               ; L
+    mov          r6, [v_gain1]
+    mov          r14, [v_rl1]
+%else
+    mov          r5d, [v_nf]       ; L = nf
+    mov          r6, [v_gain0]
+    mov          r14, [v_rl0]
+%endif
+    mov          [v_gain], r6
+    mov          [v_rl], r14
+    ; --- NONE edge: run = s-first; rate = rl[run] (esc past the cap), except
+    ;     the inter first-coefficient magnitude-1 special case (2 bits) ---
+    mov          r6d, r7d
+    sub          r6d, [v_first]    ; run
+    cmp          r6d, 31
+    jg           %%rate_esc
+    mov          r11, [r14+r6*8]   ; rl[run]
+    jmp          %%rate_ok
+%%rate_esc:
+    mov          r11, [v_esclam]
+%%rate_ok:
+    cmp          dword [v_inter], 0
+    je           %%nospecial
+    test         r6d, r6d
+    jnz          %%nospecial
+    cmp          r5d, 1
+    jne          %%nospecial
+    mov          r11, [v_lam2]     ; table B.14 special case + sign
+%%nospecial:
+    add          r11, [v_gain]
+    mov          r6d, [v_first]
+    dec          r6d               ; NONE
+    lea          r6d, [r6d*2+%1]   ; meta
+    cmp          r11, r12
+    cmovl        r12, r11
+    cmovl        r13d, r6d
+    ; --- near-window argmin: min over p in [p_lo,s) of cost[p]+gain+rl[s-1-p] ---
+    mov          r5d, [v_width]
+    test         r5d, r5d
+    jle          %%far             ; empty window (s == first)
+    mov          r6d, r7d
+    dec          r6d
+    sub          r6d, [v_plo]
+    mov          r14, [v_rl]
+    lea          r14, [r14+r6*8]   ; &rl[s-1-p_lo]
+    mov          [v_rllo], r14
+    mov          r6, [v_costlo]    ; walking cost ptr
+    sub          r14, mmsize-8     ; walking rl group ptr (low-lane address)
+%if cpuflag(avx512)
+    vpbroadcastq m2, [v_gain]
+    mova         m3, m13           ; index vector = 0..7
+    mova         m0, m8            ; running key-min = max key
+%%aloop:
+    cmp          r5d, 8
+    jl           %%atail
+    vmovdqu64    m1, [r6]
+    vmovdqu64    m6, [r14]
+    vpermq       m6, m4, m6        ; reverse -> lane i = rl[s-1-p]
+    vpaddq       m1, m1, m2
+    vpaddq       m1, m1, m6
+    vpminsq      m1, m1, m5        ; cap so *64 can't overflow
+    vpsllq       m1, m1, 6
+    vporq        m1, m1, m3        ; key = sc*64 | (p-p_lo)
+    vpminsq      m0, m0, m1
+    vpaddq       m3, m3, m7
+    add          r6, 64
+    sub          r14, 64
+    sub          r5d, 8
+    jmp          %%aloop
+%%atail:
+    test         r5d, r5d
+    jz           %%areduce
+    mov          r11d, 1
+    shlx         r11d, r11d, r5d
+    dec          r11d              ; (1<<remaining)-1: cost low-lane mask
+    kmovb        k1, r11d
+    mov          r11d, 8
+    sub          r11d, r5d
+    mov          r5d, 0xff
+    shlx         r5d, r5d, r11d    ; rl mask: active in HIGH lanes pre-reverse
+    kmovb        k3, r5d
+    vmovdqu64    m1{k1}{z}, [r6]
+    vmovdqu64    m6{k3}{z}, [r14]
+    vpermq       m6, m4, m6
+    vpaddq       m1, m1, m2
+    vpaddq       m1, m1, m6
+    vpminsq      m1, m1, m5
+    vpsllq       m1, m1, 6
+    vporq        m1, m1, m3
+    knotb        k2, k1
+    vmovdqa64    m1{k2}, m8        ; inactive lanes -> max key
+    vpminsq      m0, m0, m1
+%%areduce:
+    vextracti64x4 ym1, m0, 1
+    vpminsq      ym0, ym0, ym1
+    vextracti128 xm1, ym0, 1
+    vpminsq      xm0, xm0, xm1
+    vpshufd      xm1, xm0, q1032
+    vpminsq      xm0, xm0, xm1
+    vmovq        r14, xm0          ; winning packed key
+%elif cpuflag(avx2)
+    vpbroadcastq m2, [v_gain]
+    mova         m3, m13           ; index vector = 0..3
+    mova         m0, m8            ; running key-min = max key
+%%aloop:
+    cmp          r5d, 4
+    jl           %%atail
+    vmovdqu      m1, [r6]
+    vmovdqu      m6, [r14]
+    vpermq       m6, m6, 0x1b      ; reverse 4 qwords
+    vpaddq       m1, m1, m2
+    vpaddq       m1, m1, m6
+    A2_MINQ      1, 5, 9           ; cap at INF_CAP
+    vpsllq       m1, m1, 6
+    vpor         m1, m1, m3        ; key = sc*64 | (p-p_lo)
+    A2_MINQ      0, 1, 9
+    vpaddq       m3, m3, m7
+    add          r6, 32
+    sub          r14, 32
+    sub          r5d, 4
+    jmp          %%aloop
+%%atail:
+    test         r5d, r5d
+    jz           %%areduce
+    movq         xm10, r5
+    vpbroadcastq m10, xm10
+    vpcmpgtq     m10, m10, m13   ; low-rem-active:  lane < rem
+    vpermq       m11, m10, 0x1b  ; high-rem-active: low reversed
+    vpmaskmovq   m1, m10, [r6]
+    vpmaskmovq   m6, m11, [r14]
+    vpermq       m6, m6, 0x1b
+    vpaddq       m1, m1, m2
+    vpaddq       m1, m1, m6
+    A2_MINQ      1, 5, 9
+    vpsllq       m1, m1, 6
+    vpor         m1, m1, m3
+    vpblendvb    m1, m8, m1, m10   ; inactive lanes -> max key
+    A2_MINQ      0, 1, 9
+%%areduce:
+    vextracti128 xm1, m0, 1
+    A2_MINQ      0, 1, 9
+    vpshufd      xm1, xm0, q1032
+    vpcmpgtq     xm9, xm0, xm1
+    vpblendvb    xm0, xm0, xm1, xm9
+    vmovq        r14, xm0          ; winning packed key
+%else ; SSE4.2
+    movq         xm2, [v_gain]
+    punpcklqdq   m2, m2
+    mova         m3, m13           ; index vector = 0..1
+    mova         m9, m8            ; running key-min (m0 reserved: pblendvb mask)
+%%aloop:
+    cmp          r5d, 2
+    jl           %%atail
+    movdqu       m1, [r6]
+    movdqu       m6, [r14]
+    pshufd       m6, m6, q1032     ; swap the 2 qwords
+    paddq        m1, m2
+    paddq        m1, m6
+    S4_MINQ      1, 5              ; cap at INF_CAP
+    psllq        m1, 6
+    por          m1, m3            ; key = sc*64 | (p-p_lo)
+    S4_MINQ      9, 1
+    paddq        m3, m7
+    add          r6, 16
+    sub          r14, 16
+    sub          r5d, 2
+    jmp          %%aloop
+%%atail:
+    pshufd       m1, m9, q1032
+    S4_MINQ      9, 1
+    movq         r14, xm9          ; winning packed key from full pairs
+    test         r5d, r5d
+    jz           %%areduce
+    ; single remaining element (j = width-1, the HIGHEST p: strict < keeps
+    ; the lower-p vector winner on ties, matching the C reference)
+    mov          r5d, [v_width]
+    dec          r5d               ; j
+    mov          r11, [v_costlo]
+    mov          r6, [r11+r5*8]    ; cost[p_lo+j]
+    add          r6, [v_gain]
+    mov          r11, r5
+    neg          r11
+    shl          r11, 3
+    add          r11, [v_rllo]
+    add          r6, [r11]         ; + rl[s-1-p_lo-j] -> sc
+    mov          r11, 1
+    shl          r11, 56
+    cmp          r6, r11
+    cmovg        r6, r11           ; min(sc, INF_CAP)
+    shl          r6, 6
+    or           r6, r5            ; key = sc*64 | j
+    cmp          r6, r14
+    cmovl        r14, r6
+%%areduce:
+%endif
+    ; shared: idx -> true score -> merge (strict <)
+    mov          r5d, r14d
+    and          r5d, 63           ; idx = p - p_lo
+    mov          r6, [v_costlo]
+    mov          r6, [r6+r5*8]     ; cost[p]
+    add          r6, [v_gain]
+    mov          r14, r5
+    neg          r14
+    mov          r11, [v_rllo]
+    add          r6, [r11+r14*8]   ; + rl[s-1-p]: true score
+    add          r5d, [v_plo]      ; p
+    lea          r5d, [r5d*2+%1]   ; meta
+    cmp          r6, r12
+    cmovl        r12, r6
+    cmovl        r13d, r5d
+%%far:
+    ; --- far predecessors: run > cap, escape-coded at constant bits ---
+    cmp          r8, [v_inf]
+    jge          %%skip
+    mov          r11, r8
+    add          r11, [v_gain]
+    add          r11, [v_esclam]
+    lea          r5d, [r9d*2+%1]
+    cmp          r11, r12
+    cmovl        r12, r11
+    cmovl        r13d, r5d
+%%skip:
+%endmacro
+
+; The shared scalar skeleton (identical for every tier; only DP_CAND's window
+; section differs by ISA).
+%macro TRELLIS_DP 0
+cglobal trellis_dp_mpeg2, 1,15,16, 0-640
+    mov          r1, [r0+t_list]
+    mov          r2, [r0+t_scan]
+    mov          r3, [r0+t_n]
+    mov          r5d, [r0+t_first]
+    mov          [v_first], r5d
+    mov          r5d, [r0+t_max_lev]
+    mov          [v_maxlev], r5d
+    mov          r5d, [r0+t_cnt]
+    mov          [v_cnt], r5d
+    mov          r5d, [r0+t_inter]
+    mov          [v_inter], r5d
+    mov          r6, [r0+t_esc_lam]
+    mov          [v_esclam], r6
+    mov          r6, [r0+t_lambda]
+    add          r6, r6
+    mov          [v_lam2], r6      ; 2*lambda
+    xor          r11d, r11d
+    test         r5d, r5d
+    cmovnz       r11, r6
+    mov          [v_eob], r11      ; EOB = inter ? 2*lambda : 0
+    mov          r6, 1
+    shl          r6, 62
+    mov          [v_inf], r6       ; INF
+    mov          r8, r6            ; min_far = INF
+    mov          r9d, [v_first]
+    dec          r9d               ; min_far_p = NONE
+    xor          r10d, r10d        ; far_li = 0
+    xor          r4d, r4d          ; li = 0
+    ; cost[0..63] = INF (only [first,64) is read; slot 0 is harmless), then
+    ; the hoisted vector constants (r6 = INF here, clobbered after)
+    TRELLIS_DP_CONSTS
+.mainloop:
+    cmp          r4d, [v_cnt]
+    jge          .terminal
+    movzx        r7d, byte [r1+r4] ; s = list[li]
+    ; roll predecessors past the run cap into the far running-min:
+    ; list[far_li] < s-1-31 while far_li < li
+    mov          r14d, r7d
+    sub          r14d, 32
+.farloop:
+    cmp          r10d, r4d
+    jge          .fardone
+    movzx        r5d, byte [r1+r10]
+    cmp          r5d, r14d
+    jge          .fardone
+    mov          r6, [rsp+r5*8]    ; cost[p]
+    cmp          r6, r8
+    cmovl        r8, r6
+    cmovl        r9d, r5d
+    inc          r10d
+    jmp          .farloop
+.fardone:
+    movzx        r5d, byte [r2+r7] ; f = scan[s]
+    mov          r6d, [r3+r5*4]    ; nf = n[f]
+    mov          [v_nf], r6d
+    ; candidate gains: dist_{n,nm1}[f] - dist_zero[f]
+    mov          r11, [r0+t_dist_zero]
+    mov          r11, [r11+r5*8]
+    mov          r14, [r0+t_dist_n]
+    mov          r14, [r14+r5*8]
+    sub          r14, r11
+    mov          [v_gain0], r14
+    mov          r14, [r0+t_dist_nm1]
+    mov          r14, [r14+r5*8]
+    sub          r14, r11
+    mov          [v_gain1], r14
+    ; rate rows: row(L) = L <= max_lev ? rate_lam + L*256 : esc_row
+    mov          r11, [r0+t_rate_lam]
+    mov          r14, [r0+t_esc_row]
+    mov          r5d, r6d
+    shl          r5d, 8
+    add          r5, r11
+    cmp          r6d, [v_maxlev]
+    cmovg        r5, r14
+    mov          [v_rl0], r5
+    dec          r6d               ; L1 = nf-1 (row unused when nf < 2)
+    mov          r5d, r6d
+    shl          r5d, 8
+    add          r5, r11
+    cmp          r6d, [v_maxlev]
+    cmovg        r5, r14
+    mov          [v_rl1], r5
+    ; p_lo = max(first, s-1-31), width, &cost[p_lo]
+    mov          r5d, r7d
+    sub          r5d, 32
+    mov          r14d, [v_first]
+    cmp          r5d, r14d
+    cmovl        r5d, r14d
+    mov          [v_plo], r5d
+    mov          r14d, r7d
+    sub          r14d, r5d
+    mov          [v_width], r14d
+    lea          r5, [rsp+r5*8]
+    mov          [v_costlo], r5
+    ; best-so-far: (INF, NONE, cand 0); the cand-0 NONE edge always beats it
+    mov          r12, [v_inf]
+    mov          r13d, [v_first]
+    dec          r13d
+    add          r13d, r13d
+    DP_CAND      0
+    DP_CAND      1
+    ; commit state s: cost, back = meta>>1, lev = nf - (meta&1)
+    mov          [rsp+r7*8], r12
+    mov          r6d, r13d
+    sar          r6d, 1
+    mov          r14, [r0+t_back]
+    mov          [r14+r7*4], r6d
+    mov          r5d, [v_nf]
+    mov          r6d, r13d
+    and          r6d, 1
+    sub          r5d, r6d
+    mov          r14, [r0+t_lev]
+    mov          [r14+r7*4], r5d
+    inc          r4d
+    jmp          .mainloop
+.terminal:
+    ; all-drop path has gain 0; EOB paid only when a coef is kept (inter)
+    xor          r12d, r12d        ; best = 0
+    mov          r13d, [v_first]
+    dec          r13d              ; best_last = NONE
+    xor          r4d, r4d
+.tloop:
+    cmp          r4d, [v_cnt]
+    jge          .tdone
+    movzx        r7d, byte [r1+r4]
+    mov          r6, [rsp+r7*8]
+    add          r6, [v_eob]
+    cmp          r6, r12
+    cmovl        r12, r6
+    cmovl        r13d, r7d
+    inc          r4d
+    jmp          .tloop
+.tdone:
+    mov          eax, r13d
+    RET
+%endmacro
+
+INIT_ZMM avx512
+TRELLIS_DP
+INIT_YMM avx2
+TRELLIS_DP
+INIT_XMM sse42
+TRELLIS_DP
+
+;-----------------------------------------------------------------------------
+; int trellis_list_mpeg2( uint8_t *list, const int *n, const uint8_t *scan )
+; Scan-order list of the positions s (0..63) with n[scan[s]] != 0, returning
+; the count: flat nonzero mask over n[] -> bytes -> permuted into scan order
+; by the zigzag table -> compress the byte iota. Entries beyond the returned
+; count are zero-filled (callers must treat them as undefined). Replaces a
+; 64-iteration scalar gather loop in x264_quant_8x8_trellis_mpeg2.
+;-----------------------------------------------------------------------------
+INIT_ZMM avx512icl
+cglobal trellis_list_mpeg2, 3,4,3
+    vmovdqu32    m0, [r1]
+    vptestmd     k1, m0, m0            ; n[0..15]  != 0
+    vmovdqu32    m0, [r1+64]
+    vptestmd     k2, m0, m0            ; n[16..31] != 0
+    vmovdqu32    m0, [r1+128]
+    vptestmd     k3, m0, m0            ; n[32..47] != 0
+    vmovdqu32    m0, [r1+192]
+    vptestmd     k4, m0, m0            ; n[48..63] != 0
+    kunpckwd     k1, k2, k1            ; bits 0..31
+    kunpckwd     k3, k4, k3            ; bits 32..63 (in the low half)
+    kunpckdq     k1, k3, k1            ; full 64-bit flat nonzero mask
+    vpmovm2b     m0, k1                ; byte f = n[f] ? -1 : 0
+    vmovdqu8     m1, [r2]              ; scan table
+    vpermb       m0, m1, m0            ; byte s = nonzero(scan[s])
+    vpmovb2m     k1, m0                ; scan-order mask
+    vmovdqu8     m2, [trellis_iota_b]
+    vpcompressb  m2{k1}{z}, m2         ; packed candidate positions
+    movu         [r0], m2
+    kmovq        r3, k1
+    popcnt       rax, r3
+    RET
 %endif ; HAVE_MPEG2 && !HIGH_BIT_DEPTH
 
 %macro DEQUANT_DC 2

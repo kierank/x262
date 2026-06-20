@@ -197,6 +197,225 @@ static void dequant_mpeg2_intra( dctcoef dct[64], int dequant_mf[64], int precis
     /* mismatch control */
     dct[63] ^= 1&~sum;
 }
+
+/* Near-predecessor argmin for the MPEG-2 trellis C DP below (the SIMD tiers
+ * implement the whole DP with the argmin inlined instead).
+ * Returns the p in [lo, s) minimizing sc(p) = cost[p] + g + rl[s-1-p], writing
+ * that minimum sc to *best_score. rl is indexed by run = s-1-p, which decreases
+ * as p increases (the window walks rl backward); the caller bounds the window so
+ * run is always in [0, MAX_VLC_RUN]. Ties resolve to the lowest p (strict-<
+ * ascending), which the caller relies on to match the seeded NONE/far edges.
+ * Empty window (lo >= s) returns -1 with *best_score = INF (1<<62). */
+static int trellis_argmin_mpeg2( const int64_t *cost, const int64_t *rl, int64_t g,
+                                 int s, int lo, int64_t *best_score )
+{
+    int64_t best = (int64_t)1 << 62;
+    int bestp = -1;
+    for( int p = lo; p < s; p++ )
+    {
+        int64_t sc = cost[p] + g + rl[s-1-p];
+        int better = sc < best;
+        best  = better ? sc : best;
+        bestp = better ? p  : bestp;
+    }
+    *best_score = best;
+    return bestp;
+}
+
+static void trellis_rate_build_mpeg2( int64_t *dst, const uint16_t *bits, int64_t lambda )
+{
+    for( int run = 0; run < 32; run++ )
+        dst[run] = bits[run] * lambda;
+}
+
+/* MPEG-2 trellis per-position setup (C reference; SIMD-overridable). Quantizes
+ * first: for each flat position f in 0..63, n = round-to-nearest quantized
+ * magnitude and sgn = sign of the coefficient. Returns nonzero iff any n[f] is
+ * nonzero (OR over all 64 flat positions); only then are the candidate
+ * distortions filled (transform-domain, lifted to the forward-DCT scale by <<3
+ * and to the RD domain by <<8) — on a zero return the dist arrays are
+ * untouched. n is always >= 0 so the dequant rounding has no sign branch
+ * (intra: (n*dq)>>5, inter: ((2n+1)*dq)>>6, clipped; deq(0)=0). Must stay
+ * bit-identical to the use in x264_quant_8x8_trellis_mpeg2. */
+static int trellis_setup_mpeg2( int *n, int *sgn, int64_t *dist_zero, int64_t *dist_n,
+                                int64_t *dist_nm1, const dctcoef *dct, const udctcoef *quant_mf,
+                                const udctcoef *quant_bias0, const int *dequant_mf, int intra )
+{
+    int any = 0;
+    for( int f = 0; f < 64; f++ )
+    {
+        int c = dct[f];
+        int abs_c = abs(c);
+        int q = ( quant_bias0[f] + (uint32_t)abs_c ) * quant_mf[f] >> 16;
+        n[f] = q;
+        sgn[f] = c < 0 ? -1 : 1;
+        any |= q;
+    }
+    if( !any )
+        return 0;
+    for( int f = 0; f < 64; f++ )
+    {
+        int abs_c = abs( dct[f] );
+        int q = n[f];
+        int dq = dequant_mf[f];
+        dist_zero[f] = ((int64_t)abs_c * abs_c) << 8;
+        int rn = q ? x264_clip3( intra ? (q*dq) >> 5 : ((2*q+1)*dq) >> 6, -2048, 2047 ) << 3 : 0;
+        dist_n[f] = ((int64_t)(abs_c - rn) * (abs_c - rn)) << 8;
+        if( q >= 2 )
+        {
+            int rm = x264_clip3( intra ? ((q-1)*dq) >> 5 : ((2*(q-1)+1)*dq) >> 6, -2048, 2047 ) << 3;
+            dist_nm1[f] = ((int64_t)(abs_c - rm) * (abs_c - rm)) << 8;
+        }
+        else
+            dist_nm1[f] = dist_zero[f];
+    }
+    return 1;
+}
+
+#if ARCH_X86_64
+/* quant-a.asm reads x264_trellis_dp_ctx_t fields at fixed offsets (the t_*
+ * defines above trellis_dp_mpeg2 there); this fails to compile if the struct
+ * layout drifts. */
+typedef char x264_trellis_dp_ctx_asm_layout[
+    (offsetof(x264_trellis_dp_ctx_t, scan)     == 32
+  && offsetof(x264_trellis_dp_ctx_t, list)     == 40
+  && offsetof(x264_trellis_dp_ctx_t, cnt)      == 48
+  && offsetof(x264_trellis_dp_ctx_t, first)    == 52
+  && offsetof(x264_trellis_dp_ctx_t, inter)    == 56
+  && offsetof(x264_trellis_dp_ctx_t, lambda)   == 64
+  && offsetof(x264_trellis_dp_ctx_t, esc_lam)  == 72
+  && offsetof(x264_trellis_dp_ctx_t, rate_lam) == 80
+  && offsetof(x264_trellis_dp_ctx_t, max_lev)  == 88
+  && offsetof(x264_trellis_dp_ctx_t, esc_row)  == 96
+  && offsetof(x264_trellis_dp_ctx_t, back)     == 104
+  && offsetof(x264_trellis_dp_ctx_t, lev)      == 112) ? 1 : -1];
+#endif
+
+/* MPEG-2 trellis DP (C reference; SIMD-overridable as a whole so an asm
+ * implementation can inline the argmin without per-position call overhead).
+ * State = scan position of the last kept coefficient; walks the caller-built
+ * candidate list, merging three predecessor classes per candidate level
+ * (NONE edge, near window via argmin, far running-minimum past the VLC run
+ * cap), then the terminal scan. Semantics documented at the call site in
+ * x264_quant_8x8_trellis_mpeg2; tie-breaks (strict-< merges, NONE seeding)
+ * are load-bearing and must match any asm implementation exactly. */
+static int trellis_dp_mpeg2( const x264_trellis_dp_ctx_t *t )
+{
+    const int first = t->first, inter = t->inter, cnt = t->cnt;
+    const int NONE = first - 1;
+    const int MAX_VLC_RUN = 31;
+    const int64_t INF = (int64_t)1 << 62;
+    const int64_t esc_lam = t->esc_lam;
+    const uint8_t *scan = t->scan, *list = t->list;
+    const int *n = t->n;
+    int64_t cost[64];
+    for( int p = first; p < 64; p++ )
+        cost[p] = INF;
+    int64_t min_far = INF;   // min cost[p] over far predecessors (run > cap)
+    int min_far_p = NONE;    // position owning min_far (for back-pointer recovery)
+    int far_li = 0;          // next list entry to roll into the far region
+
+    for( int li = 0; li < cnt; li++ )
+    {
+        int s = list[li];
+        /* roll predecessors that have crossed the run cap into the far set:
+         * position p is far from s when s-p-1 > cap, i.e. p < s-1-cap. Only
+         * list entries hold a finite cost, so the roll walks the list. */
+        for( ; far_li < li && list[far_li] < s - 1 - MAX_VLC_RUN; far_li++ )
+            if( cost[list[far_li]] < min_far ) { min_far = cost[list[far_li]]; min_far_p = list[far_li]; }
+
+        /* tables are flat-indexed: f is this scan position's flat position. */
+        int f = scan[s];
+
+        int64_t best_keep = INF;
+        int best_prev = NONE, best_cand = 0;
+        int p_lo = X264_MAX( first, s - 1 - MAX_VLC_RUN );
+        for( int cand = 0; cand < 2; cand++ )
+        {
+            int L = cand == 0 ? n[f] : n[f]-1;
+            if( L < 1 )
+                continue;
+            int64_t gain = (cand == 0 ? t->dist_n[f] : t->dist_nm1[f]) - t->dist_zero[f];
+            /* rate row indexed by run; L > max_lev (always escape) uses the
+             * caller-built constant row. */
+            const int64_t *rl = L <= t->max_lev ? t->rate_lam[L] : t->esc_row;
+            /* from NONE: run = s-first (all zeros since the block start). The
+             * only divergence from the b_first=1 cost is the inter DC
+             * magnitude-1 special case (run 0, |L|==1 coded in a single bit). */
+            {
+                int run = s - first;
+                int64_t rate;
+                if( inter && run == 0 && L == 1 )
+                    rate = (int64_t)(1 + 1) * t->lambda;   // table B.14 special case + sign
+                else
+                    rate = run <= MAX_VLC_RUN ? rl[run] : esc_lam;
+                int64_t sc = gain + rate;
+                int better = sc < best_keep;
+                best_keep = better ? sc : best_keep;
+                best_prev = better ? NONE : best_prev;
+                best_cand = better ? cand : best_cand;
+            }
+            /* near predecessors: argmin over p of cost[p] + gain + rate(s-1-p).
+             * The kernel does a pure window argmin (strict-< ascending
+             * tie-break); merge it after the NONE edge with strict < so NONE
+             * wins ties. */
+            int64_t near_score;
+            int near_p = trellis_argmin_mpeg2( cost, rl, gain, s, p_lo, &near_score );
+            if( near_p >= 0 && near_score < best_keep )
+            {
+                best_keep = near_score;
+                best_prev = near_p;
+                best_cand = cand;
+            }
+            /* far predecessors: run > cap, escape-coded at constant bits */
+            if( min_far < INF )
+            {
+                int64_t sc = min_far + gain + esc_lam;
+                int better = sc < best_keep;
+                best_keep = better ? sc : best_keep;
+                best_prev = better ? min_far_p : best_prev;
+                best_cand = better ? cand : best_cand;
+            }
+        }
+
+        cost[s] = best_keep;
+        t->back[s] = best_prev;
+        t->lev[s] = best_cand == 0 ? n[f] : n[f]-1;
+    }
+
+    /* terminal: choose the surviving path. cost[] is the gain-sum (drop
+     * distortion folded out), so the all-drop path has gain 0. EOB is paid only
+     * when >=1 coef is kept (inter); for intra the block is always coded (DC),
+     * so EOB is a constant and omitted. */
+    int64_t best = 0; // all coefficients dropped (gain 0)
+    int best_last = NONE;
+    for( int li = 0; li < cnt; li++ )
+    {
+        int p = list[li];
+        int64_t sc = cost[p] + (inter ? 2 * t->lambda : 0); // EOB = 2 bits
+        if( sc < best )
+        {
+            best = sc;
+            best_last = p;
+        }
+    }
+    return best_last;
+}
+
+/* Scan-order candidate-list build (C reference; SIMD-overridable): list all
+ * scan positions whose flat coefficient has a nonzero candidate magnitude.
+ * Entries past the returned count are undefined (the caller reads only cnt).
+ * Covers all 64 scan positions; the intra caller trims a leading DC entry. */
+static int trellis_list_mpeg2( uint8_t *list, const int *n, const uint8_t *scan )
+{
+    int cnt = 0;
+    for( int s = 0; s < 64; s++ )
+    {
+        list[cnt] = s;
+        cnt += !!n[scan[s]];
+    }
+    return cnt;
+}
 #endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */
 
 #define IDCT_DEQUANT_2X4_START \
@@ -499,6 +718,10 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
     pf->dequant_mpeg2_intra = dequant_mpeg2_intra;
     pf->dequant_mpeg2_inter = dequant_mpeg2_inter;
     pf->coeff_level_run[ DCT_LUMA_8x8] = coeff_level_run64;
+    pf->trellis_rate_build_mpeg2 = trellis_rate_build_mpeg2;
+    pf->trellis_setup_mpeg2 = trellis_setup_mpeg2;
+    pf->trellis_dp_mpeg2 = trellis_dp_mpeg2;
+    pf->trellis_list_mpeg2 = trellis_list_mpeg2;
 #endif
 
 #if HIGH_BIT_DEPTH
@@ -778,6 +1001,15 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->optimize_chroma_2x2_dc = x264_optimize_chroma_2x2_dc_sse4;
     }
 
+#if HAVE_MPEG2 && ARCH_X86_64
+    if( cpu&X264_CPU_SSE42 )
+    {
+        pf->trellis_dp_mpeg2 = x264_trellis_dp_mpeg2_sse42;
+        pf->trellis_rate_build_mpeg2 = x264_trellis_rate_build_mpeg2_sse42;
+        pf->trellis_setup_mpeg2 = x264_trellis_setup_mpeg2_sse42;
+    }
+#endif
+
     if( cpu&X264_CPU_AVX )
     {
         pf->dequant_4x4_dc = x264_dequant_4x4dc_avx;
@@ -830,6 +1062,11 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
 #if HAVE_MPEG2
         pf->dequant_mpeg2_inter = x264_dequant_mpeg2_inter_avx2;
         pf->dequant_mpeg2_intra = x264_dequant_mpeg2_intra_avx2;
+#if ARCH_X86_64
+        pf->trellis_dp_mpeg2 = x264_trellis_dp_mpeg2_avx2;
+        pf->trellis_rate_build_mpeg2 = x264_trellis_rate_build_mpeg2_avx2;
+        pf->trellis_setup_mpeg2 = x264_trellis_setup_mpeg2_avx2;
+#endif
 #endif
     }
     if( cpu&X264_CPU_AVX512 )
@@ -850,11 +1087,17 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
         pf->coeff_last[DCT_LUMA_8x8] = x264_coeff_last64_avx512;
 #if HAVE_MPEG2 && ARCH_X86_64
         pf->coeff_level_run[DCT_LUMA_8x8] = x264_coeff_level_run64_avx512;
+        pf->trellis_rate_build_mpeg2 = x264_trellis_rate_build_mpeg2_avx512;
+        pf->trellis_setup_mpeg2 = x264_trellis_setup_mpeg2_avx512;
+        pf->trellis_dp_mpeg2 = x264_trellis_dp_mpeg2_avx512;
 #endif
     }
 #if HAVE_MPEG2 && ARCH_X86_64
     if( cpu&X264_CPU_AVX512ICL )
+    {
         pf->coeff_level_run[DCT_LUMA_8x8] = x264_coeff_level_run64_avx512icl;
+        pf->trellis_list_mpeg2 = x264_trellis_list_mpeg2_avx512icl;
+    }
 #endif
 #endif // HAVE_MMX
 
