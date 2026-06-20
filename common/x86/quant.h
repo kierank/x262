@@ -121,6 +121,32 @@ void x264_dequant_mpeg2_intra_sse2( dctcoef dct[64], int dequant_mf[64], int pre
 void x264_dequant_mpeg2_intra_avx( dctcoef dct[64], int dequant_mf[64], int precision );
 #define x264_dequant_mpeg2_intra_avx2 x264_template(dequant_mpeg2_intra_avx2)
 void x264_dequant_mpeg2_intra_avx2( dctcoef dct[64], int dequant_mf[64], int precision );
+#define x264_trellis_dp_mpeg2_sse42 x264_template(trellis_dp_mpeg2_sse42)
+int x264_trellis_dp_mpeg2_sse42( const x264_trellis_dp_ctx_t *t );
+#define x264_trellis_dp_mpeg2_avx2 x264_template(trellis_dp_mpeg2_avx2)
+int x264_trellis_dp_mpeg2_avx2( const x264_trellis_dp_ctx_t *t );
+#define x264_trellis_rate_build_mpeg2_sse42 x264_template(trellis_rate_build_mpeg2_sse42)
+void x264_trellis_rate_build_mpeg2_sse42( int64_t *dst, const uint16_t *bits, int64_t lambda );
+#define x264_trellis_rate_build_mpeg2_avx2 x264_template(trellis_rate_build_mpeg2_avx2)
+void x264_trellis_rate_build_mpeg2_avx2( int64_t *dst, const uint16_t *bits, int64_t lambda );
+#define x264_trellis_rate_build_mpeg2_avx512 x264_template(trellis_rate_build_mpeg2_avx512)
+void x264_trellis_rate_build_mpeg2_avx512( int64_t *dst, const uint16_t *bits, int64_t lambda );
+#define x264_trellis_setup_mpeg2_sse42 x264_template(trellis_setup_mpeg2_sse42)
+int x264_trellis_setup_mpeg2_sse42( int *n, int *sgn, int64_t *dist_zero, int64_t *dist_n,
+                                    int64_t *dist_nm1, const dctcoef *dct, const udctcoef *quant_mf,
+                                    const udctcoef *quant_bias0, const int *dequant_mf, int intra );
+#define x264_trellis_setup_mpeg2_avx2 x264_template(trellis_setup_mpeg2_avx2)
+int x264_trellis_setup_mpeg2_avx2( int *n, int *sgn, int64_t *dist_zero, int64_t *dist_n,
+                                   int64_t *dist_nm1, const dctcoef *dct, const udctcoef *quant_mf,
+                                   const udctcoef *quant_bias0, const int *dequant_mf, int intra );
+#define x264_trellis_setup_mpeg2_avx512 x264_template(trellis_setup_mpeg2_avx512)
+int x264_trellis_setup_mpeg2_avx512( int *n, int *sgn, int64_t *dist_zero, int64_t *dist_n,
+                                     int64_t *dist_nm1, const dctcoef *dct, const udctcoef *quant_mf,
+                                     const udctcoef *quant_bias0, const int *dequant_mf, int intra );
+#define x264_trellis_dp_mpeg2_avx512 x264_template(trellis_dp_mpeg2_avx512)
+int x264_trellis_dp_mpeg2_avx512( const x264_trellis_dp_ctx_t *t );
+#define x264_trellis_list_mpeg2_avx512icl x264_template(trellis_list_mpeg2_avx512icl)
+int x264_trellis_list_mpeg2_avx512icl( uint8_t *list, const int *n, const uint8_t *scan );
 #endif
 #define x264_dequant_4x4_flat16_mmx x264_template(dequant_4x4_flat16_mmx)
 void x264_dequant_4x4_flat16_mmx( int16_t dct[16], int dequant_mf[6][16], int i_qp );
