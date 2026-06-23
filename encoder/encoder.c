@@ -1086,7 +1086,7 @@ static int validate_parameters( x264_t *h, int b_open )
         h->param.rc.b_mb_tree = 0;
         h->param.rc.i_bitrate = 0;
     }
-    h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, MPEG2, MPEG2 ? QP_MAX_SPEC_MPEG2 : QP_MAX );
+    h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, MPEG2, MPEG2 ? QP_MAX_MPEG2 : QP_MAX );
     h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min, MPEG2, h->param.rc.i_qp_max );
     h->param.rc.i_qp_step = x264_clip3( h->param.rc.i_qp_step, 2, QP_MAX );
     h->param.rc.i_bitrate = x264_clip3( h->param.rc.i_bitrate, 0, 2000000 );
