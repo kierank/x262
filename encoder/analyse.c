@@ -264,7 +264,8 @@ int x264_analyse_init_costs( x264_t *h )
     for( int i = 1; i <= 2*4*mv_range; i++ )
         logs[i] = log2f( i+1 ) * 2.0f + 1.718f;
 
-    for( int qp = X264_MIN( h->param.rc.i_qp_min, QP_MAX_SPEC ); qp <= h->param.rc.i_qp_max; qp++ )
+    int qp_spec = MPEG2 ? QP_MAX_SPEC_MPEG2 : QP_MAX_SPEC;
+    for( int qp = X264_MIN( h->param.rc.i_qp_min, qp_spec ); qp <= h->param.rc.i_qp_max; qp++ )
         if( init_costs( h, logs, qp ) )
             goto fail;
 
@@ -370,6 +371,27 @@ static void mb_analyse_init_qp( x264_t *h, x264_mb_analysis_t *a, int qp )
     int chroma_offset_idx = X264_MIN( qp-effective_chroma_qp+12, MAX_CHROMA_LAMBDA_OFFSET );
     h->mb.i_chroma_lambda2_offset = h->param.analyse.b_psy ? x264_chroma_lambda2_offset_tab[chroma_offset_idx] : 256;
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
+    {
+        if( qp > QP_MAX_SPEC_MPEG2 )
+        {
+            h->nr_offset = h->nr_offset_emergency[qp-QP_MAX_SPEC_MPEG2-1];
+            h->nr_residual_sum = h->nr_residual_sum_buf[1];
+            h->nr_count = h->nr_count_buf[1];
+            h->mb.b_noise_reduction = 1;
+            qp = QP_MAX_SPEC_MPEG2;
+        }
+        else
+        {
+            h->nr_offset = h->nr_offset_denoise;
+            h->nr_residual_sum = h->nr_residual_sum_buf[0];
+            h->nr_count = h->nr_count_buf[0];
+            h->mb.b_noise_reduction = 0;
+        }
+    }
+    else
+#endif
     if( qp > QP_MAX_SPEC )
     {
         h->nr_offset = h->nr_offset_emergency[qp-QP_MAX_SPEC-1];

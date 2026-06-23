@@ -94,6 +94,11 @@ struct x264_ratecontrol_t
 
     /* VBV stuff */
     double buffer_size;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    double mpeg2_iframe_bits_min; /* minimum I-frame bits for VBV lookahead floor:
+                                   * starts as analytical lower bound; updated upward
+                                   * from observed I-frames at the QP ceiling. */
+#endif
     int64_t buffer_fill_final;
     int64_t buffer_fill_final_min;
     double buffer_fill;         /* planned buffer, if all in-progress frames hit their bit budget */
@@ -847,6 +852,21 @@ int x264_ratecontrol_new( x264_t *h )
     rc->qp_constant[SLICE_TYPE_B] = x264_clip3( h->param.rc.i_qp_constant + rc->pb_offset + 0.5, 0, qp_max );
     h->mb.ip_offset = rc->ip_offset + 0.5;
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
+    {
+        /* Analytical lower bound on DC-only I-frame size.
+         * Per MB (min): addr_inc(1) + mb_type(1) + dct_type(1) +
+         *   4 luma blocks * (VLC(dc_size=0)=3 + EOB=2) +
+         *   2 chroma blocks * (VLC(dc_size=0)=2 + EOB=2) = 31 bits.
+         * Per slice row: start_code(32) + qscale(5) + extra_bit(1) = 38 bits.
+         * This is always less than any real I-frame; used to floor the VBV
+         * lookahead simulation so the predictor doesn't extrapolate past the DC floor. */
+        rc->mpeg2_iframe_bits_min = 1600                                /* seq/GOP/pic headers */
+            + h->mb.i_mb_height * 38                                    /* slice headers */
+            + rc->nmb * 31;                                             /* MB data */
+    }
+#endif
     rc->lstep = pow( 2, h->param.rc.i_qp_step / stepsize );
     rc->last_qscale = qp2qscale( h, 26 + QP_BD_OFFSET );
     int num_preds = h->param.b_sliced_threads * h->param.i_threads + 1;
@@ -1815,6 +1835,14 @@ int x264_ratecontrol_mb_qp( x264_t *h )
          /* MB-tree currently doesn't adjust quantizers in unreferenced frames. */
         float qp_offset = h->fdec->b_kept_as_ref ? h->fenc->f_qp_offset[h->mb.i_mb_xy] : h->fenc->f_qp_offset_aq[h->mb.i_mb_xy];
         /* Scale AQ's effect towards zero in emergency mode. */
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        if( MPEG2 )
+        {
+            if( qp > QP_MAX_SPEC_MPEG2 )
+                qp_offset *= (QP_MAX_MPEG2 - qp) / (QP_MAX_MPEG2 - QP_MAX_SPEC_MPEG2);
+        }
+        else
+#endif
         if( qp > QP_MAX_SPEC )
             qp_offset *= (QP_MAX - qp) / (QP_MAX - QP_MAX_SPEC);
         qp += qp_offset;
@@ -2077,6 +2105,14 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
 
     *filler = update_vbv( h, bits );
     rc->filler_bits_sum += *filler * 8;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    /* After each I-frame encoded at or above the spec-max QP, update the lookahead
+     * floor with the actual coded bits.  The floor starts at the analytical lower
+     * bound and converges to the true DC floor after the first emergency I-frame. */
+    if( MPEG2 && rc->b_vbv && h->sh.i_type == SLICE_TYPE_I
+        && rc->qpa_rc >= QP_MAX_SPEC_MPEG2 - 0.5 )
+        rc->mpeg2_iframe_bits_min = X264_MAX( rc->mpeg2_iframe_bits_min, (double)bits );
+#endif
 
     if( h->sps->vui.b_nal_hrd_parameters_present )
     {
@@ -2447,6 +2483,14 @@ static double vbv_pass1( x264_t *h, int pict_type, double q )
                         break;
                     i_type = IS_X264_TYPE_I( i_type ) ? SLICE_TYPE_I : IS_X264_TYPE_B( i_type ) ? SLICE_TYPE_B : SLICE_TYPE_P;
                     cur_bits = predict_size( &rcc->pred[i_type], frame_q[i_type], i_satd );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+                    /* MPEG-2 intra DC is dequantized solely by intra_dc_precision, not qscale.
+                     * The predictor extrapolates past the DC floor at emergency qscales,
+                     * returning near-zero values. Floor the prediction at the minimum I-frame
+                     * size (DC-only, analytically derived from sequence geometry). */
+                    if( MPEG2 && i_type == SLICE_TYPE_I )
+                        cur_bits = X264_MAX( cur_bits, rcc->mpeg2_iframe_bits_min );
+#endif
                     buffer_fill_cur -= cur_bits;
                     last_duration = h->fenc->f_planned_cpb_duration[j];
                 }
