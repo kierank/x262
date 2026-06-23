@@ -332,6 +332,32 @@ int x264_cqm_init_mpeg2( x264_t *h )
             }
         }
     }
+    /* Emergency mode denoising for MPEG-2: ramp the bias up to the internal max QP. */
+    x264_emms();
+    CHECKED_MALLOC( h->nr_offset_emergency, sizeof(*h->nr_offset_emergency)*(QP_MAX_MPEG2-QP_MAX_SPEC_MPEG2) );
+    for( int q = 0; q < QP_MAX_MPEG2 - QP_MAX_SPEC_MPEG2; q++ )
+        for( int cat = 0; cat < 2; cat++ ) /* cat 0 = luma, cat 1 = chroma; both 8x8 */
+        {
+            udctcoef *nr_offset = h->nr_offset_emergency[q][cat];
+            double pos = (double)(q+1) / (QP_MAX_MPEG2 - QP_MAX_SPEC_MPEG2);
+
+            for( int i = 0; i < 64; i++ )
+            {
+                int max = (1 << 15) - 1;
+                /* Intra DC is dequantized solely by intra_dc_precision, not qscale. */
+                if( i == 0 )
+                {
+                    nr_offset[i] = 0;
+                    continue;
+                }
+                /* Subtracted from |DCT coeff| pre-quant; a bias of one quant step
+                 * (dequant8_mf/2) zeroes a coefficient. Ramp 0 -> 8 steps. */
+                double start = h->dequant8_mf[CQM_8PY][QP_MAX_SPEC_MPEG2][i] / 2.0;
+                double bias = (pow( 2, pos*(QP_MAX_MPEG2-QP_MAX_SPEC_MPEG2)/4.5 )-1) / (pow( 2, (QP_MAX_MPEG2-QP_MAX_SPEC_MPEG2)/4.5 )-1) * 8 * start;
+                nr_offset[i] = X264_MIN( bias + 0.5, max );
+            }
+        }
+
     return 0;
 fail:
     x264_cqm_delete( h );
