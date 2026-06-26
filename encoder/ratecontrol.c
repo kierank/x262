@@ -834,6 +834,9 @@ int x264_ratecontrol_new( x264_t *h )
         rc->accum_p_qp = ABR_INIT_QP * rc->accum_p_norm;
         /* estimated ratio that produces a reasonable QP for the first I-frame */
         rc->cplxr_sum = .01 * pow( 7.0e5, rc->qcompress ) * pow( h->mb.i_mb_count, 0.5 );
+        if( MPEG2 )
+            rc->cplxr_sum *= qp2qscale( h, ABR_INIT_QP )
+                           / ( 0.85f * powf( 2.0f, ( ABR_INIT_QP - (12.0f + QP_BD_OFFSET) ) / 6.0f ) );
         rc->wanted_bits_window = 1.0 * rc->bitrate / rc->fps;
         rc->last_non_b_pict_type = SLICE_TYPE_I;
     }
