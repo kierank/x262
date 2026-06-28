@@ -1629,6 +1629,11 @@ static int row_bits_so_far( x264_t *h, int y )
 static float predict_row_size_to_end( x264_t *h, int y, float qp )
 {
     float qscale = qp2qscale( h, qp );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    /* centering codes at the effective qscale (qp2qscale*ratio), not qp2qscale */
+    if( MPEG2 && h->param.b_cqm_recenter )
+        qscale *= x264_mpeg2_cqm_center_ratio( h, qp );
+#endif
     float bits = 0;
     for( int i = y+1; i < h->i_threadslice_end; i++ )
         bits += predict_row_size( h, i, qscale );
@@ -1672,6 +1677,11 @@ int x264_ratecontrol_mb( x264_t *h, int bits )
         return 0;
 
     float qscale = qp2qscale( h, rc->qpm );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    /* store/learn the effective qscale (committed-matrix ratio), not qp2qscale */
+    if( MPEG2 && h->param.b_cqm_recenter )
+        qscale *= x264_mpeg2_cqm_center_committed_ratio( h, rc->qpm );
+#endif
     h->fdec->f_row_qp[y] = rc->qpm;
     h->fdec->f_row_qscale[y] = qscale;
 
@@ -1823,6 +1833,11 @@ int x264_ratecontrol_mb( x264_t *h, int bits )
     return 0;
 }
 
+float x264_ratecontrol_qpm( x264_t *h )
+{
+    return h->rc->qpm;
+}
+
 int x264_ratecontrol_qp( x264_t *h )
 {
     x264_emms();
@@ -1852,7 +1867,20 @@ int x264_ratecontrol_mb_qp( x264_t *h )
     }
     if( h->fenc->f_reencode_qp_offset )
         qp += h->fenc->f_reencode_qp_offset[h->mb.i_mb_xy];
-    return x264_clip3( qp + 0.5f, h->param.rc.i_qp_min, h->param.rc.i_qp_max );
+    int i_qp_min = h->param.rc.i_qp_min;
+    int rz;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && h->param.b_cqm_recenter && i_qp_min < 1 )
+        i_qp_min = 1; /* grid QP must be >= 1 for table indexing */
+    /* The frame matrix is scaled by S, so pick the code on the effective grid
+     * (qscale[code]*S), not the raw grid, to realize the quant AQ asked for. */
+    if( MPEG2 && h->param.b_cqm_recenter && h->i_mpeg2_cqm_center_idx != MPEG2_CQM_CENTER_IDENTITY )
+        rz = x264_clip3( x264_mpeg2_cqm_center_mb_code( h, qp ),
+                         i_qp_min, h->param.rc.i_qp_max );
+    else
+#endif
+    rz = x264_clip3( qp + 0.5f, i_qp_min, h->param.rc.i_qp_max );
+    return rz;
 }
 
 /* Check whether an encoded frame fits within frame_size_maximum.
@@ -2074,15 +2102,23 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
         }
     }
 
+    /* centering codes at the effective qscale (qp2qscale*ratio); feed that to the
+     * cplxr_sum/predictor feedback below. 1.0 when centering inactive or identity. */
+    float S_eff = 1.0f;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && h->param.b_cqm_recenter )
+        S_eff = x264_mpeg2_cqm_center_committed_ratio( h, rc->qpa_rc );
+#endif
+
     if( rc->b_abr )
     {
         if( h->sh.i_type != SLICE_TYPE_B )
-            rc->cplxr_sum += bits * qp2qscale( h, rc->qpa_rc ) / rc->last_rceq;
+            rc->cplxr_sum += bits * qp2qscale( h, rc->qpa_rc ) * S_eff / rc->last_rceq;
         else
         {
             /* Depends on the fact that B-frame's QP is an offset from the following P-frame's.
              * Not perfectly accurate with B-refs, but good enough. */
-            rc->cplxr_sum += bits * qp2qscale( h, rc->qpa_rc ) / (rc->last_rceq * h->param.rc.f_pb_factor);
+            rc->cplxr_sum += bits * qp2qscale( h, rc->qpa_rc ) * S_eff / (rc->last_rceq * h->param.rc.f_pb_factor);
         }
         rc->cplxr_sum *= rc->cbr_decay;
         rc->wanted_bits_window += h->fenc->f_duration * rc->bitrate;
@@ -2099,7 +2135,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
             rc->bframe_bits += bits;
             if( h->fenc->b_last_minigop_bframe )
             {
-                update_predictor( rc->pred_b_from_p, qp2qscale( h, rc->qpa_rc ),
+                update_predictor( rc->pred_b_from_p, qp2qscale( h, rc->qpa_rc ) * S_eff,
                                   h->fref[1][h->i_ref[1]-1]->i_satd, rc->bframe_bits / rc->bframes );
                 rc->bframe_bits = 0;
             }
@@ -2640,10 +2676,15 @@ static float rate_estimate_qscale( x264_t *h )
 
         rcc->qp_novbv = q;
         q = qp2qscale( h, q );
+        double q_pred = q;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        if( MPEG2 && h->param.b_cqm_recenter )
+            q_pred = x264_mpeg2_cqm_center_predict_qscale( h, qscale2qp( h, q ), q );
+#endif
         if( rcc->b_2pass )
-            rcc->frame_size_planned = qscale2bits( &rce, q );
+            rcc->frame_size_planned = qscale2bits( &rce, q_pred );
         else
-            rcc->frame_size_planned = predict_size( rcc->pred_b_from_p, q, h->fref[1][h->i_ref[1]-1]->i_satd );
+            rcc->frame_size_planned = predict_size( rcc->pred_b_from_p, q_pred, h->fref[1][h->i_ref[1]-1]->i_satd );
 
         /* Apply MinCR and buffer fill restrictions */
         if( rcc->b_vbv )
@@ -2826,10 +2867,17 @@ static float rate_estimate_qscale( x264_t *h )
         if( !(rcc->b_2pass && !rcc->b_vbv) && h->fenc->i_frame == 0 )
             rcc->last_qscale_for[SLICE_TYPE_P] = q * h->param.rc.f_ip_factor;
 
+        /* predict bits from the effective qscale centering will code at, not grid q */
+        double q_pred = q;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        if( MPEG2 && h->param.b_cqm_recenter )
+            q_pred = x264_mpeg2_cqm_center_predict_qscale( h, qscale2qp( h, q ), q );
+#endif
+
         if( rcc->b_2pass )
-            rcc->frame_size_planned = qscale2bits( &rce, q );
+            rcc->frame_size_planned = qscale2bits( &rce, q_pred );
         else
-            rcc->frame_size_planned = predict_size( &rcc->pred[h->sh.i_type], q, rcc->last_satd );
+            rcc->frame_size_planned = predict_size( &rcc->pred[h->sh.i_type], q_pred, rcc->last_satd );
 
         /* Apply MinCR and buffer fill restrictions */
         if( rcc->b_vbv )
@@ -2931,7 +2979,12 @@ void x264_threads_merge_ratecontrol( x264_t *h )
                 size += h->fdec->i_row_satd[row];
             int bits = t->stat.frame.i_mv_bits + t->stat.frame.i_tex_bits + t->stat.frame.i_misc_bits;
             int mb_count = (t->i_threadslice_end - t->i_threadslice_start) * h->mb.i_mb_width;
-            update_predictor( &rc->pred[h->sh.i_type+(i+1)*5], qp2qscale( h, rct->qpa_rc/mb_count ), size, bits );
+            float S_eff = 1.0f;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+            if( MPEG2 && h->param.b_cqm_recenter )
+                S_eff = x264_mpeg2_cqm_center_committed_ratio( h, rct->qpa_rc/mb_count );
+#endif
+            update_predictor( &rc->pred[h->sh.i_type+(i+1)*5], qp2qscale( h, rct->qpa_rc/mb_count ) * S_eff, size, bits );
         }
         if( !i )
             continue;

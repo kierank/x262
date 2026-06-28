@@ -446,6 +446,7 @@ typedef struct x264_param_t
     /* MPEG-2 only */
     int         i_intra_dc_precision;
     int         b_nonlinear_quant;
+    int         b_cqm_recenter;
     int         b_alt_intra_vlc;
     int         b_alternate_scan;
     int         b_high_profile;     /* Force a higher MPEG-2 profile than required. */

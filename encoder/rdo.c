@@ -1275,9 +1275,9 @@ static ALWAYS_INLINE int mpeg2_dequant_one( int level, int dequant_mf, int intra
  * domain comment below for the exact scaling. */
 int x264_quant_8x8_trellis_mpeg2( x264_t *h, dctcoef *dct, int i_quant_cat, int i_qp, int b_intra )
 {
-    udctcoef *quant_mf = h->quant8_mf[i_quant_cat][i_qp];
-    udctcoef *quant_bias0 = h->quant8_bias0[i_quant_cat][i_qp];
-    int *dequant_mf = h->dequant8_mf[i_quant_cat][i_qp];
+    udctcoef *quant_mf = h->quant8_mf_frame[i_quant_cat][i_qp];
+    udctcoef *quant_bias0 = h->quant8_bias0_frame[i_quant_cat][i_qp];
+    int *dequant_mf = h->dequant8_mf_frame[i_quant_cat][i_qp];
     const int inter = !b_intra;
     const int intra_tab = b_intra ? h->param.b_alt_intra_vlc : 0;
     /* Score domain: distortion is (c - r<<FDCT_SCALE)^2 << DIST_SHIFT, where the
@@ -1301,7 +1301,7 @@ int x264_quant_8x8_trellis_mpeg2( x264_t *h, dctcoef *dct, int i_quant_cat, int 
      * dct[0] is the DC for both frame and field scans (scan[0]==0). */
     if( b_intra )
     {
-        udctcoef *quant_bias = h->quant8_bias[i_quant_cat][i_qp];
+        udctcoef *quant_bias = h->quant8_bias_frame[i_quant_cat][i_qp];
         int c = dct[0];
         if( c > 0 )
             dct[0] = ((uint32_t)quant_bias[0] + (uint32_t)c) * quant_mf[0] >> 16;

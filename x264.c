@@ -992,6 +992,7 @@ static void help( x264_param_t *defaults, int longhelp )
     H2( "      --altscan               Use alternate MPEG-2 VLC scan order, not zigzag\n" );
     H2( "      --linear-quant          Use MPEG-2 linear quantization table\n" );
     H2( "      --no-altintra           Use MPEG-1 VLCs (Table B.14) for intra blocks\n" );
+    H2( "      --cqm-recenter          Enable per-picture quant matrix centering\n" );
     H0( "\n" );
 #endif
 }

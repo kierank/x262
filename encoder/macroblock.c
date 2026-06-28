@@ -725,12 +725,16 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
         nz = x264_quant_8x8_trellis_mpeg2( h, dct8x8, CQM_8IY+chroma422, i_qp, 1 );
     else
     {
-        nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8IY+chroma422][i_qp],
-                                  h->quant8_bias[CQM_8IY+chroma422][i_qp] );
+        nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf_frame[CQM_8IY+chroma422][i_qp],
+                                  h->quant8_bias_frame[CQM_8IY+chroma422][i_qp] );
 
         if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 1, h->param.b_alternate_scan ) )
             nz = !!dct8x8[0];
     }
+    /* A scaled-down CQM can push AC levels past the 12-bit run-level escape range;
+     * clamp to the codable max (inert without centering). */
+    for( int z = 1; z < 64; z++ )
+        dct8x8[z] = x264_clip3( dct8x8[z], -2047, 2047 );
 
     // DC prediction
     dc_diff = dct8x8[0] - cur_dc_predictor;
@@ -749,7 +753,7 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
     {
         int fdec_stride = b_field_block ? FDEC_STRIDE<<1 : FDEC_STRIDE;
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
-        h->quantf.dequant_mpeg2_intra( dct8x8, h->dequant8_mf[CQM_8IY+chroma422][i_qp],
+        h->quantf.dequant_mpeg2_intra( dct8x8, h->dequant8_mf_frame[CQM_8IY+chroma422][i_qp],
                                        h->param.i_intra_dc_precision );
         pixel saved[64];
         for( int y = 0; y < 8; y++ )
@@ -826,16 +830,19 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
         nz = x264_quant_8x8_trellis_mpeg2( h, dct8x8, CQM_8PY+chroma422, i_qp, 0 );
     else
     {
-        nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf[CQM_8PY+chroma422][i_qp],
-                                          h->quant8_bias[CQM_8PY+chroma422][i_qp] );
+        nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf_frame[CQM_8PY+chroma422][i_qp],
+                                          h->quant8_bias_frame[CQM_8PY+chroma422][i_qp] );
         if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 0, h->param.b_alternate_scan ) )
             nz = 0;
     }
+    /* Clamp inter AC+DC levels to the 12-bit escape range (see intra note above). */
+    for( int z = 0; z < 64; z++ )
+        dct8x8[z] = x264_clip3( dct8x8[z], -2047, 2047 );
     if( nz )
     {
         int fdec_stride = b_field_block ? FDEC_STRIDE<<1 : FDEC_STRIDE;
         h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
-        h->quantf.dequant_mpeg2_inter( dct8x8, h->dequant8_mf[CQM_8PY+chroma422][i_qp] );
+        h->quantf.dequant_mpeg2_inter( dct8x8, h->dequant8_mf_frame[CQM_8PY+chroma422][i_qp] );
         pixel saved[64];
         for( int y = 0; y < 8; y++ )
             memcpy( saved + 8*y, p_dst + y*fdec_stride, 8 * sizeof(pixel) );
@@ -1479,7 +1486,7 @@ int x264_macroblock_probe_skip_mpeg2( x264_t *h, int b_bidir )
         if( h->mb.b_noise_reduction)
             h->quantf.denoise_dct( dct8x8[idx], h->nr_residual_sum[0], h->nr_offset[0], 64 );
 
-        if( !h->quantf.quant_8x8( dct8x8[idx], h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] ) )
+        if( !h->quantf.quant_8x8( dct8x8[idx], h->quant8_mf_frame[CQM_8PY][i_qp], h->quant8_bias_frame[CQM_8PY][i_qp] ) )
             continue;
         h->zigzagf.scan_8x8( dctscan8, dct8x8[idx] );
         i_decimate_mb += h->quantf.decimate_score64( dctscan8 );
@@ -1514,7 +1521,7 @@ int x264_macroblock_probe_skip_mpeg2( x264_t *h, int b_bidir )
         if( h->mb.b_noise_reduction)
             h->quantf.denoise_dct( dct8x8[idx], h->nr_residual_sum[1], h->nr_offset[1], 64 );
 
-        if( !h->quantf.quant_8x8( dct8x8[idx], h->quant8_mf[CQM_8PY][i_qp], h->quant8_bias[CQM_8PY][i_qp] ) )
+        if( !h->quantf.quant_8x8( dct8x8[idx], h->quant8_mf_frame[CQM_8PY][i_qp], h->quant8_bias_frame[CQM_8PY][i_qp] ) )
             continue;
         h->zigzagf.scan_8x8( dctscan8, dct8x8[idx] );
         i_decimate_mb += h->quantf.decimate_score64( dctscan8 );

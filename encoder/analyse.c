@@ -340,6 +340,14 @@ static void mb_analyse_init_qp( x264_t *h, x264_mb_analysis_t *a, int qp )
                                                   : x264_lambda_tab_lin_mpeg2[qp];
         a->i_lambda2 = h->param.b_nonlinear_quant ? x264_lambda2_tab_exp_mpeg2[qp]
                                                   : x264_lambda2_tab_lin_mpeg2[qp];
+        /* Centering codes at effective quant grid[qp]*S, not qscale[qp]; scale lambda
+         * to match (lambda ~ qscale, lambda2 ~ qscale^2) or the trellis over-drops. */
+        if( h->param.b_cqm_recenter && h->i_mpeg2_cqm_center_idx != MPEG2_CQM_CENTER_IDENTITY )
+        {
+            float S = x264_mpeg2_cqm_center_scale_get( h );
+            a->i_lambda  = (int)( a->i_lambda  * S + 0.5f );
+            a->i_lambda2 = (int)( a->i_lambda2 * S * S + 0.5f );
+        }
     }
     else
 #endif

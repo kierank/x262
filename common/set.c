@@ -70,7 +70,7 @@ static const uint16_t quant8_scale[6][6] =
     {  7282,  6428, 11570,  6830,  9118,  8640 }
 };
 
-#if HAVE_MPEG2
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
 static const uint8_t qscale_linear_mpeg2[32] =
 {
       0,   2,   4,   6,   8,  10,  12,  14,
@@ -89,7 +89,17 @@ static const uint8_t * const x264_qscale_mpeg2[2] =
 {
     qscale_linear_mpeg2, qscale_nonlinear_mpeg2
 };
-#endif /* HAVE_MPEG2 */
+/* Per-frame matrix scale set; index MPEG2_CQM_CENTER_IDENTITY is S=1.0 (base
+ * matrix). S<1 subdivides the coarse bottom of the 1-31 grid; S up to 2.5 reaches
+ * the >31 "fake QP" range (qp 49 needs S~2.3: grid[31]=112, target there ~256). */
+#define MPEG2_CQM_CENTER_COUNT 10
+static const float x264_mpeg2_cqm_center_scale[MPEG2_CQM_CENTER_COUNT] =
+    { 0.200f, 0.350f, 0.500f, 0.667f, 0.833f, 1.000f, 1.250f, 1.500f, 2.000f, 2.500f };
+/* Recenter target (code 12 = qscale 16), and the local grid step above which the
+ * grid is coarse enough to be worth recentering (the step at the optimum). */
+#define MPEG2_CQM_CENTER_OPT 12
+#define MPEG2_CQM_CENTER_MIN_STEP 0.115f
+#endif /* HAVE_MPEG2 && !HIGH_BIT_DEPTH */
 
 int x264_cqm_init( x264_t *h )
 {
@@ -296,6 +306,156 @@ fail:
 }
 
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* Pure selection: pick the (matrix index k, grid code best_qp) whose effective
+ * qscale grid[best_qp]*S_k best matches the continuous quant RC asked for (qpm),
+ * plus the grid-only code (*pgrid_qp) RC would land on with no matrix change.
+ * No state mutation, so ratecontrol can call this to learn centering's effect on
+ * the effective quant BEFORE the decision is committed. Returns best_qp. */
+static int mpeg2_cqm_center_select( x264_t *h, float qpm, int emitted,
+                                    float *pS, int *pk, int *pgrid_qp, float *ptarget )
+{
+    const uint8_t *qscale = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
+    float target_qscale;
+
+    /* Interpolate the continuous qscale for qpm */
+    if( qpm < 1.0f )
+        target_qscale = (float)qscale[1] * qpm;
+    else
+    {
+        int q_lo = x264_clip3( (int)qpm, 1, QP_MAX_SPEC_MPEG2-1 );
+        int q_hi = X264_MIN( q_lo+1, QP_MAX_SPEC_MPEG2 );
+        float frac = qpm - (float)q_lo;
+        target_qscale = (float)qscale[q_lo] + frac * (float)(qscale[q_hi] - qscale[q_lo]);
+    }
+
+    float inv_target = 1.0f / X264_MAX( target_qscale, 1.0f );
+
+    /* Grid-only precision: the best relative qscale error reachable with no
+     * matrix change (S=1.0). This is the bar a scaled matrix must beat. */
+    int grid_qp = 1;
+    float grid_err = 1e10f;
+    for( int q = 1; q <= QP_MAX_SPEC_MPEG2; q++ )
+    {
+        float err = fabsf( (float)qscale[q] * 1.0f - target_qscale ) * inv_target;
+        if( err < grid_err ) { grid_err = err; grid_qp = q; }
+    }
+
+    int best_k = MPEG2_CQM_CENTER_IDENTITY, best_qp = grid_qp;
+
+    /* Recenter toward the optimum code only where the grid is locally coarse (its
+     * step resets after each octave) and above the rail; pick the (scale,code) whose
+     * effective qscale grid[q]*S matches the target and is nearest the optimum. */
+    float local_step = grid_qp < QP_MAX_SPEC_MPEG2
+                     ? (float)( qscale[grid_qp+1] - qscale[grid_qp] ) / (float)qscale[grid_qp]
+                     : 0.0f;
+    if( target_qscale >= (float)qscale[2] && local_step > MPEG2_CQM_CENTER_MIN_STEP )
+    {
+        int best_dist = 1<<30;
+        for( int k = 0; k < h->i_mpeg2_cqm_center_count; k++ )
+        {
+            float S = x264_mpeg2_cqm_center_scale[k];
+            for( int q = 1; q <= QP_MAX_SPEC_MPEG2; q++ )
+            {
+                float err = fabsf( (float)qscale[q] * S - target_qscale ) * inv_target;
+                if( err > 0.06f ) continue;
+                int dist = abs( q - MPEG2_CQM_CENTER_OPT );
+                if( dist < best_dist ) { best_dist = dist; best_qp = q; best_k = k; }
+            }
+        }
+    }
+
+    *pk = best_k;
+    *pS = x264_mpeg2_cqm_center_scale[best_k];
+    *pgrid_qp = grid_qp;
+    *ptarget = target_qscale;
+    return best_qp;
+}
+
+float x264_mpeg2_cqm_center_scale_get( x264_t *h )
+{
+    return x264_mpeg2_cqm_center_scale[h->i_mpeg2_cqm_center_idx];
+}
+
+
+/* Pick the grid code q so grid[q]*S best matches the quant the MB asked for, so the
+ * matrix scale S leaves the effective per-MB quant unchanged. */
+int x264_mpeg2_cqm_center_mb_code( x264_t *h, float qp )
+{
+    const uint8_t *grid = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
+    float S = x264_mpeg2_cqm_center_scale[h->i_mpeg2_cqm_center_idx];
+    int lo = x264_clip3( (int)qp, 1, QP_MAX_SPEC_MPEG2-1 );
+    float want = qp < 1.f ? (float)grid[1] : grid[lo] + (qp-lo)*(grid[lo+1]-grid[lo]);
+    float target = want / X264_MAX( S, 1e-3f );
+    int best = 1; float berr = 1e30f;
+    for( int q = 1; q <= QP_MAX_SPEC_MPEG2; q++ )
+    {
+        float e = fabsf( (float)grid[q] - target );
+        if( e < berr ) { berr = e; best = q; }
+    }
+    return best;
+}
+
+/* Unit-free qscale ratio centering applies for this qpm: the effective dequant
+ * step (grid[best_qp]*S) over the smooth interpolated target qscale (the qp2qscale
+ * curve RC rides), NOT over the jumpy grid-only code. 1.0 when inactive or k=3. */
+float x264_mpeg2_cqm_center_ratio( x264_t *h, float qpm )
+{
+    if( !h->param.b_cqm_recenter || h->i_mpeg2_cqm_center_count < 2 )
+        return 1.0f;
+    const uint8_t *grid = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
+    float S, target; int k, grid_qp;
+    int best_qp = mpeg2_cqm_center_select( h, qpm, h->i_mpeg2_cqm_center_idx_emitted, &S, &k, &grid_qp, &target );
+    return ( (float)grid[best_qp] * S ) / X264_MAX( target, 1.0f );
+}
+
+/* RC prediction hook: scale RC's qscale by centering's ratio so the bit estimate
+ * matches the quant the encoder will actually code at. */
+float x264_mpeg2_cqm_center_predict_qscale( x264_t *h, float qpm, float qscale_in )
+{
+    return qscale_in * x264_mpeg2_cqm_center_ratio( h, qpm );
+}
+
+/* RC feedback hook: the same ratio for the matrix committed to the frame just
+ * encoded, so the complexity model learns bits-vs-(effective qscale). Uses the
+ * committed index, not a fresh selection, so it matches what was emitted. */
+float x264_mpeg2_cqm_center_committed_ratio( x264_t *h, float qpm )
+{
+    if( h->i_mpeg2_cqm_center_idx == MPEG2_CQM_CENTER_IDENTITY )
+        return 1.0f;
+    return x264_mpeg2_cqm_center_ratio( h, qpm );
+}
+
+void x264_mpeg2_cqm_center_decide( x264_t *h, float qpm, int *pi_qp )
+{
+    int matrices = CHROMA_FORMAT == CHROMA_422 ? 4 : 2;
+
+    if( !h->param.b_cqm_recenter || h->i_mpeg2_cqm_center_count < 2 )
+    {
+        for( int m = 0; m < matrices; m++ )
+        {
+            h->quant8_mf_frame[m]   = h->quant8_mf[m];
+            h->quant8_bias_frame[m] = h->quant8_bias[m];
+            h->quant8_bias0_frame[m] = h->quant8_bias0[m];
+            h->dequant8_mf_frame[m] = h->dequant8_mf[m];
+        }
+        h->i_mpeg2_cqm_center_idx = MPEG2_CQM_CENTER_IDENTITY;
+        return;
+    }
+
+    float S, target; int best_k, grid_qp;
+    int best_qp = mpeg2_cqm_center_select( h, qpm, h->i_mpeg2_cqm_center_idx_emitted, &S, &best_k, &grid_qp, &target );
+
+    for( int m = 0; m < matrices; m++ )
+    {
+        h->quant8_mf_frame[m]   = h->mpeg2_cqm_center_quant8_mf[best_k][m];
+        h->quant8_bias_frame[m] = h->mpeg2_cqm_center_quant8_bias[best_k][m];
+        h->quant8_bias0_frame[m] = h->mpeg2_cqm_center_quant8_bias0[best_k][m];
+        h->dequant8_mf_frame[m] = h->mpeg2_cqm_center_dequant8_mf[best_k][m];
+    }
+    h->i_mpeg2_cqm_center_idx = best_k;
+    *pi_qp = best_qp;
+}
+
 int x264_cqm_init_mpeg2( x264_t *h )
 {
     const uint8_t *qscale = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
@@ -332,6 +492,72 @@ int x264_cqm_init_mpeg2( x264_t *h )
             }
         }
     }
+    if( h->param.b_cqm_recenter )
+    {
+        h->i_mpeg2_cqm_center_count = MPEG2_CQM_CENTER_COUNT;
+        for( int k = 0; k < MPEG2_CQM_CENTER_COUNT; k++ )
+        {
+            float S = x264_mpeg2_cqm_center_scale[k];
+            for( int m = 0; m < matrices; m++ )
+            {
+                /* Build the scaled base list */
+                uint8_t scaled[64];
+                for( int i = 0; i < 64; i++ )
+                {
+                    int v = (int)(h->sps->scaling_list[m][i] * S + 0.5f);
+                    scaled[i] = x264_clip3( v, 1, 255 );
+                }
+                if( !( m & 1 ) ) /* intra DC: centering has no matrix lever */
+                    scaled[0] = h->sps->scaling_list[m][0];
+                memcpy( h->mpeg2_cqm_center_list[k][m], scaled, 64 );
+
+                CHECKED_MALLOC( h->mpeg2_cqm_center_quant8_mf[k][m],
+                                (QP_MAX_SPEC_MPEG2+1)*64*sizeof(udctcoef) );
+                CHECKED_MALLOC( h->mpeg2_cqm_center_quant8_bias[k][m],
+                                (QP_MAX_SPEC_MPEG2+1)*64*sizeof(udctcoef) );
+                CHECKED_MALLOC( h->mpeg2_cqm_center_quant8_bias0[k][m],
+                                (QP_MAX_SPEC_MPEG2+1)*64*sizeof(udctcoef) );
+                CHECKED_MALLOC( h->mpeg2_cqm_center_dequant8_mf[k][m],
+                                (QP_MAX_SPEC_MPEG2+1)*64*sizeof(int) );
+
+                for( int q = 1; q < QP_MAX_SPEC_MPEG2+1; q++ )
+                {
+                    for( int i = 0; i < 64; i++ )
+                    {
+                        j = ( 1 << 17 ) / ( qscale[q] * scaled[i] );
+                        j = X264_MIN( j, 65535 ); /* quant8_mf is udctcoef (uint16); a deep
+                          * scale-down on a small-entry CQM would overflow without this */
+                        h->mpeg2_cqm_center_quant8_mf[k][m][q][i] = j;
+                        h->mpeg2_cqm_center_dequant8_mf[k][m][q][i] =
+                            2 * qscale[q] * scaled[i];
+                        h->mpeg2_cqm_center_quant8_bias[k][m][q][i] =
+                            X264_MIN( DIV(deadzone[m&1]<<10, j), (1<<15)/j );
+                        h->mpeg2_cqm_center_quant8_bias0[k][m][q][i] = (1<<15)/j;
+                    }
+                    if( !( m & 1 ) ) /* intra dc */
+                    {
+                        h->mpeg2_cqm_center_quant8_mf[k][m][q][0] = intra_mf;
+                        h->mpeg2_cqm_center_quant8_bias[k][m][q][0] = intra_bias;
+                        h->mpeg2_cqm_center_quant8_bias0[k][m][q][0] = (1<<15)/intra_mf;
+                    }
+                }
+            }
+        }
+    }
+    else
+        h->i_mpeg2_cqm_center_count = 0;
+
+    /* Set per-frame shadow pointers to the base tables */
+    for( int m = 0; m < matrices; m++ )
+    {
+        h->quant8_mf_frame[m]   = h->quant8_mf[m];
+        h->quant8_bias_frame[m] = h->quant8_bias[m];
+        h->quant8_bias0_frame[m] = h->quant8_bias0[m];
+        h->dequant8_mf_frame[m] = h->dequant8_mf[m];
+    }
+    h->i_mpeg2_cqm_center_idx = MPEG2_CQM_CENTER_IDENTITY; /* S=1.0 identity */
+    h->i_mpeg2_cqm_center_idx_emitted = MPEG2_CQM_CENTER_IDENTITY; /* decoder starts at base = identity */
+
     /* Emergency mode denoising for MPEG-2: ramp the bias up to the internal max QP. */
     x264_emms();
     CHECKED_MALLOC( h->nr_offset_emergency, sizeof(*h->nr_offset_emergency)*(QP_MAX_MPEG2-QP_MAX_SPEC_MPEG2) );
@@ -394,6 +620,20 @@ void x264_cqm_delete( x264_t *h )
         CQM_DELETE( 4, 4 );
     CQM_DELETE( 8, CHROMA444 || ( MPEG2 && CHROMA_FORMAT == CHROMA_422 ) ? 4 : 2 );
     x264_free( h->nr_offset_emergency );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && h->i_mpeg2_cqm_center_count )
+    {
+        int matrices = CHROMA_FORMAT == CHROMA_422 ? 4 : 2;
+        for( int k = 0; k < h->i_mpeg2_cqm_center_count; k++ )
+            for( int m = 0; m < matrices; m++ )
+            {
+                x264_free( h->mpeg2_cqm_center_quant8_mf[k][m] );
+                x264_free( h->mpeg2_cqm_center_dequant8_mf[k][m] );
+                x264_free( h->mpeg2_cqm_center_quant8_bias[k][m] );
+                x264_free( h->mpeg2_cqm_center_quant8_bias0[k][m] );
+            }
+    }
+#endif
 }
 
 static int cqm_parse_jmlist( x264_t *h, const char *buf, const char *name,
