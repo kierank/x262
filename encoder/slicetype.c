@@ -54,6 +54,11 @@ static void lowres_context_init( x264_t *h, x264_mb_analysis_t *a )
     a->i_lambda = x264_lambda_tab[ a->i_qp ];
 #endif
     mb_analyse_load_costs( h, a );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    /* No f_code in the lowres search; zero the reach so the me.c MVD clamp skips it. */
+    if( MPEG2 )
+        h->mb.fcode_reach[0] = h->mb.fcode_reach[1] = 0;
+#endif
     if( h->param.analyse.i_subpel_refine > 1 )
     {
         h->mb.i_me_method = X264_MIN( X264_ME_HEX, h->param.analyse.i_me_method );
