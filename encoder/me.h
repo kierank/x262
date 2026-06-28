@@ -36,7 +36,9 @@ typedef struct
      * as well as force sizeof(struct) to be a multiple of the alignment. */
     /* input */
     ALIGNED_64( int i_pixel );   /* PIXEL_WxH */
-    uint16_t *p_cost_mv; /* lambda * nbits for each possible mv */
+    uint16_t *p_cost_mv;   /* lambda * nbits for each possible mv (x axis) */
+    uint16_t *p_cost_mv_y; /* y axis; differs from p_cost_mv only for MPEG-2 f_codes */
+    uint16_t *(*p_cost_mv_fpel)[4]; /* fpel form of p_cost_mv, for the ESA/TESA ADS search */
     int      i_ref_cost;
     int      i_ref;
     const x264_weight_t *weight;

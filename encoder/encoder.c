@@ -4092,6 +4092,14 @@ int     x264_encoder_encode( x264_t *h,
 #if HAVE_MPEG2
     if( MPEG2 )
     {
+        /* 2pass f_codes: no lowres MVs to derive min-fit from (the lookahead
+         * fell back to the level ceiling) — restore pass-1's choices. */
+        if( h->param.rc.b_stat_read )
+        {
+            int16_t fcodes[2][2];
+            if( x264_ratecontrol_mv_fcodes( h, h->fenc->i_frame, fcodes ) )
+                memcpy( h->fenc->mv_fcode, fcodes, sizeof(fcodes) );
+        }
         if( h->fenc->b_keyframe )
         {
             /* generate sequence header */
