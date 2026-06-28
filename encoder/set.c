@@ -1157,11 +1157,46 @@ void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s )
 
 void x264_quant_matrix_extension_write_mpeg2( x264_t *h, bs_t *s )
 {
+    uint8_t temp[64];
+    int k;
+
     bs_realign( s );
 
     bs_write( s, 4, MPEG2_QUANT_MATRIX_EXT_ID ); // extension_start_code_identifier
 
-    if( !h->fenc->b_keyframe )
+    if( h->param.b_cqm_recenter )
+    {
+        k = h->i_mpeg2_cqm_center_idx;
+        /* Always emit both intra and non-intra luma matrices with scaled values */
+        bs_write1( s, 1 ); /* load_intra_quantiser_matrix */
+        zigzag_scan_8x8_cqm( temp, h->mpeg2_cqm_center_list[k][CQM_8IY] );
+        bs_write( s, 8, 8 ); /* first value must be 8 */
+        for( int i = 1; i < 64; i++ )
+            bs_write( s, 8, temp[i] );
+        bs_write1( s, 1 ); /* load_non_intra_quantiser_matrix */
+        zigzag_scan_8x8_cqm( temp, h->mpeg2_cqm_center_list[k][CQM_8PY] );
+        for( int i = 0; i < 64; i++ )
+            bs_write( s, 8, temp[i] );
+
+        if( CHROMA_FORMAT == CHROMA_422 )
+        {
+            bs_write1( s, 1 ); /* load_chroma_intra_quantiser_matrix */
+            zigzag_scan_8x8_cqm( temp, h->mpeg2_cqm_center_list[k][CQM_8IC] );
+            bs_write( s, 8, 8 );
+            for( int i = 1; i < 64; i++ )
+                bs_write( s, 8, temp[i] );
+            bs_write1( s, 1 ); /* load_chroma_non_intra_quantiser_matrix */
+            zigzag_scan_8x8_cqm( temp, h->mpeg2_cqm_center_list[k][CQM_8PC] );
+            for( int i = 0; i < 64; i++ )
+                bs_write( s, 8, temp[i] );
+        }
+        else
+        {
+            bs_write1( s, 0 ); /* load_chroma_intra_quantiser_matrix */
+            bs_write1( s, 0 ); /* load_chroma_non_intra_quantiser_matrix */
+        }
+    }
+    else if( !h->fenc->b_keyframe )
         x264_write_cqm_mpeg2( h, s, 0 );
     else
     {
@@ -1169,12 +1204,15 @@ void x264_quant_matrix_extension_write_mpeg2( x264_t *h, bs_t *s )
         bs_write1( s, 0 ); // load_non_intra_quantiser_matrix
     }
 
-    if( CHROMA_FORMAT == CHROMA_422 )
-        x264_write_cqm_mpeg2( h, s, 1 );
-    else
+    if( !h->param.b_cqm_recenter )
     {
-        bs_write1( s, 0 ); // load_chroma_intra_quantiser_matrix
-        bs_write1( s, 0 ); // load_chroma_non_intra_quantiser_matrix
+        if( CHROMA_FORMAT == CHROMA_422 )
+            x264_write_cqm_mpeg2( h, s, 1 );
+        else
+        {
+            bs_write1( s, 0 ); // load_chroma_intra_quantiser_matrix
+            bs_write1( s, 0 ); // load_chroma_non_intra_quantiser_matrix
+        }
     }
 
     bs_align_0( s );

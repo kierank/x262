@@ -42,6 +42,8 @@ enum cqm8_e
     CQM_8PC = 3,
 };
 
+#define MPEG2_CQM_CENTER_MAX 11
+
 typedef struct
 {
     int i_id;
@@ -192,6 +194,17 @@ static const uint8_t x264_cqm_intra_mpeg2[64] =
 };
 
 int  x264_cqm_init_mpeg2( x264_t *h );
+#if !HIGH_BIT_DEPTH
+/* Index of the S=1.0 identity scale in the per-frame matrix set (the decoder's
+ * base/default matrix). Shared by set.c (selection) and encoder.c (keyframe reset). */
+#define MPEG2_CQM_CENTER_IDENTITY 5
+void x264_mpeg2_cqm_center_decide( x264_t *h, float qpm, int *pi_qp );
+float x264_mpeg2_cqm_center_predict_qscale( x264_t *h, float qpm, float qscale_in );
+float x264_mpeg2_cqm_center_committed_ratio( x264_t *h, float qpm );
+float x264_mpeg2_cqm_center_ratio( x264_t *h, float qpm );
+float x264_mpeg2_cqm_center_scale_get( x264_t *h );
+int x264_mpeg2_cqm_center_mb_code( x264_t *h, float qp );
+#endif
 
 #endif /* HAVE_MPEG2 */
 

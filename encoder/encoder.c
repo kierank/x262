@@ -1087,7 +1087,12 @@ static int validate_parameters( x264_t *h, int b_open )
         h->param.rc.i_bitrate = 0;
     }
     h->param.rc.i_qp_max = x264_clip3( h->param.rc.i_qp_max, MPEG2, MPEG2 ? QP_MAX_MPEG2 : QP_MAX );
-    h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min, MPEG2, h->param.rc.i_qp_max );
+    /* Centering recenters within the codable grid (codes 1-31) via the matrix S;
+     * it does NOT need qpm<1. Relaxing the floor to 0 let RC drive qpm to 0 at high
+     * bitrate (degenerate: qp2qscale(0) breaks the bit model -> runaway over-spend).
+     * Keep the floor at 1 for MPEG-2; the sub-rail (qp<1) regime is gated off anyway. */
+    h->param.rc.i_qp_min = x264_clip3( h->param.rc.i_qp_min,
+        MPEG2 ? 1 : 0, h->param.rc.i_qp_max );
     h->param.rc.i_qp_step = x264_clip3( h->param.rc.i_qp_step, 2, QP_MAX );
     h->param.rc.i_bitrate = x264_clip3( h->param.rc.i_bitrate, 0, 2000000 );
     if( h->param.rc.i_rc_method == X264_RC_ABR && !h->param.rc.i_bitrate )
@@ -4134,43 +4139,58 @@ int     x264_encoder_encode( x264_t *h,
             overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
         }
 
-        /* generate picture header */
-        nal_start( h, MPEG2_PICTURE_HEADER, NAL_PRIORITY_HIGHEST );
-        x264_pic_header_write_mpeg2( h, &h->out.bs );
-        if( nal_end( h ) )
-            return -1;
-        overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
-
-        /* generate picture coding extension */
-        nal_start( h, MPEG2_PICTURE_CODING_EXT, NAL_PRIORITY_HIGHEST );
-        x264_pic_coding_extension_write_mpeg2( h, &h->out.bs );
-        if( nal_end( h ) )
-            return -1;
-        overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
-
-        /* generate quant matrix extension */
-        if( h->fenc->b_keyframe && CHROMA_FORMAT == CHROMA_422 &&
-            ( memcmp( h->sps->scaling_list[CQM_8IC],
-                      h->sps->scaling_list[CQM_8IY], 64*sizeof(uint8_t) ) ||
-              memcmp( h->sps->scaling_list[CQM_8PC],
-                      h->sps->scaling_list[CQM_8PY], 64*sizeof(uint8_t) ) ) )
+        if( h->param.b_cqm_recenter )
         {
-            nal_start( h, MPEG2_QUANT_MATRIX_EXT, NAL_PRIORITY_HIGHEST );
-            x264_quant_matrix_extension_write_mpeg2( h, &h->out.bs );
-            if( nal_end( h ) )
-                return -1;
-            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+            /* Picture headers moved past RC; add fixed estimate. The quant
+             * matrix ext is only emitted when the scale changes (decided after
+             * RC), so this 140-byte term is a conservative upper bound here. */
+            overhead += 9 + 2*STRUCTURE_OVERHEAD;            /* pic hdr + pic coding ext */
+            /* quant matrix ext: 4-bit id + 2 or 4 matrices at 1+512 bits, aligned */
+            overhead += ( CHROMA_FORMAT == CHROMA_422 ? 257 : 129 ) + STRUCTURE_OVERHEAD;
+            if( h->param.crop_rect.i_left || h->param.crop_rect.i_right ||
+                h->param.crop_rect.i_top || h->param.crop_rect.i_bottom )
+                overhead += 11 + STRUCTURE_OVERHEAD;          /* pic display ext */
         }
-
-        /* generate picture display extension */
-        if( h->param.crop_rect.i_left || h->param.crop_rect.i_right ||
-            h->param.crop_rect.i_top || h->param.crop_rect.i_bottom )
+        else
         {
-            nal_start( h, MPEG2_PICTURE_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
-            x264_pic_display_extension_write_mpeg2( h, &h->out.bs );
+            /* generate picture header */
+            nal_start( h, MPEG2_PICTURE_HEADER, NAL_PRIORITY_HIGHEST );
+            x264_pic_header_write_mpeg2( h, &h->out.bs );
             if( nal_end( h ) )
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+
+            /* generate picture coding extension */
+            nal_start( h, MPEG2_PICTURE_CODING_EXT, NAL_PRIORITY_HIGHEST );
+            x264_pic_coding_extension_write_mpeg2( h, &h->out.bs );
+            if( nal_end( h ) )
+                return -1;
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+
+            /* generate quant matrix extension */
+            if( h->fenc->b_keyframe && CHROMA_FORMAT == CHROMA_422 &&
+                ( memcmp( h->sps->scaling_list[CQM_8IC],
+                          h->sps->scaling_list[CQM_8IY], 64*sizeof(uint8_t) ) ||
+                  memcmp( h->sps->scaling_list[CQM_8PC],
+                          h->sps->scaling_list[CQM_8PY], 64*sizeof(uint8_t) ) ) )
+            {
+                nal_start( h, MPEG2_QUANT_MATRIX_EXT, NAL_PRIORITY_HIGHEST );
+                x264_quant_matrix_extension_write_mpeg2( h, &h->out.bs );
+                if( nal_end( h ) )
+                    return -1;
+                overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+            }
+
+            /* generate picture display extension */
+            if( h->param.crop_rect.i_left || h->param.crop_rect.i_right ||
+                h->param.crop_rect.i_top || h->param.crop_rect.i_bottom )
+            {
+                nal_start( h, MPEG2_PICTURE_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
+                x264_pic_display_extension_write_mpeg2( h, &h->out.bs );
+                if( nal_end( h ) )
+                    return -1;
+                overhead += h->out.nal[h->out.i_nal-1].i_payload + STRUCTURE_OVERHEAD;
+            }
         }
     }
     else
@@ -4384,6 +4404,29 @@ int     x264_encoder_encode( x264_t *h,
     /* FIXME: Include slice header bit cost. */
     x264_ratecontrol_start( h, h->fenc->i_qpplus1, overhead*8 );
     i_global_qp = x264_ratecontrol_qp( h );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    int b_emit_cqm_ext = 0;
+    if( MPEG2 && h->param.b_cqm_recenter )
+    {
+        /* A keyframe emits a sequence header, which resets the decoder's
+         * matrices to the base (identity). Reset before deciding so the
+         * decision's stickiness anchors to the correct in-effect baseline. */
+        if( h->fenc->b_keyframe )
+            h->i_mpeg2_cqm_center_idx_emitted = MPEG2_CQM_CENTER_IDENTITY;
+        x264_mpeg2_cqm_center_decide( h, x264_ratecontrol_qpm( h ), &i_global_qp );
+        /* Emit a per-picture matrix only when the wanted index differs from
+         * what the decoder currently holds. */
+        b_emit_cqm_ext = h->i_mpeg2_cqm_center_idx != h->i_mpeg2_cqm_center_idx_emitted;
+        if( h->fenc->b_keyframe && CHROMA_FORMAT == CHROMA_422 &&
+            ( memcmp( h->sps->scaling_list[CQM_8IC],
+                      h->sps->scaling_list[CQM_8IY], 64*sizeof(uint8_t) ) ||
+              memcmp( h->sps->scaling_list[CQM_8PC],
+                      h->sps->scaling_list[CQM_8PY], 64*sizeof(uint8_t) ) ) )
+            b_emit_cqm_ext = 1;
+        if( b_emit_cqm_ext )
+            h->i_mpeg2_cqm_center_idx_emitted = h->i_mpeg2_cqm_center_idx;
+    }
+#endif
 
     pic_out->i_qpplus1 =
     h->fdec->i_qpplus1 = i_global_qp + 1;
@@ -4396,6 +4439,43 @@ int     x264_encoder_encode( x264_t *h,
 
     if( h->i_ref[0] )
         h->fdec->i_poc_l0ref0 = h->fref[0][0]->i_poc;
+
+    /* ---------- Picture headers (moved past RC when centering is on) ------ */
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && h->param.b_cqm_recenter )
+    {
+        /* generate picture header */
+        nal_start( h, MPEG2_PICTURE_HEADER, NAL_PRIORITY_HIGHEST );
+        x264_pic_header_write_mpeg2( h, &h->out.bs );
+        if( nal_end( h ) )
+            return -1;
+
+        /* generate picture coding extension */
+        nal_start( h, MPEG2_PICTURE_CODING_EXT, NAL_PRIORITY_HIGHEST );
+        x264_pic_coding_extension_write_mpeg2( h, &h->out.bs );
+        if( nal_end( h ) )
+            return -1;
+
+        /* generate quant matrix extension (only when the scale changed) */
+        if( b_emit_cqm_ext )
+        {
+            nal_start( h, MPEG2_QUANT_MATRIX_EXT, NAL_PRIORITY_HIGHEST );
+            x264_quant_matrix_extension_write_mpeg2( h, &h->out.bs );
+            if( nal_end( h ) )
+                return -1;
+        }
+
+        /* generate picture display extension */
+        if( h->param.crop_rect.i_left || h->param.crop_rect.i_right ||
+            h->param.crop_rect.i_top || h->param.crop_rect.i_bottom )
+        {
+            nal_start( h, MPEG2_PICTURE_DISPLAY_EXT, NAL_PRIORITY_HIGHEST );
+            x264_pic_display_extension_write_mpeg2( h, &h->out.bs );
+            if( nal_end( h ) )
+                return -1;
+        }
+    }
+#endif
 
     /* ------------------------ Create slice header  ----------------------- */
 #if HAVE_MPEG2
