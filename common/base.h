@@ -290,6 +290,10 @@ char *x264_param_strdup( x264_param_t *param, const char *src );
  * the encoding options */
 X264_API char *x264_param2string( x264_param_t *p, int b_res );
 
+#if HAVE_MPEG2
+void x264_param_force_mpeg2( x264_param_t *param );
+#endif
+
 /****************************************************************************
  * Macros
  ****************************************************************************/

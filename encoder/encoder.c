@@ -453,6 +453,18 @@ static int validate_parameters( x264_t *h, int b_open )
         return -1;
     }
 
+#if HAVE_MPEG2
+    if( MPEG2 )
+    {
+        if( h->param.i_avcintra_class )
+        {
+            x264_log( h, X264_LOG_ERROR, "AVC-Intra is not compatible with MPEG-2\n" );
+            return -1;
+        }
+        x264_param_force_mpeg2( &h->param );
+    }
+#endif
+
 #if HAVE_MMX
     if( b_open )
     {
