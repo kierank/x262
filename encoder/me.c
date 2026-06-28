@@ -200,6 +200,21 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
     int mv_y_min = h->mb.mv_limit_fpel[0][1];
     int mv_x_max = h->mb.mv_limit_fpel[1][0];
     int mv_y_max = h->mb.mv_limit_fpel[1][1];
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    /* The f_code bounds MVD = mv - mvp, so center the search on the predictor.
+     * m->mvp is the H.262 predictor for the coded partitions; fcode_reach is
+     * zeroed in the lowres lookahead, gating this off. */
+    if( MPEG2 && h->mb.fcode_reach[0] )
+        for( int axis = 0; axis < 2; axis++ )
+        {
+            int reach = h->mb.fcode_reach[axis] >> 2; /* spel reach -> fpel */
+            int pred = m->mvp[axis] >> 2;
+            int lo = X264_MAX( axis ? mv_y_min : mv_x_min, pred - reach );
+            int hi = X264_MIN( axis ? mv_y_max : mv_x_max, pred + reach );
+            if( axis ) { mv_y_min = lo; mv_y_max = hi; }
+            else       { mv_x_min = lo; mv_x_max = hi; }
+        }
+#endif
 /* Special version of pack to allow shortcuts in CHECK_MVRANGE */
 #define pack16to32_mask2(mx,my) (((uint32_t)(mx)<<16)|((uint32_t)(my)&0x7FFF))
     uint32_t mv_min = pack16to32_mask2( -mv_x_min, -mv_y_min );
