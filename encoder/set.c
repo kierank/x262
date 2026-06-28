@@ -1105,24 +1105,28 @@ void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s )
 
     bs_write( s, 4, MPEG2_PIC_CODING_EXT_ID ); // extension_start_code_identifier
 
-    // FIXME decide fcodes during lookahead
-    int fcode_max[2];
-    switch( param->i_level_idc )
+    /* mpeg2_decide_fcodes normally fills mv_fcode (always >= 1); fall back to the
+     * per-level Main-profile maximum if it didn't, detected by the unset zero. */
+    if( !h->fenc->mv_fcode[0][0] )
     {
-    case X264_MPEG2_LEVEL_LOW:
-        fcode_max[0] = 7;
-        fcode_max[1] = 4;
-        break;
-    case X264_MPEG2_LEVEL_MAIN:
-        fcode_max[0] = 8;
-        fcode_max[1] = 5;
-        break;
-    default:
-        fcode_max[0] = 9;
-        fcode_max[1] = 5;
+        int fcode_max[2];
+        switch( param->i_level_idc )
+        {
+        case X264_MPEG2_LEVEL_LOW:
+            fcode_max[0] = 7;
+            fcode_max[1] = 4;
+            break;
+        case X264_MPEG2_LEVEL_MAIN:
+            fcode_max[0] = 8;
+            fcode_max[1] = 5;
+            break;
+        default:
+            fcode_max[0] = 9;
+            fcode_max[1] = 5;
+        }
+        h->fenc->mv_fcode[0][0] = h->fenc->mv_fcode[1][0] = fcode_max[0];
+        h->fenc->mv_fcode[0][1] = h->fenc->mv_fcode[1][1] = fcode_max[1];
     }
-    h->fenc->mv_fcode[0][0] = h->fenc->mv_fcode[1][0] = fcode_max[0];
-    h->fenc->mv_fcode[0][1] = h->fenc->mv_fcode[1][1] = fcode_max[1];
 
     // f_code[s][t]
     if( IS_X264_TYPE_I( h->fenc->i_type ) )

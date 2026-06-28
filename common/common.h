@@ -457,6 +457,12 @@ struct x264_t
     /* mv/ref/mode cost arrays. */
     uint16_t *cost_mv[QP_MAX+1];
     uint16_t *cost_mv_fpel[QP_MAX+1][4];
+#if HAVE_MPEG2
+    /* MPEG-2 variable f_code: real motion-VLC + (f_code-1) residual bit cost,
+     * wrap-aware. Indexed [f_code][qp], qpel like cost_mv. */
+    uint16_t *cost_mv_mpeg2[10][QP_MAX+1];
+    uint16_t *cost_mv_fpel_mpeg2[10][QP_MAX+1][4];
+#endif
     struct
     {
         uint16_t ref[QP_MAX+1][3][33];
@@ -597,6 +603,8 @@ struct x264_t
         int     mv_max_spel[2];
         int     mv_miny_spel_row[3];
         int     mv_maxy_spel_row[3];
+        /* MPEG-2 variable f_code: per-axis spel reach (tightest over lists). */
+        int     fcode_reach[2];
         /* Fullpel MV range for motion search */
         ALIGNED_8( int16_t mv_limit_fpel[2][2] ); /* min_x, min_y, max_x, max_y */
         int     mv_miny_fpel_row[3];
