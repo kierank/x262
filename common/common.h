@@ -432,6 +432,28 @@ struct x264_t
     udctcoef        (*quant8_bias0[4])[64];  /* [4][QP_MAX_SPEC+1][64] */
     udctcoef        (*nr_offset_emergency)[4][64];
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    /* Per-picture CQM centering: scaled table sets (read-only after init) */
+    int      i_mpeg2_cqm_center_count;
+    udctcoef (*mpeg2_cqm_center_quant8_mf  [MPEG2_CQM_CENTER_MAX][4])[64];
+    udctcoef (*mpeg2_cqm_center_quant8_bias [MPEG2_CQM_CENTER_MAX][4])[64];
+    udctcoef (*mpeg2_cqm_center_quant8_bias0[MPEG2_CQM_CENTER_MAX][4])[64];
+    int      (*mpeg2_cqm_center_dequant8_mf[MPEG2_CQM_CENTER_MAX][4])[64];
+    uint8_t   mpeg2_cqm_center_list[MPEG2_CQM_CENTER_MAX][4][64];
+
+    /* Per-frame table indirection: set at frame start */
+    udctcoef (*quant8_mf_frame[4])[64];
+    udctcoef (*quant8_bias_frame[4])[64];
+    udctcoef (*quant8_bias0_frame[4])[64];
+    int      (*dequant8_mf_frame[4])[64];
+    int      i_mpeg2_cqm_center_idx;
+    /* Index the decoder currently holds (coding order). The matrix persists
+     * across pictures until reloaded; a sequence header (every keyframe) resets
+     * it to the base = identity (k=3). Lives in the thread-sync region so each
+     * coded frame inherits the previous coded frame's emitted index. */
+    int      i_mpeg2_cqm_center_idx_emitted;
+#endif
+
     /* mv/ref/mode cost arrays. */
     uint16_t *cost_mv[QP_MAX+1];
     uint16_t *cost_mv_fpel[QP_MAX+1][4];

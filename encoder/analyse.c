@@ -265,7 +265,16 @@ int x264_analyse_init_costs( x264_t *h )
         logs[i] = log2f( i+1 ) * 2.0f + 1.718f;
 
     int qp_spec = MPEG2 ? QP_MAX_SPEC_MPEG2 : QP_MAX_SPEC;
-    for( int qp = X264_MIN( h->param.rc.i_qp_min, qp_spec ); qp <= h->param.rc.i_qp_max; qp++ )
+    int qp_lo = X264_MIN( h->param.rc.i_qp_min, qp_spec );
+    int qp_hi = h->param.rc.i_qp_max;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && h->param.b_cqm_recenter )
+    {
+        qp_lo = 1;
+        qp_hi = X264_MAX( qp_hi, QP_MAX_SPEC_MPEG2 );
+    }
+#endif
+    for( int qp = qp_lo; qp <= qp_hi; qp++ )
         if( init_costs( h, logs, qp ) )
             goto fail;
 
@@ -325,7 +334,15 @@ void x264_analyse_weight_frame( x264_t *h, int end )
 /* initialize an array of lambda*nbits for all possible mvs */
 static void mb_analyse_load_costs( x264_t *h, x264_mb_analysis_t *a )
 {
-    a->p_cost_mv = h->cost_mv[a->i_qp];
+    int i_qp_cost = a->i_qp;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && h->param.b_cqm_recenter && h->i_mpeg2_cqm_center_idx != MPEG2_CQM_CENTER_IDENTITY )
+    {
+        float S = x264_mpeg2_cqm_center_scale_get( h );
+        i_qp_cost = x264_clip3( (int)( a->i_qp + 8.f*log2f( S ) + 0.5f ), 1, QP_MAX_SPEC_MPEG2 );
+    }
+#endif
+    a->p_cost_mv = h->cost_mv[i_qp_cost];
     a->p_cost_ref[0] = h->cost_table->ref[a->i_qp][x264_clip3(h->sh.i_num_ref_idx_l0_active-1,0,2)];
     a->p_cost_ref[1] = h->cost_table->ref[a->i_qp][x264_clip3(h->sh.i_num_ref_idx_l1_active-1,0,2)];
 }
@@ -340,6 +357,14 @@ static void mb_analyse_init_qp( x264_t *h, x264_mb_analysis_t *a, int qp )
                                                   : x264_lambda_tab_lin_mpeg2[qp];
         a->i_lambda2 = h->param.b_nonlinear_quant ? x264_lambda2_tab_exp_mpeg2[qp]
                                                   : x264_lambda2_tab_lin_mpeg2[qp];
+        /* Centering codes at effective quant grid[qp]*S, not qscale[qp]; scale lambda
+         * to match (lambda ~ qscale, lambda2 ~ qscale^2) or the trellis over-drops. */
+        if( h->param.b_cqm_recenter && h->i_mpeg2_cqm_center_idx != MPEG2_CQM_CENTER_IDENTITY )
+        {
+            float S = x264_mpeg2_cqm_center_scale_get( h );
+            a->i_lambda  = (int)( a->i_lambda  * S + 0.5f );
+            a->i_lambda2 = (int)( a->i_lambda2 * S * S + 0.5f );
+        }
     }
     else
 #endif
