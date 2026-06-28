@@ -51,6 +51,7 @@ typedef struct
     int s_count;
     float blurred_complexity;
     char direct_mode;
+    uint8_t i_mv_fcode[2][2]; /* MPEG-2: pass-1 f_codes [list][axis], 0 if absent */
     int16_t weight[3][2];
     int16_t i_weight_denom[2];
     int refcount[16];
@@ -1112,6 +1113,13 @@ int x264_ratecontrol_new( x264_t *h )
                    &pict_type, &rce->i_duration, &rce->i_cpb_duration, &qp_rc, &qp_aq, &rce->tex_bits,
                    &rce->mv_bits, &rce->misc_bits, &rce->i_count, &rce->p_count,
                    &rce->s_count, &rce->direct_mode );
+
+            memset( rce->i_mv_fcode, 0, sizeof(rce->i_mv_fcode) );
+            char *p_fc = strstr( p, " fc:" );
+            if( p_fc && sscanf( p_fc + 4, "%hhu,%hhu,%hhu,%hhu",
+                                &rce->i_mv_fcode[0][0], &rce->i_mv_fcode[0][1],
+                                &rce->i_mv_fcode[1][0], &rce->i_mv_fcode[1][1] ) != 4 )
+                memset( rce->i_mv_fcode, 0, sizeof(rce->i_mv_fcode) );
             rce->tex_bits  *= res_factor_bits;
             rce->mv_bits   *= res_factor_bits;
             rce->misc_bits *= res_factor_bits;
@@ -1957,6 +1965,22 @@ int x264_ratecontrol_check_reencode( x264_t *h, int frame_bits )
     return X264_MAX_FRAME_REENCODE - rc->i_reencode_count;
 }
 
+/* MPEG-2 2pass: the frame's f_codes from the previous pass. Returns 1 and
+ * fills fcodes when the stats carry them, 0 otherwise. */
+int x264_ratecontrol_mv_fcodes( x264_t *h, int frame_num, int16_t fcodes[2][2] )
+{
+    x264_ratecontrol_t *rc = h->rc;
+    if( !h->param.rc.b_stat_read || frame_num >= rc->num_entries )
+        return 0;
+    ratecontrol_entry_t *rce = &rc->entry[frame_num];
+    if( !rce->i_mv_fcode[0][0] )
+        return 0;
+    for( int i = 0; i < 2; i++ )
+        for( int j = 0; j < 2; j++ )
+            fcodes[i][j] = rce->i_mv_fcode[i][j];
+    return 1;
+}
+
 /* In 2pass, force the same frame types as in the 1st pass */
 int x264_ratecontrol_slice_type( x264_t *h, int frame_num )
 {
@@ -2057,6 +2081,19 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
                  h->stat.frame.i_mb_count_p,
                  h->stat.frame.i_mb_count_skip,
                  c_direct) < 0 )
+            goto fail;
+#if HAVE_MPEG2
+        if( MPEG2 )
+        {
+            /* Pass 2 has no lowres MVs to derive min-fit f_codes from; record
+             * this pass's choices so it doesn't regress to the level ceiling. */
+            if( fprintf( rc->p_stat_file_out, " fc:%d,%d,%d,%d",
+                         h->fenc->mv_fcode[0][0], h->fenc->mv_fcode[0][1],
+                         h->fenc->mv_fcode[1][0], h->fenc->mv_fcode[1][1] ) < 0 )
+                goto fail;
+        }
+#endif
+        if( fprintf( rc->p_stat_file_out, " ref:" ) < 0 )
             goto fail;
 
         /* Only write information for reference reordering once. */

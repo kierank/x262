@@ -807,6 +807,10 @@ x264_frame_t *x264_frame_pop_unused( x264_t *h, int b_fdec )
 
     memset( frame->weight, 0, sizeof(frame->weight) );
     memset( frame->f_weighted_cost_delta, 0, sizeof(frame->f_weighted_cost_delta) );
+#if HAVE_MPEG2
+    /* Clear so set.c's "unset" (zero) fallback is reliable across frame reuse. */
+    memset( frame->mv_fcode, 0, sizeof(frame->mv_fcode) );
+#endif
 
     return frame;
 }

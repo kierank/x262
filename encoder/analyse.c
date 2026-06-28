@@ -59,9 +59,13 @@ typedef struct
     int i_lambda;
     int i_lambda2;
     int i_qp;
-    uint16_t *p_cost_mv;
+    /* [list]: MPEG-2 codes each list's MVs with that list's f_code. */
+    uint16_t *p_cost_mv[2];
+    uint16_t *p_cost_mv_y[2];
+    uint16_t *(*p_cost_mv_fpel[2])[4];
     uint16_t *p_cost_ref[2];
     int i_mbrd;
+    int b_lookahead; /* lowres lookahead search, not a real encode */
 
 
     /* I: Intra part */
@@ -202,6 +206,58 @@ const int x264_lambda2_tab_lin_mpeg2[QP_MAX_MAX+1] = {
 };
 #endif
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* Bit cost of a half-pel MVD under f_code: motion_code VLC + (f_code-1) residual bits.
+ * Single wrap like x264_write_mv_vlc_mpeg2; -1 if the writer can't code it. */
+static int mpeg2_mvd_bits( int mvd, int f_code )
+{
+    int r_size = f_code - 1;
+    int f = 1 << r_size;
+    int low = -(f << 4);
+    int high = -low - 1;
+    int range = f << 5;
+    if( mvd > high )
+        mvd -= range;
+    else if( mvd < low )
+        mvd += range;
+    if( mvd < low || mvd > high )
+        return -1;
+    int m_code = (abs( mvd ) + f - 1) >> r_size;
+    int bits = x264_motion_code[m_code + 16].i_size;
+    if( r_size && m_code )
+        bits += r_size;
+    return bits;
+}
+
+/* Highest f_code the level can signal (H ceiling; V is always lower). Mirrors the H
+ * column of mpeg2_fcode_ceiling. f_codes above this are never chosen, so don't allocate
+ * their cost tables (fc 8-9 are the largest, up to 64 KB each). */
+static int mpeg2_max_fcode( int level_idc )
+{
+    return level_idc == X264_MPEG2_LEVEL_LOW ? 7 : level_idc == X264_MPEG2_LEVEL_MAIN ? 8 : 9;
+}
+
+/* cost_mv_mpeg2[f_code][qp]: lambda * real MV bits, qpel-indexed like cost_mv. */
+static int init_costs_mpeg2( x264_t *h, int qp, int f_code, int lambda, int mv_range )
+{
+    if( h->cost_mv_mpeg2[f_code][qp] )
+        return 0;
+    int mvd_range = 1 << (f_code + 2);
+    mv_range = X264_MAX( mv_range, mvd_range );
+    CHECKED_MALLOC( h->cost_mv_mpeg2[f_code][qp], (4*4*mv_range + 1) * sizeof(uint16_t) );
+    h->cost_mv_mpeg2[f_code][qp] += 2*4*mv_range;
+    for( int i = 0; i <= 2*4*mv_range; i++ )
+    {
+        int bits = mpeg2_mvd_bits( i >> 1, f_code ); /* qpel index -> half-pel MVD */
+        h->cost_mv_mpeg2[f_code][qp][-i] =
+        h->cost_mv_mpeg2[f_code][qp][i]  = bits < 0 ? UINT16_MAX : X264_MIN( lambda * bits, UINT16_MAX );
+    }
+    return 0;
+fail:
+    return -1;
+}
+#endif
+
 static int init_costs( x264_t *h, float *logs, int qp )
 {
     if( h->cost_mv[qp] )
@@ -229,6 +285,9 @@ static int init_costs( x264_t *h, float *logs, int qp )
         for( int i = 0; i < 3; i++ )
             for( int j = 0; j < 33; j++ )
                 h->cost_table->ref[qp][i][j] = 0;
+        for( int fc = 1; fc <= mpeg2_max_fcode( h->param.i_level_idc ); fc++ )
+            if( init_costs_mpeg2( h, qp, fc, lambda, mv_range ) )
+                return -1;
     }
     else
 #endif
@@ -244,6 +303,17 @@ static int init_costs( x264_t *h, float *logs, int qp )
             for( int i = -2*mv_range; i < 2*mv_range; i++ )
                 h->cost_mv_fpel[qp][j][i] = h->cost_mv[qp][i*4+j];
         }
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        if( MPEG2 )
+            for( int fc = 1; fc <= mpeg2_max_fcode( h->param.i_level_idc ); fc++ )
+                for( int j = 0; j < 4; j++ )
+                {
+                    CHECKED_MALLOC( h->cost_mv_fpel_mpeg2[fc][qp][j], (4*mv_range + 1) * sizeof(uint16_t) );
+                    h->cost_mv_fpel_mpeg2[fc][qp][j] += 2*mv_range;
+                    for( int i = -2*mv_range; i < 2*mv_range; i++ )
+                        h->cost_mv_fpel_mpeg2[fc][qp][j][i] = h->cost_mv_mpeg2[fc][qp][i*4+j];
+                }
+#endif
     }
     uint16_t *cost_i4x4_mode = h->cost_table->i4x4_mode[qp];
     for( int i = 0; i < 17; i++ )
@@ -291,6 +361,17 @@ void x264_analyse_free_costs( x264_t *h )
             if( h->cost_mv_fpel[i][j] )
                 x264_free( h->cost_mv_fpel[i][j] - 2*mv_range );
         }
+#if HAVE_MPEG2
+        for( int fc = 1; fc <= 9; fc++ )
+        {
+            int fcode_mv_range = X264_MAX( mv_range, 1 << (fc + 2) );
+            if( h->cost_mv_mpeg2[fc][i] )
+                x264_free( h->cost_mv_mpeg2[fc][i] - 2*4*fcode_mv_range );
+            for( int j = 0; j < 4; j++ )
+                if( h->cost_mv_fpel_mpeg2[fc][i][j] )
+                    x264_free( h->cost_mv_fpel_mpeg2[fc][i][j] - 2*mv_range );
+        }
+#endif
     }
 }
 
@@ -325,7 +406,27 @@ void x264_analyse_weight_frame( x264_t *h, int end )
 /* initialize an array of lambda*nbits for all possible mvs */
 static void mb_analyse_load_costs( x264_t *h, x264_mb_analysis_t *a )
 {
-    a->p_cost_mv = h->cost_mv[a->i_qp];
+    for( int l = 0; l < 2; l++ )
+    {
+        a->p_cost_mv[l] =
+        a->p_cost_mv_y[l] = h->cost_mv[a->i_qp];
+        a->p_cost_mv_fpel[l] = h->cost_mv_fpel;
+    }
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    /* Per-axis, per-list f_code cost tables. Skip the lowres lookahead search: it has
+     * no f_code chosen yet, and h->fenc there is not the frame being searched. */
+    if( MPEG2 && !a->b_lookahead && h->fenc->mv_fcode[0][0] )
+        for( int l = 0; l < 2; l++ )
+        {
+            int fc_x = h->fenc->mv_fcode[l][0];
+            int fc_y = h->fenc->mv_fcode[l][1];
+            if( !fc_x )
+                continue; /* list 1 is unused in P slices */
+            a->p_cost_mv[l]      = h->cost_mv_mpeg2[fc_x][a->i_qp];
+            a->p_cost_mv_y[l]    = h->cost_mv_mpeg2[fc_y][a->i_qp];
+            a->p_cost_mv_fpel[l] = h->cost_mv_fpel_mpeg2[fc_x];
+        }
+#endif
     a->p_cost_ref[0] = h->cost_table->ref[a->i_qp][x264_clip3(h->sh.i_num_ref_idx_l0_active-1,0,2)];
     a->p_cost_ref[1] = h->cost_table->ref[a->i_qp][x264_clip3(h->sh.i_num_ref_idx_l1_active-1,0,2)];
 }
@@ -445,6 +546,19 @@ static void mb_analyse_mv_range_y( x264_t *h )
         h->mb.mv_max_spel[0] = X264_MIN( h->mb.mv_max_spel[0], 64*(h->mb.i_mb_width-h->mb.i_mb_x-1) );
         h->mb.mv_min_spel[1] = X264_MAX( h->mb.mv_min_spel[1], -mvy_scale*h->mb.i_mb_y );
         h->mb.mv_max_spel[1] = X264_MIN( h->mb.mv_max_spel[1], mvy_scale*(h->mb.i_mb_height-h->mb.i_mb_y-1) );
+        /* Variable f_code: keep the absolute MV in the chosen range [-16f, 16f-1]
+         * half-pel, else the decoder wraps it and predictors diverge (H.262 7.6.3).
+         * Field MVs in frame pictures get half the vertical range (7.6.3.2).
+         * fcode_reach[axis] is the tightest (smallest-f_code) bound over the lists,
+         * precomputed per frame in mb_analyse_init. */
+        for( int axis = 0; axis < 2; axis++ )
+        {
+            int reach = h->mb.fcode_reach[axis];
+            if( MB_INTERLACED && axis == 1 )
+                reach >>= 1;
+            h->mb.mv_min_spel[axis] = X264_MAX( h->mb.mv_min_spel[axis], -reach );
+            h->mb.mv_max_spel[axis] = X264_MIN( h->mb.mv_max_spel[axis], reach - 2 );
+        }
         /* Round spel inward to even so a clamp to the bound can never be odd. */
         h->mb.mv_min_spel[0] = (h->mb.mv_min_spel[0] + 1) & ~1;
         h->mb.mv_max_spel[0] = h->mb.mv_max_spel[0] & ~1;
@@ -477,6 +591,7 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
     a->i_mbrd = (subme>=6) + (subme>=8) + (h->param.analyse.i_subpel_refine>=10);
     h->mb.b_deblock_rdo = h->param.analyse.i_subpel_refine >= 9 && h->sh.i_disable_deblocking_filter_idc != 1;
     a->b_early_terminate = h->param.analyse.i_subpel_refine < 11;
+    a->b_lookahead = 0;
     a->i_mb_partition16x8[0] =
     a->i_mb_partition16x8[1] =
     a->i_mb_partition8x16[0] =
@@ -509,6 +624,16 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
     /* II: Inter part P/B frame */
     if( h->sh.i_type != SLICE_TYPE_I )
     {
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        if( MPEG2 )
+            for( int axis = 0; axis < 2; axis++ )
+            {
+                int fc = h->fenc->mv_fcode[0][axis];
+                if( h->sh.i_type == SLICE_TYPE_B )
+                    fc = X264_MIN( fc, h->fenc->mv_fcode[1][axis] );
+                h->mb.fcode_reach[axis] = 1 << (fc + 4);
+            }
+#endif
         int i_fmv_range = 4 * h->param.analyse.i_mv_range;
         // limit motion search to a slightly smaller range than the theoretical limit,
         // since the search may go a few iterations past its given range
@@ -1444,9 +1569,19 @@ static void intra_rd_refine( x264_t *h, x264_mb_analysis_t *a )
     }
 }
 
+/* LOAD_FENC defaults to list 0; searches on list 1 must re-point at its tables. */
+#define LOAD_COST_MV(m, l) \
+{ \
+    (m)->p_cost_mv = a->p_cost_mv[l]; \
+    (m)->p_cost_mv_y = a->p_cost_mv_y[l]; \
+    (m)->p_cost_mv_fpel = a->p_cost_mv_fpel[l]; \
+}
+
 #define LOAD_FENC(m, src, xoff, yoff) \
 { \
-    (m)->p_cost_mv = a->p_cost_mv; \
+    (m)->p_cost_mv = a->p_cost_mv[0]; \
+    (m)->p_cost_mv_y = a->p_cost_mv_y[0]; \
+    (m)->p_cost_mv_fpel = a->p_cost_mv_fpel[0]; \
     (m)->i_stride[0] = h->mb.pic.i_stride[0]; \
     (m)->i_stride[1] = h->mb.pic.i_stride[1]; \
     (m)->i_stride[2] = h->mb.pic.i_stride[2]; \
@@ -2276,6 +2411,7 @@ static void mb_analyse_inter_b16x16( x264_t *h, x264_mb_analysis_t *a )
             }
 
             m.i_ref_cost = REF_COST( l, i_ref );
+            LOAD_COST_MV( &m, l );
 
             /* search with ref */
             LOAD_HPELS( &m, h->mb.pic.p_fref[l][i_ref], l, i_ref, 0, 0 );
@@ -2343,9 +2479,9 @@ static void mb_analyse_inter_b16x16( x264_t *h, x264_mb_analysis_t *a )
     if( M32( a->l0.bi16x16.mv ) | M32( a->l1.bi16x16.mv ) )
     {
         int l0_mv_cost = a->l0.bi16x16.p_cost_mv[-a->l0.bi16x16.mvp[0]]
-                       + a->l0.bi16x16.p_cost_mv[-a->l0.bi16x16.mvp[1]];
+                       + a->l0.bi16x16.p_cost_mv_y[-a->l0.bi16x16.mvp[1]];
         int l1_mv_cost = a->l1.bi16x16.p_cost_mv[-a->l1.bi16x16.mvp[0]]
-                       + a->l1.bi16x16.p_cost_mv[-a->l1.bi16x16.mvp[1]];
+                       + a->l1.bi16x16.p_cost_mv_y[-a->l1.bi16x16.mvp[1]];
         h->mc.avg[PIXEL_16x16]( pix0, 16, h->mb.pic.p_fref[0][a->l0.bi16x16.i_ref][0], h->mb.pic.i_stride[0],
                                 h->mb.pic.p_fref[1][a->l1.bi16x16.i_ref][0], h->mb.pic.i_stride[0],
                                 h->mb.bipred_weight[a->l0.bi16x16.i_ref][a->l1.bi16x16.i_ref] );
@@ -2685,6 +2821,7 @@ static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
             for( i_ref = 0; i_ref < h->mb.pic.i_fref[l]; i_ref++ )
             {
                 m.i_ref_cost = a->i_lambda;  /* motion_vertical_field_select: 1 bit */
+                LOAD_COST_MV( &m, l );
 
                 /* search with ref */
                 m.i_stride[0] >>= 1;

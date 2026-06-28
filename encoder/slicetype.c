@@ -45,6 +45,7 @@ void x264_weights_analyse( x264_t *h, x264_frame_t *fenc, x264_frame_t *ref, int
 static void lowres_context_init( x264_t *h, x264_mb_analysis_t *a )
 {
     a->i_qp = X264_LOOKAHEAD_QP;
+    a->b_lookahead = 1;
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
     a->i_lambda = MPEG2 ? ( h->param.b_nonlinear_quant ? x264_lambda_tab_exp_mpeg2[ a->i_qp ]
                                                         : x264_lambda_tab_lin_mpeg2[ a->i_qp ] )
@@ -609,7 +610,9 @@ static void slicetype_mb_cost( x264_t *h, x264_mb_analysis_t *a,
     }
 
     m[0].i_pixel = PIXEL_8x8;
-    m[0].p_cost_mv = a->p_cost_mv;
+    m[0].p_cost_mv = a->p_cost_mv[0];
+    m[0].p_cost_mv_y = a->p_cost_mv[0];
+    m[0].p_cost_mv_fpel = a->p_cost_mv_fpel[0];
     m[0].i_stride[0] = i_stride;
     m[0].p_fenc[0] = h->mb.pic.p_fenc[0];
     m[0].weight = w;
@@ -624,7 +627,9 @@ static void slicetype_mb_cost( x264_t *h, x264_mb_analysis_t *a,
         ALIGNED_ARRAY_8( int16_t, dmv,[2],[2] );
 
         m[1].i_pixel = PIXEL_8x8;
-        m[1].p_cost_mv = a->p_cost_mv;
+        m[1].p_cost_mv = a->p_cost_mv[0];
+        m[1].p_cost_mv_y = a->p_cost_mv[0];
+        m[1].p_cost_mv_fpel = a->p_cost_mv_fpel[0];
         m[1].i_stride[0] = i_stride;
         m[1].p_fenc[0] = h->mb.pic.p_fenc[0];
         m[1].i_ref = 0;
@@ -698,7 +703,7 @@ static void slicetype_mb_cost( x264_t *h, x264_mb_analysis_t *a,
             }
 
             x264_me_search( h, &m[l], mvc, i_mvc );
-            m[l].cost -= a->p_cost_mv[0]; // remove mvcost from skip mbs
+            m[l].cost -= a->p_cost_mv[0][0]; // remove mvcost from skip mbs
             if( M32( m[l].mv ) )
                 m[l].cost += 5 * a->i_lambda;
 
@@ -1748,6 +1753,103 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
 #endif
 }
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+#define MPEG2_VARIABLE_FCODE(h) MPEG2
+
+/* Per-axis Main-profile f_code ceiling for the active level. */
+static void mpeg2_fcode_ceiling( x264_t *h, int ceil[2] )
+{
+    switch( h->param.i_level_idc )
+    {
+    case X264_MPEG2_LEVEL_LOW:  ceil[0] = 7; ceil[1] = 4; break;
+    case X264_MPEG2_LEVEL_MAIN: ceil[0] = 8; ceil[1] = 5; break;
+    default:                    ceil[0] = 9; ceil[1] = 5;
+    }
+}
+
+/* Smallest f_code whose range [-16f, 16f-1] half-pel covers magnitude d_max. */
+static int mpeg2_min_fcode( int d_max, int ceiling )
+{
+    for( int fc = 1; fc < ceiling; fc++ )
+        if( d_max <= (1 << (fc+3)) - 1 )
+            return fc;
+    return ceiling;
+}
+
+/* Decide one frame's per-axis f_codes for a reference list from its lowres MVs. */
+static void mpeg2_decide_fcodes_list( x264_t *h, x264_frame_t *fenc, int list, int dist )
+{
+    int ceiling[2];
+    mpeg2_fcode_ceiling( h, ceiling );
+
+    /* No lowres MVs in 2-pass without VBV (b_have_lowres=0, the pointers stay
+     * NULL): fall back to the ceiling; the stats round-trip restores pass-1's
+     * choices at the encoder_encode apply site. */
+    if( dist < 0 || !fenc->lowres_mvs[list][dist] || fenc->lowres_mvs[list][dist][0][0] == 0x7FFF )
+    {
+        fenc->mv_fcode[list][0] = ceiling[0];
+        fenc->mv_fcode[list][1] = ceiling[1];
+        return;
+    }
+
+    /* H.262 7.6.3.1-2 bounds the absolute MV (and predictor), not just the MVD.
+     * lowres MVs (half-res qpel) already equal the full-res half-pel estimate. */
+    int16_t (*fenc_mv)[2] = fenc->lowres_mvs[list][dist];
+    int i_mb_count = h->mb.i_mb_width * h->mb.i_mb_height;
+    int d_max[2] = {0, 0};
+
+    for( int xy = 0; xy < i_mb_count; xy++ )
+        for( int i = 0; i < 2; i++ )
+        {
+            int mv = fenc_mv[xy][i];
+            int mag = X264_MAX( mv, -mv - 1 ); /* asymmetric range */
+            if( mag > d_max[i] ) d_max[i] = mag;
+        }
+
+    /* Field MVs in frame pictures get half the vertical range (H.262 7.6.3.2), so
+     * the vertical f_code must cover twice the magnitude. */
+    if( PARAM_INTERLACED )
+        d_max[1] = X264_MIN( d_max[1] * 2 + 1, (1 << (ceiling[1] + 3)) - 1 );
+
+    for( int i = 0; i < 2; i++ )
+        fenc->mv_fcode[list][i] = X264_MIN( mpeg2_min_fcode( d_max[i], ceiling[i] ) + 1, ceiling[i] );
+}
+
+/* Choose per-frame f_codes from lookahead MVs. frames[] is display order
+ * (frames[0] = forward anchor), so ref distances match slicetype_frame_cost. */
+static void mpeg2_decide_fcodes( x264_t *h, x264_frame_t **frames, int bframes )
+{
+    int ceiling[2];
+    mpeg2_fcode_ceiling( h, ceiling );
+
+    /* trailing P/I */
+    x264_frame_t *last = frames[bframes+1];
+    if( last->i_type == X264_TYPE_P )
+        mpeg2_decide_fcodes_list( h, last, 0, bframes );
+    else
+    {
+        last->mv_fcode[0][0] = last->mv_fcode[1][0] = ceiling[0];
+        last->mv_fcode[0][1] = last->mv_fcode[1][1] = ceiling[1];
+    }
+
+    /* B frames: list 0 = b-p0-1, list 1 = p1-b-1 (mirrors the cost loop). */
+    int p0 = 0;
+    for( int b = 1; b <= bframes; b++ )
+    {
+        int p1;
+        if( frames[b]->i_type == X264_TYPE_B )
+            for( p1 = b; frames[p1]->i_type == X264_TYPE_B; )
+                p1++;
+        else
+            p1 = bframes + 1;
+        mpeg2_decide_fcodes_list( h, frames[b], 0, b - p0 - 1 );
+        mpeg2_decide_fcodes_list( h, frames[b], 1, p1 - b - 1 );
+        if( frames[b]->i_type == X264_TYPE_BREF )
+            p0 = b;
+    }
+}
+#endif
+
 void x264_slicetype_decide( x264_t *h )
 {
     x264_frame_t *frames[X264_BFRAME_MAX+2];
@@ -1939,6 +2041,16 @@ void x264_slicetype_decide( x264_t *h )
             }
         }
     }
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2_VARIABLE_FCODE(h) )
+    {
+        x264_emms();
+        frames[0] = h->lookahead->last_nonb;
+        memcpy( &frames[1], h->lookahead->next.list, (bframes+1) * sizeof(x264_frame_t*) );
+        mpeg2_decide_fcodes( h, frames, bframes );
+    }
+#endif
 
     /* Analyse for weighted P frames */
     if( !h->param.rc.b_stat_read && h->lookahead->next.list[bframes]->i_type == X264_TYPE_P

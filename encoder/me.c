@@ -209,7 +209,7 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
 #define CHECK_MVRANGE(mx,my) (!(((pack16to32_mask2(mx,my) + mv_min) | (mv_max - pack16to32_mask2(mx,my))) & 0x80004000))
 
     const uint16_t *p_cost_mvx = m->p_cost_mv - m->mvp[0];
-    const uint16_t *p_cost_mvy = m->p_cost_mv - m->mvp[1];
+    const uint16_t *p_cost_mvy = m->p_cost_mv_y - m->mvp[1];
 
     /* Try extra predictors if provided.  If subme >= 3, check subpel predictors,
      * otherwise round them to fullpel. */
@@ -623,7 +623,9 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
             const int max_x = X264_MIN( bmx + i_me_range, mv_x_max );
             const int max_y = X264_MIN( bmy + i_me_range, mv_y_max );
             /* SEA is fastest in multiples of 4 */
-            const int width = (max_x - min_x + 3) & ~3;
+            const int width = X264_MAX( 0, (max_x - min_x + 3) & ~3 );
+            if( width <= 0 || max_y < min_y )
+                break;
 #if 0
             /* plain old exhaustive search */
             for( int my = min_y; my <= max_y; my++ )
@@ -638,7 +640,7 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
             int delta = x264_pixel_size[sad_size].w;
             int16_t *xs = h->scratch_buffer;
             int xn;
-            uint16_t *cost_fpel_mvx = h->cost_mv_fpel[h->mb.i_qp][-m->mvp[0]&3] + (-m->mvp[0]>>2);
+            uint16_t *cost_fpel_mvx = m->p_cost_mv_fpel[h->mb.i_qp][-m->mvp[0]&3] + (-m->mvp[0]>>2);
 
             h->pixf.sad_x4[sad_size]( (pixel*)x264_zero, p_fenc, p_fenc+delta,
                 p_fenc+delta*FENC_STRIDE, p_fenc+delta+delta*FENC_STRIDE,
@@ -874,7 +876,7 @@ static void refine_subpel( x264_t *h, x264_me_t *m, int hpel_iters, int qpel_ite
     const int bw = x264_pixel_size[m->i_pixel].w;
     const int bh = x264_pixel_size[m->i_pixel].h;
     const uint16_t *p_cost_mvx = m->p_cost_mv - m->mvp[0];
-    const uint16_t *p_cost_mvy = m->p_cost_mv - m->mvp[1];
+    const uint16_t *p_cost_mvy = m->p_cost_mv_y - m->mvp[1];
     const int i_pixel = m->i_pixel;
     const int b_chroma_me = h->mb.b_chroma_me && (i_pixel <= PIXEL_8x8 || CHROMA444);
     int chromapix = h->luma2chroma_pixel[i_pixel];
@@ -1105,9 +1107,9 @@ static ALWAYS_INLINE void me_refine_bidir( x264_t *h, x264_me_t *m0, x264_me_t *
     }
 
     const uint16_t *p_cost_m0x = m0->p_cost_mv - m0->mvp[0];
-    const uint16_t *p_cost_m0y = m0->p_cost_mv - m0->mvp[1];
+    const uint16_t *p_cost_m0y = m0->p_cost_mv_y - m0->mvp[1];
     const uint16_t *p_cost_m1x = m1->p_cost_mv - m1->mvp[0];
-    const uint16_t *p_cost_m1y = m1->p_cost_mv - m1->mvp[1];
+    const uint16_t *p_cost_m1y = m1->p_cost_mv_y - m1->mvp[1];
 
     h->mc.memzero_aligned( visited, sizeof(uint8_t[8][8][8]) );
 
@@ -1295,7 +1297,7 @@ void x264_me_refine_qpel_rd( x264_t *h, x264_me_t *m, int i_lambda2, int i4, int
     pmx = m->mvp[0];
     pmy = m->mvp[1];
     p_cost_mvx = m->p_cost_mv - pmx;
-    p_cost_mvy = m->p_cost_mv - pmy;
+    p_cost_mvy = m->p_cost_mv_y - pmy;
     COST_MV_SATD( bmx, bmy, bsatd, 0 );
     if( m->i_pixel != PIXEL_16x16 )
         COST_MV_RD( bmx, bmy, 0, 0, 0 )
