@@ -1068,6 +1068,7 @@ static struct option long_options[] =
 #if HAVE_MPEG2
     { "mpeg2",                no_argument,       NULL, OPT_MPEG2 },
     { "no-mpeg2",             no_argument,       NULL, OPT_NO_MPEG2 },
+    { "imx-class",            required_argument, NULL, 0 },
     { "dc",             required_argument,       NULL, 0 },
     { "altscan",              no_argument,       NULL, 0 },
     { "no-altscan",           no_argument,       NULL, 0 },
@@ -1075,6 +1076,7 @@ static struct option long_options[] =
     { "no-linear-quant",      no_argument,       NULL, 0 },
     { "altintra",             no_argument,       NULL, 0 },
     { "no-altintra",          no_argument,       NULL, 0 },
+    { "cqm-recenter",         no_argument,       NULL, 0 },
 #endif
     { "constrained-intra",    no_argument,       NULL, 0 },
     { "cabac",                no_argument,       NULL, 0 },
@@ -1436,6 +1438,22 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
     cli_output_opt_t output_opt;
     char *preset = NULL;
     char *tune = NULL;
+#if HAVE_MPEG2
+    int b_mpeg2 = 0;
+    /* If the binary is called as x262, default to MPEG-2. */
+    {
+        char *cli_name = strdup( argv[0] );
+        if( cli_name )
+        {
+            char *base = basename( cli_name );
+            char *dot = strrchr( base, '.' );
+            if( dot ) *dot = 0;
+            if( !strcasecmp( base, "x262" ) )
+                b_mpeg2 = 1;
+            free( cli_name );
+        }
+    }
+#endif
 
     /* Presets are applied before all other options. */
     for( optind = 0;; )
@@ -1447,6 +1465,12 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
             preset = optarg;
         if( c == OPT_TUNE )
             tune = optarg;
+#if HAVE_MPEG2
+        else if( c == OPT_MPEG2 )
+            b_mpeg2 = 1;
+        else if( c == OPT_NO_MPEG2 )
+            b_mpeg2 = 0;
+#endif
         else if( c == '?' )
             return -1;
     }
@@ -1456,42 +1480,11 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
 
     x264_param_default( &defaults );
 #if HAVE_MPEG2
-    /* MPEG-2 defaults must be applied before the preset. */
-    defaults.b_mpeg2 = param->b_mpeg2 = 0;
+    /* MPEG-2 defaults must precede the preset so the preset adjusts on top. */
+    if( b_mpeg2 )
     {
-        char *cli_name = strdup( argv[0] );
-        if( !cli_name )
-            return -1;
-        char *cli_ext = strrchr( cli_name, '.' );
-        if( cli_ext )
-            *cli_ext = 0;
-        if( !strcasecmp( basename( cli_name ), "x262" ) )
-        {
-            defaults.b_mpeg2 = param->b_mpeg2 = 1;
-            x264_param_default_mpeg2( &defaults );
-            x264_param_default_mpeg2( param );
-        }
-        free( cli_name );
-    }
-
-    /* Handle --mpeg2/--no-mpeg2 before the preset so the preset adjusts on top. */
-    for( optind = 0;; )
-    {
-        int c = getopt_long( argc, argv, short_options, long_options, NULL );
-        if( c == -1 )
-            break;
-        if( c == OPT_MPEG2 )
-        {
-            param->b_mpeg2 = 1;
-            x264_param_default_mpeg2( param );
-        }
-        else if( c == OPT_NO_MPEG2 )
-        {
-            param->b_mpeg2 = 0;
-            x264_param_default( param );
-        }
-        else if( c == '?' )
-            return -1;
+        x264_param_default_mpeg2( param );
+        x264_param_default_mpeg2( &defaults );
     }
 #endif
 
@@ -1717,7 +1710,8 @@ generic_option:
     info.fps_den    = param->i_fps_den;
     info.fullrange  = input_opt.input_range == RANGE_PC;
     info.interlaced = param->b_interlaced;
-    if( param->vui.i_sar_width > 0 && param->vui.i_sar_height > 0 )
+    int b_user_sar = param->vui.i_sar_width > 0 && param->vui.i_sar_height > 0;
+    if( b_user_sar )
     {
         info.sar_width  = param->vui.i_sar_width;
         info.sar_height = param->vui.i_sar_height;

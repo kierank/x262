@@ -357,7 +357,7 @@ static void x264_log_mpeg2( void *p_unused, int i_level, const char *psz_fmt, va
     vfprintf( stderr, psz_fmt, arg );
 }
 
-static void x264_param_force_mpeg2( x264_param_t *param )
+void x264_param_force_mpeg2( x264_param_t *param )
 {
     /* These must be set when encoding MPEG-2 */
     param->b_mpeg2 = 1;
@@ -366,7 +366,6 @@ static void x264_param_force_mpeg2( x264_param_t *param )
     param->analyse.inter = 0;
     param->analyse.i_weighted_pred = 0;
     param->analyse.b_weighted_bipred = 0;
-    param->analyse.b_dct_decimate = 0;
     param->analyse.i_direct_mv_pred = X264_DIRECT_PRED_NONE;
     param->analyse.b_mixed_references = 0;
     param->analyse.i_trellis = 0;
@@ -377,10 +376,19 @@ static void x264_param_force_mpeg2( x264_param_t *param )
     param->i_nal_hrd = X264_NAL_HRD_NONE;
     param->b_cabac = 0;
     param->i_slice_max_size = 0;
-    param->i_slice_max_mbs = 0;
     param->i_slice_count = 0;
     param->b_sliced_threads = 0;
     param->i_frame_reference = 1;
+}
+
+/* MPEG-2 tuning defaults (not structural constraints); applied before preset/tune. */
+static void x264_param_tune_mpeg2( x264_param_t *param )
+{
+    param->pf_log = x264_log_mpeg2;
+    param->i_intra_dc_precision = X264_INTRA_DC_8_BIT;
+    param->b_nonlinear_quant = 1;
+    param->b_alt_intra_vlc = 1;
+    param->b_alternate_scan = -1;
 }
 #endif /* HAVE_MPEG2 */
 
@@ -649,10 +657,6 @@ static int param_apply_preset( x264_param_t *param, const char *preset )
         x264_log_internal( X264_LOG_ERROR, "invalid preset '%s'\n", preset );
         return -1;
     }
-#if HAVE_MPEG2
-    if( param->b_mpeg2 )
-        x264_param_force_mpeg2( param );
-#endif
     return 0;
 }
 
@@ -748,10 +752,6 @@ static int param_apply_tune( x264_param_t *param, const char *tune )
             x264_log_internal( X264_LOG_WARNING, "only 1 psy tuning can be used: ignoring tune %.*s\n", len, tune );
         }
     }
-#if HAVE_MPEG2
-    if( param->b_mpeg2 )
-        x264_param_force_mpeg2( param );
-#endif
     return 0;
 }
 
@@ -759,17 +759,21 @@ REALIGN_STACK int x264_param_default_preset( x264_param_t *param, const char *pr
 {
 #if HAVE_MPEG2
     int b_mpeg2 = param->b_mpeg2;
-    if( b_mpeg2 )
-        x264_param_default_mpeg2( param );
-    else
-        x264_param_default( param );
-#else
+#endif
     x264_param_default( param );
+#if HAVE_MPEG2
+    /* MPEG-2 tuning is the base; preset/tune adjust; structural constraints win last. */
+    if( b_mpeg2 )
+        x264_param_tune_mpeg2( param );
 #endif
     if( preset && param_apply_preset( param, preset ) < 0 )
         return -1;
     if( tune && param_apply_tune( param, tune ) < 0 )
         return -1;
+#if HAVE_MPEG2
+    if( b_mpeg2 )
+        x264_param_force_mpeg2( param );
+#endif
     return 0;
 }
 
@@ -777,12 +781,8 @@ REALIGN_STACK int x264_param_default_preset( x264_param_t *param, const char *pr
 REALIGN_STACK void x264_param_default_mpeg2( x264_param_t *param )
 {
     x264_param_default( param );
+    x264_param_tune_mpeg2( param );
     x264_param_force_mpeg2( param );
-    param->pf_log = x264_log_mpeg2;
-    param->i_intra_dc_precision = X264_INTRA_DC_8_BIT;
-    param->b_nonlinear_quant = 1;
-    param->b_alt_intra_vlc = 1;
-    param->b_alternate_scan = 0;
 }
 
 REALIGN_STACK int x264_param_default_preset_mpeg2( x264_param_t *param, const char *preset, const char *tune )
@@ -1306,7 +1306,9 @@ REALIGN_STACK int x264_param_parse( x264_param_t *p, const char *name, const cha
     OPT("interlaced")
         p->b_interlaced = atobool(value);
     OPT("tff")
+    {
         p->b_interlaced = p->b_tff = atobool(value);
+    }
     OPT("bff")
     {
         p->b_interlaced = atobool(value);
