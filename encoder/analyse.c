@@ -589,6 +589,38 @@ static void mb_analyse_mv_range_y( x264_t *h )
 }
 
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* Re-derive the search bounds against one list's f_code reach. mb_analyse_init leaves them
+ * at the tightest reach over both lists, which needlessly confines the list whose f_code is
+ * larger. Everything is rebuilt from the raw (pre-reach) bounds, since mb_analyse_mv_range_y
+ * only ever tightens. i_list 2 restores the tightest reach for the bidir and RD paths. */
+static void mb_analyse_mv_range_list( x264_t *h, int i_list )
+{
+    const int i_fpel_border = 6;
+    CP64( h->mb.fcode_reach, h->mb.fcode_reach_list[i_list] );
+
+    h->mb.mv_min_spel[0] = X264_MAX( h->mb.mv_min[0], -h->mb.fcode_reach[0] );
+    h->mb.mv_max_spel[0] = X264_MIN( h->mb.mv_max[0], h->mb.fcode_reach[0] - 1 );
+    h->mb.mv_limit_fpel[0][0] = (h->mb.mv_min_spel[0]>>2) + i_fpel_border;
+    h->mb.mv_limit_fpel[1][0] = (h->mb.mv_max_spel[0]>>2) - i_fpel_border;
+
+    if( PARAM_INTERLACED )
+        for( int i = 0; i < 3; i++ )
+        {
+            h->mb.mv_miny_spel_row[i] = X264_MAX( h->mb.mv_miny_row[i], -h->mb.fcode_reach[1] );
+            h->mb.mv_maxy_spel_row[i] = X264_MIN3( h->mb.mv_maxy_row[i], h->mb.fcode_reach[1] - 1, h->mb.mv_maxy_thread );
+            h->mb.mv_miny_fpel_row[i] = (h->mb.mv_miny_spel_row[i]>>2) + i_fpel_border;
+            h->mb.mv_maxy_fpel_row[i] = (h->mb.mv_maxy_spel_row[i]>>2) - i_fpel_border;
+        }
+    else
+    {
+        h->mb.mv_min_spel[1] = X264_MAX( h->mb.mv_min[1], -h->mb.fcode_reach[1] );
+        h->mb.mv_max_spel[1] = X264_MIN3( h->mb.mv_max[1], h->mb.fcode_reach[1] - 1, h->mb.mv_maxy_thread );
+        h->mb.mv_limit_fpel[0][1] = (h->mb.mv_min_spel[1]>>2) + i_fpel_border;
+        h->mb.mv_limit_fpel[1][1] = (h->mb.mv_max_spel[1]>>2) - i_fpel_border;
+    }
+    mb_analyse_mv_range_y( h );
+}
+
 /* Switch the current MB between frame and field coding for the MPEG-2 adaptive decision. */
 static void x264_mb_switch_field_mpeg2( x264_t *h, int b_field )
 {
@@ -645,10 +677,12 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
         if( MPEG2 )
             for( int axis = 0; axis < 2; axis++ )
             {
-                int fc = h->fenc->mv_fcode[0][axis];
-                if( h->sh.i_type == SLICE_TYPE_B )
-                    fc = X264_MIN( fc, h->fenc->mv_fcode[1][axis] );
-                h->mb.fcode_reach[axis] = 1 << (fc + 4);
+                int fc0 = h->fenc->mv_fcode[0][axis];
+                int fc1 = h->sh.i_type == SLICE_TYPE_B ? h->fenc->mv_fcode[1][axis] : fc0;
+                h->mb.fcode_reach_list[0][axis] = 1 << (fc0 + 4);
+                h->mb.fcode_reach_list[1][axis] = 1 << (fc1 + 4);
+                h->mb.fcode_reach_list[2][axis] = 1 << (X264_MIN( fc0, fc1 ) + 4);
+                h->mb.fcode_reach[axis] = h->mb.fcode_reach_list[2][axis];
             }
 #endif
         int i_fmv_range = 4 * h->param.analyse.i_mv_range;
@@ -660,8 +694,16 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
         int padding = MPEG2 ? 6 : 24;
         h->mb.mv_min[0] = 4*( -16*h->mb.i_mb_x - padding );
         h->mb.mv_max[0] = 4*( 16*( h->mb.i_mb_width - h->mb.i_mb_x - 1 ) + padding );
-        h->mb.mv_min_spel[0] = X264_MAX( h->mb.mv_min[0], -i_fmv_range );
-        h->mb.mv_max_spel[0] = X264_MIN( h->mb.mv_max[0], i_fmv_range-1 );
+        if( MPEG2 && h->mb.fcode_reach[0] )
+        {
+            h->mb.mv_min_spel[0] = X264_MAX( h->mb.mv_min[0], -h->mb.fcode_reach[0] );
+            h->mb.mv_max_spel[0] = X264_MIN( h->mb.mv_max[0], h->mb.fcode_reach[0] - 1 );
+        }
+        else
+        {
+            h->mb.mv_min_spel[0] = X264_MAX( h->mb.mv_min[0], -i_fmv_range );
+            h->mb.mv_max_spel[0] = X264_MIN( h->mb.mv_max[0], i_fmv_range-1 );
+        }
         if( h->param.b_intra_refresh && h->sh.i_type == SLICE_TYPE_P )
         {
             int max_x = (h->fref[0][0]->i_pir_end_col * 16 - 3)*4; /* 3 pixels of hpel border */
@@ -695,6 +737,7 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
 
                 x264_analyse_weight_frame( h, pix_y + thread_mvy_range );
             }
+            h->mb.mv_maxy_thread = 4*thread_mvy_range;
 
             if( PARAM_INTERLACED )
             {
@@ -707,8 +750,12 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
                      * per-MB tightening below constrains them to the frame edge. */
                     h->mb.mv_miny_row[i] = 4*( -16*mb_y - 24 );
                     h->mb.mv_maxy_row[i] = 4*( 16*( (h->mb.i_mb_height>>j) - mb_y - 1 ) + 24 );
-                    h->mb.mv_miny_spel_row[i] = X264_MAX( h->mb.mv_miny_row[i], -i_fmv_range );
-                    h->mb.mv_maxy_spel_row[i] = X264_MIN3( h->mb.mv_maxy_row[i], i_fmv_range-1, 4*thread_mvy_range );
+                    h->mb.mv_miny_spel_row[i] = MPEG2 && h->mb.fcode_reach[1] ?
+                        X264_MAX( h->mb.mv_miny_row[i], -h->mb.fcode_reach[1] ) :
+                        X264_MAX( h->mb.mv_miny_row[i], -i_fmv_range );
+                    h->mb.mv_maxy_spel_row[i] = MPEG2 && h->mb.fcode_reach[1] ?
+                        X264_MIN3( h->mb.mv_maxy_row[i], h->mb.fcode_reach[1] - 1, 4*thread_mvy_range ) :
+                        X264_MIN3( h->mb.mv_maxy_row[i], i_fmv_range-1, 4*thread_mvy_range );
                     h->mb.mv_miny_fpel_row[i] = (h->mb.mv_miny_spel_row[i]>>2) + i_fpel_border;
                     h->mb.mv_maxy_fpel_row[i] = (h->mb.mv_maxy_spel_row[i]>>2) - i_fpel_border;
                 }
@@ -717,8 +764,12 @@ static void mb_analyse_init( x264_t *h, x264_mb_analysis_t *a, int qp )
             {
                 h->mb.mv_min[1] = 4*( -16*mb_y - padding );
                 h->mb.mv_max[1] = 4*( 16*( h->mb.i_mb_height - mb_y - 1 ) + padding );
-                h->mb.mv_min_spel[1] = X264_MAX( h->mb.mv_min[1], -i_fmv_range );
-                h->mb.mv_max_spel[1] = X264_MIN3( h->mb.mv_max[1], i_fmv_range-1, 4*thread_mvy_range );
+                h->mb.mv_min_spel[1] = MPEG2 && h->mb.fcode_reach[1] ?
+                    X264_MAX( h->mb.mv_min[1], -h->mb.fcode_reach[1] ) :
+                    X264_MAX( h->mb.mv_min[1], -i_fmv_range );
+                h->mb.mv_max_spel[1] = MPEG2 && h->mb.fcode_reach[1] ?
+                    X264_MIN3( h->mb.mv_max[1], h->mb.fcode_reach[1] - 1, 4*thread_mvy_range ) :
+                    X264_MIN3( h->mb.mv_max[1], i_fmv_range-1, 4*thread_mvy_range );
                 h->mb.mv_limit_fpel[0][1] = (h->mb.mv_min_spel[1]>>2) + i_fpel_border;
                 h->mb.mv_limit_fpel[1][1] = (h->mb.mv_max_spel[1]>>2) - i_fpel_border;
             }
@@ -1586,6 +1637,12 @@ static void intra_rd_refine( x264_t *h, x264_mb_analysis_t *a )
     }
 }
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+#define MPEG2_MV_RANGE_LIST(l) if( MPEG2 ) mb_analyse_mv_range_list( h, l )
+#else
+#define MPEG2_MV_RANGE_LIST(l)
+#endif
+
 /* LOAD_FENC defaults to list 0; searches on list 1 must re-point at its tables. */
 #define LOAD_COST_MV(m, l) \
 { \
@@ -2429,6 +2486,7 @@ static void mb_analyse_inter_b16x16( x264_t *h, x264_mb_analysis_t *a )
 
             m.i_ref_cost = REF_COST( l, i_ref );
             LOAD_COST_MV( &m, l );
+            MPEG2_MV_RANGE_LIST( l );
 
             /* search with ref */
             LOAD_HPELS( &m, h->mb.pic.p_fref[l][i_ref], l, i_ref, 0, 0 );
@@ -2470,6 +2528,7 @@ static void mb_analyse_inter_b16x16( x264_t *h, x264_mb_analysis_t *a )
         else
             l--;
     }
+    MPEG2_MV_RANGE_LIST( 2 );
 
     /* get cost of BI mode */
     h->mc.memcpy_aligned( &a->l0.bi16x16, &a->l0.me16x16, sizeof(x264_me_t) );
@@ -2839,6 +2898,7 @@ static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
             {
                 m.i_ref_cost = a->i_lambda;  /* motion_vertical_field_select: 1 bit */
                 LOAD_COST_MV( &m, l );
+                MPEG2_MV_RANGE_LIST( l );
 
                 /* search with ref */
                 m.i_stride[0] >>= 1;
@@ -2864,6 +2924,8 @@ static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
             }
         }
     }
+
+    MPEG2_MV_RANGE_LIST( 2 );
 
     a->l0.me16x16.cost = a->l0.me16x8[0].cost + a->l0.me16x8[1].cost;
     a->l1.me16x16.cost = a->l1.me16x8[0].cost + a->l1.me16x8[1].cost;

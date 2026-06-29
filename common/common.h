@@ -603,8 +603,11 @@ struct x264_t
         int     mv_max_spel[2];
         int     mv_miny_spel_row[3];
         int     mv_maxy_spel_row[3];
-        /* MPEG-2 variable f_code: per-axis spel reach (tightest over lists). */
+        /* MPEG-2 variable f_code: per-axis spel reach currently in effect. */
         int     fcode_reach[2];
+        /* [0]=list0, [1]=list1, [2]=tightest over both. */
+        int     fcode_reach_list[3][2];
+        int     mv_maxy_thread; /* 4*thread_mvy_range, for the per-list re-derivation */
         /* Fullpel MV range for motion search */
         ALIGNED_8( int16_t mv_limit_fpel[2][2] ); /* min_x, min_y, max_x, max_y */
         int     mv_miny_fpel_row[3];
