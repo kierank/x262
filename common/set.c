@@ -473,8 +473,10 @@ int x264_cqm_init_mpeg2( x264_t *h )
     const uint8_t *qscale = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
     int j;
     int matrices = CHROMA_FORMAT == CHROMA_422 ? 4 : 2;
-    int deadzone[2] = { 32 - h->param.analyse.i_luma_deadzone[1],
-                        32 - h->param.analyse.i_luma_deadzone[0] };
+    int deadzone[4] = { 32 - h->param.analyse.i_luma_deadzone[1],   // intra luma
+                        32 - h->param.analyse.i_luma_deadzone[0],   // inter luma
+                        32 - 21,                                    // intra chroma
+                        32 - h->param.analyse.i_luma_deadzone[0] }; // inter chroma
     int intra_mf = j = 1 << ( 10 + h->param.i_intra_dc_precision );
     int intra_bias = X264_MIN( DIV(deadzone[0]<<10, j), (1<<15)/j );
 
@@ -493,7 +495,7 @@ int x264_cqm_init_mpeg2( x264_t *h )
             {
                 h->  quant8_mf[m][q][i] = j = ( 1 << 17 ) / ( qscale[q] * h->sps->scaling_list[m][i] );
                 h->dequant8_mf[m][q][i] = 2 * qscale[q] * h->sps->scaling_list[m][i];
-                h->quant8_bias[m][q][i] = X264_MIN( DIV(deadzone[m&1]<<10, j), (1<<15)/j );
+                h->quant8_bias[m][q][i] = X264_MIN( DIV(deadzone[m]<<10, j), (1<<15)/j );
                 h->quant8_bias0[m][q][i] = DIV(1<<15, j); // round-to-nearest bias for trellis
             }
             if( !( m & 1 ) ) // intra dc
@@ -543,7 +545,7 @@ int x264_cqm_init_mpeg2( x264_t *h )
                         h->mpeg2_cqm_center_dequant8_mf[k][m][q][i] =
                             2 * qscale[q] * scaled[i];
                         h->mpeg2_cqm_center_quant8_bias[k][m][q][i] =
-                            X264_MIN( DIV(deadzone[m&1]<<10, j), (1<<15)/j );
+                            X264_MIN( DIV(deadzone[m]<<10, j), (1<<15)/j );
                         h->mpeg2_cqm_center_quant8_bias0[k][m][q][i] = DIV(1<<15, j);
                     }
                     if( !( m & 1 ) ) /* intra dc */
