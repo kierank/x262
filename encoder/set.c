@@ -1367,6 +1367,7 @@ int x264_validate_levels( x264_t *h, int verbose )
         // CHECK( "vbv size", l->vbv, h->param.rc.i_vbv_buffer_size );
         if( h->param.i_bframe > 0 && l->level_idc > X264_MPEG2_LEVEL_MAIN )
             ERROR( "B-frames require Main level or above\n" );
+        CHECK( "Horizontal MV range", l->mv_max_h >> h->param.b_interlaced, h->param.analyse.i_mv_range );
         CHECK( "Vertical MV range", l->mv_max_v >> h->param.b_interlaced, h->param.analyse.i_mv_range );
     }
     else
