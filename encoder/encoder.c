@@ -651,6 +651,8 @@ static int validate_parameters( x264_t *h, int b_open )
     }
 
     h->param.i_keyint_max = x264_clip3( h->param.i_keyint_max, 1, X264_KEYINT_MAX_INFINITE );
+    if( MPEG2 && h->param.i_keyint_max > 132 )
+        x264_log( h, X264_LOG_WARNING, "keyint >132 exceeds H.262 Cor.2 prediction-count limit\n" );
     if( h->param.i_keyint_max == 1 )
     {
         h->param.b_intra_refresh = 0;

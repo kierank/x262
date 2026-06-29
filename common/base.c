@@ -392,6 +392,7 @@ static void x264_param_tune_mpeg2( x264_param_t *param )
     param->b_alt_intra_vlc = 1;
     param->b_alternate_scan = -1;
     param->analyse.i_trellis = 1;
+    param->i_keyint_max = 125;
 }
 #endif /* HAVE_MPEG2 */
 
