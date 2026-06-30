@@ -1363,7 +1363,7 @@ static int validate_parameters( x264_t *h, int b_open )
         h->param.analyse.i_chroma_qp_offset += 6;
     /* Psy RDO increases overall quantizers to improve the quality of luma--this indirectly hurts chroma quality */
     /* so we lower the chroma QP offset to compensate */
-    if( b_open && h->mb.i_psy_rd && !h->param.i_avcintra_class )
+    if( b_open && h->mb.i_psy_rd && !h->param.i_avcintra_class && !MPEG2 )
         h->param.analyse.i_chroma_qp_offset -= h->param.analyse.f_psy_rd < 0.25 ? 1 : 2;
     /* Psy trellis has a similar effect. */
     if( b_open && h->mb.i_psy_trellis && !h->param.i_avcintra_class )
