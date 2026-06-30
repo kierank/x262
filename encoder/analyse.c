@@ -35,7 +35,6 @@
 typedef struct
 {
     x264_me_t me16x16;
-    x264_me_t bi16x16;      /* for b16x16 BI mode, since MVs can differ from l0/l1 */
     x264_me_t me8x8[4];
     x264_me_t me4x4[4][4];
     x264_me_t me8x4[4][2];
@@ -51,6 +50,10 @@ typedef struct
     int i_cost8x16;
     /* [ref][0] is 16x16 mv, [ref][1..4] are 8x8 mv from partition [0..3], [ref][5] is for alignment */
     ALIGNED_8( int16_t mvc[32][6][2] );
+
+    /* Saved single-directional MVs while four-way runs on me16x16 */
+    ALIGNED_4( int16_t save_mv[2][2] );
+    int save_cost_mv[2];
 } x264_mb_analysis_list_t;
 
 typedef struct
@@ -99,7 +102,9 @@ typedef struct
     x264_mb_analysis_list_t l0;
     x264_mb_analysis_list_t l1;
 
-    int i_cost16x16bi; /* used the same ref and mv as l0 and l1 (at least for now) */
+    int i_cost16x16bi; /* best of four MV pairings (L0_MV|0 × L1_MV|0) */
+    ALIGNED_4( int16_t save16x8_mv[2][2][2] ); /* [L0,L1][field][xy] saved originals */
+    int       save16x8_cost_mv[2][2];
     int i_cost16x16direct;
     int i_cost8x8bi;
     int i_cost8x8direct[4];
@@ -2331,7 +2336,7 @@ static void mb_analyse_inter_p4x8( x264_t *h, x264_mb_analysis_t *a, int i8x8 )
         a->l0.i_cost4x8[i8x8] += mb_analyse_inter_p4x4_chroma( h, a, p_fref, i8x8, PIXEL_4x8 );
 }
 
-static ALWAYS_INLINE int analyse_bi_chroma( x264_t *h, x264_mb_analysis_t *a, int idx, int i_pixel )
+static ALWAYS_INLINE int analyse_bi_chroma( x264_t *h, x264_mb_analysis_t *a, int idx, int i_pixel, int b_bi )
 {
     ALIGNED_ARRAY_32( pixel, pix, [4],[16*16] );
     ALIGNED_ARRAY_32( pixel,  bi, [2],[16*16] );
@@ -2367,8 +2372,10 @@ static ALWAYS_INLINE int analyse_bi_chroma( x264_t *h, x264_mb_analysis_t *a, in
                   + h->pixf.mbcmp[chromapix]( m0.p_fenc[2], FENC_STRIDE, bi[1], 16 ); \
 }
 
-    if( i_pixel == PIXEL_16x16 )
-        COST_BI_CHROMA( a->l0.bi16x16, a->l1.bi16x16, 16, 16 )
+    if( b_bi )
+        COST_BI_CHROMA( a->l0.me16x8[idx], a->l1.me16x8[idx], 16, 8 )
+    else if( i_pixel == PIXEL_16x16 )
+        COST_BI_CHROMA( a->l0.me16x16, a->l1.me16x16, 16, 16 )
     else if( i_pixel == PIXEL_16x8 )
         COST_BI_CHROMA( a->l0.me16x8[idx], a->l1.me16x8[idx], 16, 8 )
     else if( i_pixel == PIXEL_8x16 )
@@ -2513,100 +2520,202 @@ static void mb_analyse_inter_b16x16( x264_t *h, x264_mb_analysis_t *a )
     }
     MPEG2_MV_RANGE_LIST( 2 );
 
-    /* get cost of BI mode */
-    h->mc.memcpy_aligned( &a->l0.bi16x16, &a->l0.me16x16, sizeof(x264_me_t) );
-    h->mc.memcpy_aligned( &a->l1.bi16x16, &a->l1.me16x16, sizeof(x264_me_t) );
-    int ref_costs = REF_COST( 0, a->l0.bi16x16.i_ref ) + REF_COST( 1, a->l1.bi16x16.i_ref );
-    src0 = h->mc.get_ref( pix0, &stride0,
-                          h->mb.pic.p_fref[0][a->l0.bi16x16.i_ref], h->mb.pic.i_stride[0],
-                          a->l0.bi16x16.mv[0], a->l0.bi16x16.mv[1], 16, 16, x264_weight_none );
-    src1 = h->mc.get_ref( pix1, &stride1,
-                          h->mb.pic.p_fref[1][a->l1.bi16x16.i_ref], h->mb.pic.i_stride[0],
-                          a->l1.bi16x16.mv[0], a->l1.bi16x16.mv[1], 16, 16, x264_weight_none );
+    /* Save single-directional MVs so they survive the four-way */
+    int16_t save16_mv[2][2];
+    int     save16_cost[2];
+    M32( save16_mv[0] ) = M32( a->l0.me16x16.mv );
+    M32( save16_mv[1] ) = M32( a->l1.me16x16.mv );
+    save16_cost[0] = a->l0.me16x16.cost_mv;
+    save16_cost[1] = a->l1.me16x16.cost_mv;
 
-    h->mc.avg[PIXEL_16x16]( pix0, 16, src0, stride0, src1, stride1, h->mb.bipred_weight[a->l0.bi16x16.i_ref][a->l1.bi16x16.i_ref] );
+    /* get cost of BI mode */
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && h->mb.i_subpel_refine >= 7 )
+    {
+        int weight = h->mb.bipred_weight[a->l0.me16x16.i_ref][a->l1.me16x16.i_ref];
+        x264_me_refine_bidir_satd_p1( h, &a->l0.me16x16, &a->l1.me16x16, weight );
+        a->l0.me16x16.cost_mv =
+            a->l0.me16x16.p_cost_mv  [a->l0.me16x16.mv[0] - a->l0.me16x16.mvp[0]]
+          + a->l0.me16x16.p_cost_mv_y[a->l0.me16x16.mv[1] - a->l0.me16x16.mvp[1]];
+        a->l1.me16x16.cost_mv =
+            a->l1.me16x16.p_cost_mv  [a->l1.me16x16.mv[0] - a->l1.me16x16.mvp[0]]
+          + a->l1.me16x16.p_cost_mv_y[a->l1.me16x16.mv[1] - a->l1.me16x16.mvp[1]];
+    }
+#endif
+
+    int ref_costs = REF_COST( 0, a->l0.me16x16.i_ref ) + REF_COST( 1, a->l1.me16x16.i_ref );
+    src0 = h->mc.get_ref( pix0, &stride0,
+                          h->mb.pic.p_fref[0][a->l0.me16x16.i_ref], h->mb.pic.i_stride[0],
+                          a->l0.me16x16.mv[0], a->l0.me16x16.mv[1], 16, 16, x264_weight_none );
+    src1 = h->mc.get_ref( pix1, &stride1,
+                          h->mb.pic.p_fref[1][a->l1.me16x16.i_ref], h->mb.pic.i_stride[0],
+                          a->l1.me16x16.mv[0], a->l1.me16x16.mv[1], 16, 16, x264_weight_none );
+
+    h->mc.avg[PIXEL_16x16]( pix0, 16, src0, stride0, src1, stride1, h->mb.bipred_weight[a->l0.me16x16.i_ref][a->l1.me16x16.i_ref] );
 
     a->i_cost16x16bi = h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[0], FENC_STRIDE, pix0, 16 )
                      + ref_costs
-                     + a->l0.bi16x16.cost_mv
-                     + a->l1.bi16x16.cost_mv;
+                     + a->l0.me16x16.cost_mv
+                     + a->l1.me16x16.cost_mv;
 
-    if( h->mb.b_chroma_me )
-        a->i_cost16x16bi += analyse_bi_chroma( h, a, 0, PIXEL_16x16 );
-
-    /* Always try the 0,0,0,0 vector; helps avoid errant motion vectors in fades */
-    if( M32( a->l0.bi16x16.mv ) | M32( a->l1.bi16x16.mv ) )
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
     {
-        int l0_mv_cost = a->l0.bi16x16.p_cost_mv[-a->l0.bi16x16.mvp[0]]
-                       + a->l0.bi16x16.p_cost_mv_y[-a->l0.bi16x16.mvp[1]];
-        int l1_mv_cost = a->l1.bi16x16.p_cost_mv[-a->l1.bi16x16.mvp[0]]
-                       + a->l1.bi16x16.p_cost_mv_y[-a->l1.bi16x16.mvp[1]];
-        h->mc.avg[PIXEL_16x16]( pix0, 16, h->mb.pic.p_fref[0][a->l0.bi16x16.i_ref][0], h->mb.pic.i_stride[0],
-                                h->mb.pic.p_fref[1][a->l1.bi16x16.i_ref][0], h->mb.pic.i_stride[0],
-                                h->mb.bipred_weight[a->l0.bi16x16.i_ref][a->l1.bi16x16.i_ref] );
-        int cost00 = h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[0], FENC_STRIDE, pix0, 16 )
-                   + ref_costs + l0_mv_cost + l1_mv_cost;
-
-        if( h->mb.b_chroma_me && cost00 < a->i_cost16x16bi )
+        /* Four-way bidir MV check: try all 4 pairings of (L0_MV|0, L1_MV|0).
+         * Pairing 1 was computed above; the other three are checked here. */
+        if( M32( a->l0.me16x16.mv ) | M32( a->l1.me16x16.mv ) )
         {
-            ALIGNED_ARRAY_16( pixel, bi, [16*FENC_STRIDE] );
+            int l0_mv_cost = a->l0.me16x16.p_cost_mv[-a->l0.me16x16.mvp[0]]
+                           + a->l0.me16x16.p_cost_mv_y[-a->l0.me16x16.mvp[1]];
+            int l1_mv_cost = a->l1.me16x16.p_cost_mv[-a->l1.me16x16.mvp[0]]
+                           + a->l1.me16x16.p_cost_mv_y[-a->l1.me16x16.mvp[1]];
 
-            if( CHROMA444 )
+            /* Pairing 2: (0, 0) */
+            h->mc.avg[PIXEL_16x16]( pix0, 16, h->mb.pic.p_fref[0][a->l0.me16x16.i_ref][0], h->mb.pic.i_stride[0],
+                                    h->mb.pic.p_fref[1][a->l1.me16x16.i_ref][0], h->mb.pic.i_stride[0],
+                                    h->mb.bipred_weight[a->l0.me16x16.i_ref][a->l1.me16x16.i_ref] );
+            int cost_00 = h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[0], FENC_STRIDE, pix0, 16 )
+                        + ref_costs + l0_mv_cost + l1_mv_cost;
+            if( cost_00 < a->i_cost16x16bi )
             {
-                h->mc.avg[PIXEL_16x16]( bi, FENC_STRIDE, h->mb.pic.p_fref[0][a->l0.bi16x16.i_ref][4], h->mb.pic.i_stride[1],
-                                        h->mb.pic.p_fref[1][a->l1.bi16x16.i_ref][4], h->mb.pic.i_stride[1],
-                                        h->mb.bipred_weight[a->l0.bi16x16.i_ref][a->l1.bi16x16.i_ref] );
-                cost00 += h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[1], FENC_STRIDE, bi, FENC_STRIDE );
-                h->mc.avg[PIXEL_16x16]( bi, FENC_STRIDE, h->mb.pic.p_fref[0][a->l0.bi16x16.i_ref][8], h->mb.pic.i_stride[2],
-                                        h->mb.pic.p_fref[1][a->l1.bi16x16.i_ref][8], h->mb.pic.i_stride[2],
-                                        h->mb.bipred_weight[a->l0.bi16x16.i_ref][a->l1.bi16x16.i_ref] );
-                cost00 += h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[2], FENC_STRIDE, bi, FENC_STRIDE );
+                M32( a->l0.me16x16.mv ) = 0;
+                M32( a->l1.me16x16.mv ) = 0;
+                a->l0.me16x16.cost_mv = l0_mv_cost;
+                a->l1.me16x16.cost_mv = l1_mv_cost;
+                a->i_cost16x16bi = cost_00;
             }
-            else
+
+            /* Pairing 3: (L0_MV, 0) — only if L1 MV was non-zero */
+            if( M32( a->l1.me16x16.mv ) )
             {
-                ALIGNED_ARRAY_64( pixel, pixuv, [2],[16*FENC_STRIDE] );
-                int chromapix = h->luma2chroma_pixel[PIXEL_16x16];
-                int v_shift = CHROMA_V_SHIFT;
-
-                if( v_shift & MB_INTERLACED & a->l0.bi16x16.i_ref )
+                src0 = h->mc.get_ref( pix0, &stride0,
+                                      h->mb.pic.p_fref[0][a->l0.me16x16.i_ref], h->mb.pic.i_stride[0],
+                                      a->l0.me16x16.mv[0], a->l0.me16x16.mv[1], 16, 16, x264_weight_none );
+                h->mc.avg[PIXEL_16x16]( pix0, 16, src0, stride0,
+                                        h->mb.pic.p_fref[1][a->l1.me16x16.i_ref][0], h->mb.pic.i_stride[0],
+                                        h->mb.bipred_weight[a->l0.me16x16.i_ref][a->l1.me16x16.i_ref] );
+                int cost_l0_0 = h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[0], FENC_STRIDE, pix0, 16 )
+                              + ref_costs + a->l0.me16x16.cost_mv + l1_mv_cost;
+                if( cost_l0_0 < a->i_cost16x16bi )
                 {
-                    int l0_mvy_offset = (h->mb.i_mb_y & 1)*4 - 2;
-                    h->mc.mc_chroma( pixuv[0], pixuv[0]+8, FENC_STRIDE, h->mb.pic.p_fref[0][a->l0.bi16x16.i_ref][4],
-                                     h->mb.pic.i_stride[1], 0, 0 + l0_mvy_offset, 8, 8 );
+                    M32( a->l1.me16x16.mv ) = 0;
+                    a->l1.me16x16.cost_mv = l1_mv_cost;
+                    a->i_cost16x16bi = cost_l0_0;
                 }
-                else
-                    h->mc.load_deinterleave_chroma_fenc( pixuv[0], h->mb.pic.p_fref[0][a->l0.bi16x16.i_ref][4],
-                                                         h->mb.pic.i_stride[1], 16>>v_shift );
+            }
 
-                if( v_shift & MB_INTERLACED & a->l1.bi16x16.i_ref )
+            /* Pairing 4: (0, L1_MV) — only if L0 MV was non-zero */
+            if( M32( a->l0.me16x16.mv ) )
+            {
+                /* src1 still points at ref1's L1_MV prediction from the main get_ref
+                 * above (get_ref only fills pix1 when it has to interpolate; for
+                 * aligned MVs it returns a pointer into the reference plane, and
+                 * pix1 stays uninitialized). */
+                h->mc.avg[PIXEL_16x16]( pix0, 16, h->mb.pic.p_fref[0][a->l0.me16x16.i_ref][0], h->mb.pic.i_stride[0],
+                                        src1, stride1,
+                                        h->mb.bipred_weight[a->l0.me16x16.i_ref][a->l1.me16x16.i_ref] );
+                int cost_0_l1 = h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[0], FENC_STRIDE, pix0, 16 )
+                              + ref_costs + l0_mv_cost + a->l1.me16x16.cost_mv;
+                if( cost_0_l1 < a->i_cost16x16bi )
                 {
-                    int l1_mvy_offset = (h->mb.i_mb_y & 1)*4 - 2;
-                    h->mc.mc_chroma( pixuv[1], pixuv[1]+8, FENC_STRIDE, h->mb.pic.p_fref[1][a->l1.bi16x16.i_ref][4],
-                                     h->mb.pic.i_stride[1], 0, 0 + l1_mvy_offset, 8, 8 );
+                    M32( a->l0.me16x16.mv ) = 0;
+                    a->l0.me16x16.cost_mv = l0_mv_cost;
+                    a->i_cost16x16bi = cost_0_l1;
                 }
-                else
-                    h->mc.load_deinterleave_chroma_fenc( pixuv[1], h->mb.pic.p_fref[1][a->l1.bi16x16.i_ref][4],
-                                                         h->mb.pic.i_stride[1], 16>>v_shift );
-
-                h->mc.avg[chromapix]( bi,   FENC_STRIDE, pixuv[0],   FENC_STRIDE, pixuv[1],   FENC_STRIDE,
-                                      h->mb.bipred_weight[a->l0.bi16x16.i_ref][a->l1.bi16x16.i_ref] );
-                h->mc.avg[chromapix]( bi+8, FENC_STRIDE, pixuv[0]+8, FENC_STRIDE, pixuv[1]+8, FENC_STRIDE,
-                                      h->mb.bipred_weight[a->l0.bi16x16.i_ref][a->l1.bi16x16.i_ref] );
-
-                cost00 += h->pixf.mbcmp[chromapix]( h->mb.pic.p_fenc[1], FENC_STRIDE, bi,   FENC_STRIDE )
-                       +  h->pixf.mbcmp[chromapix]( h->mb.pic.p_fenc[2], FENC_STRIDE, bi+8, FENC_STRIDE );
             }
         }
 
-        if( cost00 < a->i_cost16x16bi )
+        /* Chroma ME for whichever MV pair won the four-way check */
+        if( h->mb.b_chroma_me )
+            a->i_cost16x16bi += analyse_bi_chroma( h, a, 0, PIXEL_16x16, 0 );
+    }
+    else
+#endif
+    {
+        if( h->mb.b_chroma_me )
+            a->i_cost16x16bi += analyse_bi_chroma( h, a, 0, PIXEL_16x16, 0 );
+
+        /* Always try the 0,0,0,0 vector; helps avoid errant motion vectors in fades */
+        if( M32( a->l0.me16x16.mv ) | M32( a->l1.me16x16.mv ) )
         {
-            M32( a->l0.bi16x16.mv ) = 0;
-            M32( a->l1.bi16x16.mv ) = 0;
-            a->l0.bi16x16.cost_mv = l0_mv_cost;
-            a->l1.bi16x16.cost_mv = l1_mv_cost;
-            a->i_cost16x16bi = cost00;
+            int l0_mv_cost = a->l0.me16x16.p_cost_mv[-a->l0.me16x16.mvp[0]]
+                           + a->l0.me16x16.p_cost_mv_y[-a->l0.me16x16.mvp[1]];
+            int l1_mv_cost = a->l1.me16x16.p_cost_mv[-a->l1.me16x16.mvp[0]]
+                           + a->l1.me16x16.p_cost_mv_y[-a->l1.me16x16.mvp[1]];
+            h->mc.avg[PIXEL_16x16]( pix0, 16, h->mb.pic.p_fref[0][a->l0.me16x16.i_ref][0], h->mb.pic.i_stride[0],
+                                    h->mb.pic.p_fref[1][a->l1.me16x16.i_ref][0], h->mb.pic.i_stride[0],
+                                    h->mb.bipred_weight[a->l0.me16x16.i_ref][a->l1.me16x16.i_ref] );
+            int cost00 = h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[0], FENC_STRIDE, pix0, 16 )
+                       + ref_costs + l0_mv_cost + l1_mv_cost;
+
+            if( h->mb.b_chroma_me && cost00 < a->i_cost16x16bi )
+            {
+                ALIGNED_ARRAY_16( pixel, bi, [16*FENC_STRIDE] );
+
+                if( CHROMA444 )
+                {
+                    h->mc.avg[PIXEL_16x16]( bi, FENC_STRIDE, h->mb.pic.p_fref[0][a->l0.me16x16.i_ref][4], h->mb.pic.i_stride[1],
+                                            h->mb.pic.p_fref[1][a->l1.me16x16.i_ref][4], h->mb.pic.i_stride[1],
+                                            h->mb.bipred_weight[a->l0.me16x16.i_ref][a->l1.me16x16.i_ref] );
+                    cost00 += h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[1], FENC_STRIDE, bi, FENC_STRIDE );
+                    h->mc.avg[PIXEL_16x16]( bi, FENC_STRIDE, h->mb.pic.p_fref[0][a->l0.me16x16.i_ref][8], h->mb.pic.i_stride[2],
+                                            h->mb.pic.p_fref[1][a->l1.me16x16.i_ref][8], h->mb.pic.i_stride[2],
+                                            h->mb.bipred_weight[a->l0.me16x16.i_ref][a->l1.me16x16.i_ref] );
+                    cost00 += h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[2], FENC_STRIDE, bi, FENC_STRIDE );
+                }
+                else
+                {
+                    ALIGNED_ARRAY_64( pixel, pixuv, [2],[16*FENC_STRIDE] );
+                    int chromapix = h->luma2chroma_pixel[PIXEL_16x16];
+                    int v_shift = CHROMA_V_SHIFT;
+
+                    if( v_shift & MB_INTERLACED & a->l0.me16x16.i_ref )
+                    {
+                        int l0_mvy_offset = (h->mb.i_mb_y & 1)*4 - 2;
+                        h->mc.mc_chroma( pixuv[0], pixuv[0]+8, FENC_STRIDE, h->mb.pic.p_fref[0][a->l0.me16x16.i_ref][4],
+                                         h->mb.pic.i_stride[1], 0, 0 + l0_mvy_offset, 8, 8 );
+                    }
+                    else
+                        h->mc.load_deinterleave_chroma_fenc( pixuv[0], h->mb.pic.p_fref[0][a->l0.me16x16.i_ref][4],
+                                                             h->mb.pic.i_stride[1], 16>>v_shift );
+
+                    if( v_shift & MB_INTERLACED & a->l1.me16x16.i_ref )
+                    {
+                        int l1_mvy_offset = (h->mb.i_mb_y & 1)*4 - 2;
+                        h->mc.mc_chroma( pixuv[1], pixuv[1]+8, FENC_STRIDE, h->mb.pic.p_fref[1][a->l1.me16x16.i_ref][4],
+                                         h->mb.pic.i_stride[1], 0, 0 + l1_mvy_offset, 8, 8 );
+                    }
+                    else
+                        h->mc.load_deinterleave_chroma_fenc( pixuv[1], h->mb.pic.p_fref[1][a->l1.me16x16.i_ref][4],
+                                                             h->mb.pic.i_stride[1], 16>>v_shift );
+
+                    h->mc.avg[chromapix]( bi,   FENC_STRIDE, pixuv[0],   FENC_STRIDE, pixuv[1],   FENC_STRIDE,
+                                          h->mb.bipred_weight[a->l0.me16x16.i_ref][a->l1.me16x16.i_ref] );
+                    h->mc.avg[chromapix]( bi+8, FENC_STRIDE, pixuv[0]+8, FENC_STRIDE, pixuv[1]+8, FENC_STRIDE,
+                                          h->mb.bipred_weight[a->l0.me16x16.i_ref][a->l1.me16x16.i_ref] );
+
+                    cost00 += h->pixf.mbcmp[chromapix]( h->mb.pic.p_fenc[1], FENC_STRIDE, bi,   FENC_STRIDE )
+                           +  h->pixf.mbcmp[chromapix]( h->mb.pic.p_fenc[2], FENC_STRIDE, bi+8, FENC_STRIDE );
+                }
+            }
+
+            if( cost00 < a->i_cost16x16bi )
+            {
+                M32( a->l0.me16x16.mv ) = 0;
+                M32( a->l1.me16x16.mv ) = 0;
+                a->l0.me16x16.cost_mv = l0_mv_cost;
+                a->l1.me16x16.cost_mv = l1_mv_cost;
+                a->i_cost16x16bi = cost00;
+            }
         }
     }
+
+    /* Save BI winners and single-directional originals.  The caller
+     * restores originals if B_BI_BI does not win the mode decision. */
+    M32( a->l0.save_mv[0] ) = M32( save16_mv[0] );
+    M32( a->l0.save_mv[1] ) = M32( save16_mv[1] );
+    a->l0.save_cost_mv[0] = save16_cost[0];
+    a->l0.save_cost_mv[1] = save16_cost[1];
 
     /* mb type cost */
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
@@ -2815,7 +2924,7 @@ static void mb_analyse_inter_b8x8_mixed_ref( x264_t *h, x264_mb_analysis_t *a )
 
         if( h->mb.b_chroma_me )
         {
-            int i_chroma_cost = analyse_bi_chroma( h, a, i, PIXEL_8x8 );
+            int i_chroma_cost = analyse_bi_chroma( h, a, i, PIXEL_8x8, 0 );
             i_part_cost_bi += i_chroma_cost;
             a->i_satd8x8[2][i] += i_chroma_cost;
         }
@@ -2841,8 +2950,8 @@ static void mb_analyse_inter_b8x8_mixed_ref( x264_t *h, x264_mb_analysis_t *a )
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
 static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a )
 {
-    ALIGNED_ARRAY_16( pixel, pix0,[16*16] );
-    ALIGNED_ARRAY_16( pixel, pix1,[16*16] );
+    ALIGNED_ARRAY_64( pixel, pix0,[16*16] );
+    ALIGNED_ARRAY_64( pixel, pix1,[16*16] );
     pixel *src0, *src1;
     intptr_t stride0, stride1;
     int i_ref, i_mvc;
@@ -2913,26 +3022,133 @@ static void x264_mb_analyse_inter_b16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
     a->l0.me16x16.cost = a->l0.me16x8[0].cost + a->l0.me16x8[1].cost;
     a->l1.me16x16.cost = a->l1.me16x8[0].cost + a->l1.me16x8[1].cost;
 
-    /* get cost of BI mode */
-    int ref_costs = 4 * a->i_lambda;  /* 4 × motion_vertical_field_select bits */
-    for( int idx_16x8 = 0; idx_16x8 < 2; idx_16x8++ )
+    /* Save single-directional MVs so they survive the four-way */
+    for( int l = 0; l < 2; l++ )
     {
-        stride0 = 16; stride1 = 16;
-        src0 = h->mc.get_ref( pix0, &stride0,
-                              h->mb.pic.p_fref[0][a->l0.me16x8[idx_16x8].i_ref], h->mb.pic.i_stride[0]<<1,
-                              a->l0.me16x8[idx_16x8].mv[0], a->l0.me16x8[idx_16x8].mv[1], 16, 8, x264_weight_none );
-        src1 = h->mc.get_ref( pix1, &stride1,
-                              h->mb.pic.p_fref[1][a->l1.me16x8[idx_16x8].i_ref], h->mb.pic.i_stride[0]<<1,
-                              a->l1.me16x8[idx_16x8].mv[0], a->l1.me16x8[idx_16x8].mv[1], 16, 8, x264_weight_none );
-        h->mc.avg[PIXEL_16x8]( &pix0[16*8*idx_16x8], 16, src0, stride0, src1, stride1, h->mb.bipred_weight[a->l0.me16x8[idx_16x8].i_ref][a->l1.me16x8[idx_16x8].i_ref] );
+        x264_mb_analysis_list_t *lX = l ? &a->l1 : &a->l0;
+        for( int i = 0; i < 2; i++ )
+        {
+            M32( a->save16x8_mv[l][i] ) = M32( lX->me16x8[i].mv );
+            a->save16x8_cost_mv[l][i] = lX->me16x8[i].cost_mv;
+        }
     }
 
+    /* One-pass diamond refinement per field (subme >= 8 for B frames) */
+    if( h->mb.i_subpel_refine >= 7 )
+    {
+        for( int i = 0; i < 2; i++ )
+        {
+            int weight = h->mb.bipred_weight[a->l0.me16x8[i].i_ref][a->l1.me16x8[i].i_ref];
+            x264_me_refine_bidir_satd_p1( h, &a->l0.me16x8[i], &a->l1.me16x8[i], weight );
+            a->l0.me16x8[i].cost_mv =
+                a->l0.me16x8[i].p_cost_mv  [a->l0.me16x8[i].mv[0] - a->l0.me16x8[i].mvp[0]]
+              + a->l0.me16x8[i].p_cost_mv_y[a->l0.me16x8[i].mv[1] - a->l0.me16x8[i].mvp[1]];
+            a->l1.me16x8[i].cost_mv =
+                a->l1.me16x8[i].p_cost_mv  [a->l1.me16x8[i].mv[0] - a->l1.me16x8[i].mvp[0]]
+              + a->l1.me16x8[i].p_cost_mv_y[a->l1.me16x8[i].mv[1] - a->l1.me16x8[i].mvp[1]];
+        }
+    }
+
+    int ref_costs = 4 * a->i_lambda;
+    intptr_t rs = h->mb.pic.i_stride[0] << 1;
+
+    /* Baseline BI cost = pairing 1: (L0_MV, L1_MV) for both fields */
+    for( int i = 0; i < 2; i++ )
+    {
+        stride0 = 16; stride1 = 16;
+        src0 = h->mc.get_ref( pix0, &stride0, h->mb.pic.p_fref[0][a->l0.me16x8[i].i_ref], rs,
+                              a->l0.me16x8[i].mv[0], a->l0.me16x8[i].mv[1], 16, 8, x264_weight_none );
+        src1 = h->mc.get_ref( pix1, &stride1, h->mb.pic.p_fref[1][a->l1.me16x8[i].i_ref], rs,
+                              a->l1.me16x8[i].mv[0], a->l1.me16x8[i].mv[1], 16, 8, x264_weight_none );
+        h->mc.avg[PIXEL_16x8]( &pix0[16*8*i], 16, src0, stride0, src1, stride1,
+                                h->mb.bipred_weight[a->l0.me16x8[i].i_ref][a->l1.me16x8[i].i_ref] );
+    }
     a->i_cost16x16bi = h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[0], FENC_STRIDE, pix0, 16 )
-                     + ref_costs
-                     + a->l0.me16x8[0].cost_mv
-                     + a->l0.me16x8[1].cost_mv
-                     + a->l1.me16x8[0].cost_mv
-                     + a->l1.me16x8[1].cost_mv;
+                     + ref_costs + a->l0.me16x8[0].cost_mv + a->l0.me16x8[1].cost_mv
+                     + a->l1.me16x8[0].cost_mv + a->l1.me16x8[1].cost_mv;
+
+    /* Four-way per-field: try (0,0), (L0,0), (0,L1) for each field */
+    if( h->mb.i_subpel_refine >= 1 )
+    {
+    for( int idx = 0; idx < 2; idx++ )
+    {
+        if( !(M32( a->l0.me16x8[idx].mv ) | M32( a->l1.me16x8[idx].mv )) )
+            continue;
+
+        int l0_mv_cost = a->l0.me16x8[idx].p_cost_mv[-a->l0.me16x8[idx].mvp[0]]
+                       + a->l0.me16x8[idx].p_cost_mv_y[-a->l0.me16x8[idx].mvp[1]];
+        int l1_mv_cost = a->l1.me16x8[idx].p_cost_mv[-a->l1.me16x8[idx].mvp[0]]
+                       + a->l1.me16x8[idx].p_cost_mv_y[-a->l1.me16x8[idx].mvp[1]];
+        int weight = h->mb.bipred_weight[a->l0.me16x8[idx].i_ref][a->l1.me16x8[idx].i_ref];
+        pixel **r0 = h->mb.pic.p_fref[0][a->l0.me16x8[idx].i_ref];
+        pixel **r1 = h->mb.pic.p_fref[1][a->l1.me16x8[idx].i_ref];
+        int other = 1 - idx;
+        int other_costs = a->l0.me16x8[other].cost_mv + a->l1.me16x8[other].cost_mv;
+        int cost;
+
+        /* (0, 0) */
+        h->mc.avg[PIXEL_16x8]( &pix0[16*8*idx], 16, r0[0], rs, r1[0], rs, weight );
+        cost = h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[0], FENC_STRIDE, pix0, 16 )
+             + ref_costs + l0_mv_cost + l1_mv_cost + other_costs;
+        if( cost < a->i_cost16x16bi )
+        {
+            M32( a->l0.me16x8[idx].mv ) = 0;
+            M32( a->l1.me16x8[idx].mv ) = 0;
+            a->l0.me16x8[idx].cost_mv = l0_mv_cost;
+            a->l1.me16x8[idx].cost_mv = l1_mv_cost;
+            a->i_cost16x16bi = cost;
+        }
+
+        /* (L0_MV, 0) — only if L1 MV was non-zero */
+        if( M32( a->l1.me16x8[idx].mv ) )
+        {
+            stride0 = 16;
+            src0 = h->mc.get_ref( pix0, &stride0, r0, rs,
+                                  a->l0.me16x8[idx].mv[0], a->l0.me16x8[idx].mv[1], 16, 8, x264_weight_none );
+            h->mc.avg[PIXEL_16x8]( &pix0[16*8*idx], 16, src0, stride0, r1[0], rs, weight );
+            cost = h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[0], FENC_STRIDE, pix0, 16 )
+                 + ref_costs + a->l0.me16x8[idx].cost_mv + l1_mv_cost + other_costs;
+            if( cost < a->i_cost16x16bi )
+            {
+                M32( a->l1.me16x8[idx].mv ) = 0;
+                a->l1.me16x8[idx].cost_mv = l1_mv_cost;
+                a->i_cost16x16bi = cost;
+            }
+        }
+
+        /* (0, L1_MV) — only if L0 MV was non-zero */
+        if( M32( a->l0.me16x8[idx].mv ) )
+        {
+            stride1 = 16;
+            src1 = h->mc.get_ref( pix1, &stride1, r1, rs,
+                                  a->l1.me16x8[idx].mv[0], a->l1.me16x8[idx].mv[1], 16, 8, x264_weight_none );
+            h->mc.avg[PIXEL_16x8]( &pix0[16*8*idx], 16, r0[0], rs, src1, stride1, weight );
+            cost = h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[0], FENC_STRIDE, pix0, 16 )
+                 + ref_costs + l0_mv_cost + a->l1.me16x8[idx].cost_mv + other_costs;
+            if( cost < a->i_cost16x16bi )
+            {
+                M32( a->l0.me16x8[idx].mv ) = 0;
+                a->l0.me16x8[idx].cost_mv = l0_mv_cost;
+                a->i_cost16x16bi = cost;
+            }
+        }
+
+        /* Refill pix0 with the winning MVs so the next field's
+         * evaluations see the updated other-field data */
+        stride0 = 16; stride1 = 16;
+        src0 = h->mc.get_ref( pix0, &stride0, r0, rs,
+                              a->l0.me16x8[idx].mv[0], a->l0.me16x8[idx].mv[1], 16, 8, x264_weight_none );
+        src1 = h->mc.get_ref( pix1, &stride1, r1, rs,
+                              a->l1.me16x8[idx].mv[0], a->l1.me16x8[idx].mv[1], 16, 8, x264_weight_none );
+        h->mc.avg[PIXEL_16x8]( &pix0[16*8*idx], 16, src0, stride0, src1, stride1,
+                                h->mb.bipred_weight[a->l0.me16x8[idx].i_ref][a->l1.me16x8[idx].i_ref] );
+    }
+    }
+
+    /* Chroma ME for the BI path */
+    if( h->mb.b_chroma_me )
+        for( int i = 0; i < 2; i++ )
+            a->i_cost16x16bi += analyse_bi_chroma( h, a, i, PIXEL_16x8, 1 );
 
     /* mb type cost */
     int quant = h->mb.i_last_qp != a->i_qp && h->mb.i_mb_x;
@@ -3007,7 +3223,7 @@ static void mb_analyse_inter_b8x8( x264_t *h, x264_mb_analysis_t *a )
 
         if( h->mb.b_chroma_me )
         {
-            int i_chroma_cost = analyse_bi_chroma( h, a, i, PIXEL_8x8 );
+            int i_chroma_cost = analyse_bi_chroma( h, a, i, PIXEL_8x8, 0 );
             i_part_cost_bi += i_chroma_cost;
             a->i_satd8x8[2][i] += i_chroma_cost;
         }
@@ -3085,7 +3301,7 @@ static void mb_analyse_inter_b16x8( x264_t *h, x264_mb_analysis_t *a, int i_best
                         + a->l1.me16x8[i].i_ref_cost;
 
         if( h->mb.b_chroma_me )
-            i_part_cost_bi += analyse_bi_chroma( h, a, i, PIXEL_16x8 );
+            i_part_cost_bi += analyse_bi_chroma( h, a, i, PIXEL_16x8, 0 );
 
         i_part_cost = a->l0.me16x8[i].cost;
         a->i_mb_partition16x8[i] = D_L0_8x8; /* not actually 8x8, only the L0 matters */
@@ -3178,7 +3394,7 @@ static void mb_analyse_inter_b8x16( x264_t *h, x264_mb_analysis_t *a, int i_best
                         + a->l1.me8x16[i].i_ref_cost;
 
         if( h->mb.b_chroma_me )
-            i_part_cost_bi += analyse_bi_chroma( h, a, i, PIXEL_8x16 );
+            i_part_cost_bi += analyse_bi_chroma( h, a, i, PIXEL_8x16, 0 );
 
         i_part_cost = a->l0.me8x16[i].cost;
         a->i_mb_partition8x16[i] = D_L0_8x8;
@@ -3374,13 +3590,14 @@ static void refine_bidir( x264_t *h, x264_mb_analysis_t *a )
         case D_16x16:
             if( h->mb.i_type == B_BI_BI )
             {
-                i_biweight = h->mb.bipred_weight[a->l0.bi16x16.i_ref][a->l1.bi16x16.i_ref];
-                x264_me_refine_bidir_satd( h, &a->l0.bi16x16, &a->l1.bi16x16, i_biweight );
+                i_biweight = h->mb.bipred_weight[a->l0.me16x16.i_ref][a->l1.me16x16.i_ref];
+                x264_me_refine_bidir_satd( h, &a->l0.me16x16, &a->l1.me16x16, i_biweight );
             }
             break;
         case D_16x8:
             for( int i = 0; i < 2; i++ )
-                if( a->i_mb_partition16x8[i] == D_BI_8x8 )
+                if( a->i_mb_partition16x8[i] == D_BI_8x8
+                    || (MPEG2 && MB_INTERLACED && h->mb.i_type == B_BI_BI) )
                 {
                     i_biweight = h->mb.bipred_weight[a->l0.me16x8[i].i_ref][a->l1.me16x8[i].i_ref];
                     x264_me_refine_bidir_satd( h, &a->l0.me16x8[i], &a->l1.me16x8[i], i_biweight );
@@ -4335,8 +4552,8 @@ skip_analysis:
                     }
                     else if( i_type == B_BI_BI )
                     {
-                        x264_me_refine_qpel( h, &analysis.l0.bi16x16 );
-                        x264_me_refine_qpel( h, &analysis.l1.bi16x16 );
+                        x264_me_refine_qpel( h, &analysis.l0.me16x16 );
+                        x264_me_refine_qpel( h, &analysis.l1.me16x16 );
                     }
                 }
                 else
@@ -4358,8 +4575,8 @@ skip_analysis:
                     }
                     else if( i_type == B_BI_BI )
                     {
-                        x264_me_refine_qpel( h, &analysis.l0.bi16x16 );
-                        x264_me_refine_qpel( h, &analysis.l1.bi16x16 );
+                        x264_me_refine_qpel( h, &analysis.l0.me16x16 );
+                        x264_me_refine_qpel( h, &analysis.l1.me16x16 );
                     }
                 }
             }
@@ -4473,6 +4690,30 @@ skip_analysis:
                 h->mb.i_type = i_type;
                 h->mb.i_partition = i_partition;
 
+                /* Restore single-directional MVs if four-way BI didn't win */
+                if( i_type != B_BI_BI )
+                {
+                    if( i_partition == D_16x8 && MB_INTERLACED )
+                    {
+                        for( int l = 0; l < 2; l++ )
+                        {
+                            x264_mb_analysis_list_t *lX = l ? &analysis.l1 : &analysis.l0;
+                            for( int i = 0; i < 2; i++ )
+                            {
+                                M32( lX->me16x8[i].mv ) = M32( analysis.save16x8_mv[l][i] );
+                                lX->me16x8[i].cost_mv = analysis.save16x8_cost_mv[l][i];
+                            }
+                        }
+                    }
+                    else if( i_partition == D_16x16 )
+                    {
+                        M32( analysis.l0.me16x16.mv ) = M32( analysis.l0.save_mv[0] );
+                        M32( analysis.l1.me16x16.mv ) = M32( analysis.l0.save_mv[1] );
+                        analysis.l0.me16x16.cost_mv = analysis.l0.save_cost_mv[0];
+                        analysis.l1.me16x16.cost_mv = analysis.l0.save_cost_mv[1];
+                    }
+                }
+
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
                 /* RD the field alternative against the frame-mode winner; skip when its SATD
                  * cost is far above the frame SATD (the RD probe rarely flips such MBs). */
@@ -4571,8 +4812,8 @@ skip_analysis:
                     }
                     else if( i_type == B_BI_BI )
                     {
-                        i_biweight = h->mb.bipred_weight[analysis.l0.bi16x16.i_ref][analysis.l1.bi16x16.i_ref];
-                        x264_me_refine_bidir_rd( h, &analysis.l0.bi16x16, &analysis.l1.bi16x16, i_biweight, 0, analysis.i_lambda2 );
+                        i_biweight = h->mb.bipred_weight[analysis.l0.me16x16.i_ref][analysis.l1.me16x16.i_ref];
+                        x264_me_refine_bidir_rd( h, &analysis.l0.me16x16, &analysis.l1.me16x16, i_biweight, 0, analysis.i_lambda2 );
                     }
                 }
                 else if( i_partition == D_16x8 )
@@ -4775,11 +5016,11 @@ static void analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
                     x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 1, a->l1.me16x16.mv );
                     break;
                 case B_BI_BI:
-                    x264_macroblock_cache_ref( h, 0, 0, 4, 4, 0, a->l0.bi16x16.i_ref );
-                    x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 0, a->l0.bi16x16.mv );
+                    x264_macroblock_cache_ref( h, 0, 0, 4, 4, 0, a->l0.me16x16.i_ref );
+                    x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 0, a->l0.me16x16.mv );
 
-                    x264_macroblock_cache_ref( h, 0, 0, 4, 4, 1, a->l1.bi16x16.i_ref );
-                    x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 1, a->l1.bi16x16.mv );
+                    x264_macroblock_cache_ref( h, 0, 0, 4, 4, 1, a->l1.me16x16.i_ref );
+                    x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 1, a->l1.me16x16.mv );
                     break;
                 }
                 break;

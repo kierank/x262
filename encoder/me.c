@@ -1058,7 +1058,7 @@ static void refine_subpel( x264_t *h, x264_me_t *m, int hpel_iters, int qpel_ite
 #define x264_iter_kludge x264_template(iter_kludge)
 int x264_iter_kludge = 0;
 
-static ALWAYS_INLINE void me_refine_bidir( x264_t *h, x264_me_t *m0, x264_me_t *m1, int i_weight, int i8, int i_lambda2, int rd )
+static ALWAYS_INLINE void me_refine_bidir( x264_t *h, x264_me_t *m0, x264_me_t *m1, int i_weight, int i8, int i_lambda2, int rd, int max_passes )
 {
     int offset = MPEG2 ? 2 : 1;
     int x = i8&1;
@@ -1128,7 +1128,7 @@ static ALWAYS_INLINE void me_refine_bidir( x264_t *h, x264_me_t *m0, x264_me_t *
 
     h->mc.memzero_aligned( visited, sizeof(uint8_t[8][8][8]) );
 
-    for( int pass = 0; pass < 8; pass++ )
+    for( int pass = 0; pass < max_passes; pass++ )
     {
         int bestj = 0;
         /* check all mv pairs that differ in at most 2 components from the current mvs. */
@@ -1214,7 +1214,12 @@ static ALWAYS_INLINE void me_refine_bidir( x264_t *h, x264_me_t *m0, x264_me_t *
 
 void x264_me_refine_bidir_satd( x264_t *h, x264_me_t *m0, x264_me_t *m1, int i_weight )
 {
-    me_refine_bidir( h, m0, m1, i_weight, 0, 0, 0 );
+    me_refine_bidir( h, m0, m1, i_weight, 0, 0, 0, 8 );
+}
+
+void x264_me_refine_bidir_satd_p1( x264_t *h, x264_me_t *m0, x264_me_t *m1, int i_weight )
+{
+    me_refine_bidir( h, m0, m1, i_weight, 0, 0, 0, 1 );
 }
 
 void x264_me_refine_bidir_rd( x264_t *h, x264_me_t *m0, x264_me_t *m1, int i_weight, int i8, int i_lambda2 )
@@ -1222,7 +1227,7 @@ void x264_me_refine_bidir_rd( x264_t *h, x264_me_t *m0, x264_me_t *m1, int i_wei
     /* Motion compensation is done as part of bidir_rd; don't repeat
      * it in encoding. */
     h->mb.b_skip_mc = 1;
-    me_refine_bidir( h, m0, m1, i_weight, i8, i_lambda2, 1 );
+    me_refine_bidir( h, m0, m1, i_weight, i8, i_lambda2, 1, 8 );
     h->mb.b_skip_mc = 0;
 }
 
