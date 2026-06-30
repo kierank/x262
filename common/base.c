@@ -369,6 +369,7 @@ void x264_param_force_mpeg2( x264_param_t *param )
     param->analyse.i_direct_mv_pred = X264_DIRECT_PRED_NONE;
     param->analyse.b_mixed_references = 0;
     param->analyse.f_psy_trellis = 0;
+    param->b_vfr_input = 0;
     param->b_constrained_intra = 0;
     param->b_aud = 0;
     param->b_bluray_compat = 0;
