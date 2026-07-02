@@ -1143,6 +1143,8 @@ REALIGN_STACK int x264_param_parse( x264_param_t *p, const char *name, const cha
         p->b_nonlinear_quant = !atobool(value);
     OPT("altintra")
         p->b_alt_intra_vlc = atobool(value);
+    OPT("dual-prime")
+        p->b_dual_prime = atobool(value);
     OPT("cqm-recenter")
         p->b_cqm_recenter = atobool(value);
     OPT("imx-class")

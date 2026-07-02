@@ -103,6 +103,10 @@ typedef struct
     x264_mb_analysis_list_t l1;
 
     int i_cost16x16bi; /* best of four MV pairings (L0_MV|0 × L1_MV|0) */
+    int i_cost_dualprime; /* MPEG-2 dual-prime SATD cost (base MV + best dmvector) */
+    int i_rd_dualprime;
+    int i_dmv[2];  /* dual-prime chosen dmvector, -1/0/+1 per axis */
+    ALIGNED_4( int16_t dp_base_mv[2] ); /* dual-prime single coded field MV (cache/qpel units) */
     ALIGNED_4( int16_t save16x8_mv[2][2][2] ); /* [L0,L1][field][xy] saved originals */
     int       save16x8_cost_mv[2][2];
     int i_cost16x16direct;
@@ -132,7 +136,7 @@ typedef struct
 /* TODO: calculate CABAC costs */
 static const uint8_t i_mb_b_cost_table[X264_MBTYPE_MAX] =
 {
-    9, 9, 9, 9, 0, 0, 0, 1, 3, 7, 7, 7, 3, 7, 7, 7, 5, 9, 0
+    9, 9, 9, 9, 0, 0, 0, 1, 3, 7, 7, 7, 3, 7, 7, 7, 5, 9, 0, 0
 };
 static const uint8_t i_mb_b16x8_cost_table[17] =
 {
@@ -1871,6 +1875,125 @@ static void x264_mb_analyse_inter_p16x8_mpeg2( x264_t *h, x264_mb_analysis_t *a 
     a->l0.me16x16.cost += a->i_lambda * ( x264_p_mb_type[1][coded][quant].i_size + 2 );
 
     h->mb.i_type = P_L0;
+}
+
+/* MPEG-2 dual-prime (frame picture): one coded field MV predicts each field from its own
+ * (same-parity) reference; a small dmvector derives the opposite-parity MV, and each field
+ * is the average of the two. Must be called in field mode (b_interlaced=1). Fills
+ * a->dp_base_mv, a->i_dmv, a->i_cost_dualprime. */
+static void x264_mb_analyse_inter_dualprime_mpeg2( x264_t *h, x264_mb_analysis_t *a )
+{
+    ALIGNED_ARRAY_64( pixel, pix,[16*16] ); /* assembled prediction (deinterleaved fields) */
+    ALIGNED_ARRAY_64( pixel, tmp0,[16*8] );
+    ALIGNED_ARRAY_64( pixel, tmp1,[16*8] );
+    pixel *src0, *src1;
+    intptr_t stride0, stride1;
+    x264_me_t m;
+    int i_mvc;
+    int i_ref = 0; /* dual-prime codes one MV; LOAD_WPELS references i_ref by name */
+    ALIGNED_4( int16_t mvc[8][2] );
+    int i_halfpel_thresh = INT_MAX;
+    int *p_halfpel_thresh = a->b_early_terminate ? &i_halfpel_thresh : NULL;
+    int b_tff = h->fenc->b_tff;
+    intptr_t rs = h->mb.pic.i_stride[0] << 1;
+
+    /* Set up p_fref[0][1] to point to the bottom field (top field + one row). */
+    intptr_t i_stride = h->mb.pic.i_stride[0];
+    for( int k = 0; k < 4; k++ )
+        h->mb.pic.p_fref[0][1][k] = h->mb.pic.p_fref[0][0][k] + i_stride;
+    if( CHROMA_FORMAT )
+        h->mb.pic.p_fref[0][1][4] = h->mb.pic.p_fref[0][0][4] + h->mb.pic.i_stride[1];
+    h->mb.pic.p_fref_w[1] = h->mb.pic.p_fref_w[0] + i_stride;
+    if( h->fdec->integral )
+        h->mb.pic.p_integral[0][1] = h->mb.pic.p_integral[0][0] + i_stride;
+    h->mb.pic.i_fref[0] = 2;
+
+    /* Search the single coded MV against the top field's same-parity (top) reference. */
+    m.i_pixel = PIXEL_16x8;
+    m.i_ref_cost = 0;
+    LOAD_FENC( &m, h->mb.pic.p_fenc, 0, 0 );
+    m.i_stride[0] >>= 1;
+    m.i_stride[1] >>= 1;
+    LOAD_HPELS( &m, h->mb.pic.p_fref[0][0], 0, 0, 0, 0 );
+    LOAD_WPELS( &m, h->mb.pic.p_fref_w[0], 0, 0, 0, 0 );
+    m.i_stride[0] <<= 1;
+    m.i_stride[1] <<= 1;
+    x264_mb_predict_mv_16x8_mpeg2( h, 0, 0, m.mvp, 0 );
+    x264_mb_predict_mv_ref16x16( h, 0, 0, mvc, &i_mvc );
+    x264_me_search_ref( h, &m, mvc, i_mvc, p_halfpel_thresh );
+    M32( m.mv ) &= ~0x00010001; /* MPEG-2 field MVs are half-pel */
+
+    CP32( a->dp_base_mv, m.mv );
+
+    /* Evaluate all 9 dmvectors; each field = avg(same-parity, derived opposite-parity). */
+    a->i_cost_dualprime = INT_MAX;
+    for( int dy = -1; dy <= 1; dy++ )
+    for( int dx = -1; dx <= 1; dx++ )
+    {
+        int dmv[2] = { dx, dy };
+        int16_t dmv_top[2], dmv_bot[2];
+        /* Derivation is in spec half-pel field units (base>>1); convert back to the qpel
+         * cache/MC domain with <<1. */
+        int16_t base_spec[2] = { a->dp_base_mv[0]>>1, a->dp_base_mv[1]>>1 };
+        x264_mpeg2_dualprime_derive_mv( b_tff, 0, base_spec, dmv, dmv_top );
+        x264_mpeg2_dualprime_derive_mv( b_tff, 1, base_spec, dmv, dmv_bot );
+        dmv_top[0] <<= 1; dmv_top[1] <<= 1;
+        dmv_bot[0] <<= 1; dmv_bot[1] <<= 1;
+
+        /* Derived MVs must reference only pixels inside the picture (7.6.3.8). The spel
+         * bounds are the picture-tight ME limits (field coordinates here) — NOT
+         * mv_min/mv_max, which include the emulated edge: ffmpeg drops the entire
+         * opposite-parity prediction for an out-of-picture MV, so a merely-clipped
+         * derived MV desyncs the reconstruction. */
+        if( dmv_top[0] < h->mb.mv_min_spel[0] || dmv_top[0] > h->mb.mv_max_spel[0] ||
+            dmv_bot[0] < h->mb.mv_min_spel[0] || dmv_bot[0] > h->mb.mv_max_spel[0] ||
+            dmv_top[1] < h->mb.mv_min_spel[1] || dmv_top[1] > h->mb.mv_max_spel[1] ||
+            dmv_bot[1] < h->mb.mv_min_spel[1] || dmv_bot[1] > h->mb.mv_max_spel[1] )
+            continue;
+
+        /* top field: same parity = top ref (base), opposite = bottom ref (derived) */
+        stride0 = stride1 = 16;
+        src0 = h->mc.get_ref( tmp0, &stride0, h->mb.pic.p_fref[0][0], rs,
+                              a->dp_base_mv[0], a->dp_base_mv[1], 16, 8, x264_weight_none );
+        src1 = h->mc.get_ref( tmp1, &stride1, h->mb.pic.p_fref[0][1], rs,
+                              dmv_top[0], dmv_top[1], 16, 8, x264_weight_none );
+        h->mc.avg[PIXEL_16x8]( &pix[0], 16, src0, stride0, src1, stride1, 32 );
+
+        /* bottom field: same parity = bottom ref (base), opposite = top ref (derived) */
+        stride0 = stride1 = 16;
+        src0 = h->mc.get_ref( tmp0, &stride0, h->mb.pic.p_fref[0][1], rs,
+                              a->dp_base_mv[0], a->dp_base_mv[1], 16, 8, x264_weight_none );
+        src1 = h->mc.get_ref( tmp1, &stride1, h->mb.pic.p_fref[0][0], rs,
+                              dmv_bot[0], dmv_bot[1], 16, 8, x264_weight_none );
+        h->mc.avg[PIXEL_16x8]( &pix[16*8], 16, src0, stride0, src1, stride1, 32 );
+
+        int cost = h->pixf.mbcmp[PIXEL_16x16]( h->mb.pic.p_fenc[0], FENC_STRIDE, pix, 16 )
+                 + a->i_lambda * ( x264_dmvector[dx+1].i_size + x264_dmvector[dy+1].i_size );
+        if( cost < a->i_cost_dualprime )
+        {
+            a->i_cost_dualprime = cost;
+            a->i_dmv[0] = dx;
+            a->i_dmv[1] = dy;
+        }
+    }
+
+    h->mb.pic.i_fref[0] = h->i_ref[0];
+
+    if( a->i_cost_dualprime == INT_MAX )
+        return;
+
+    /* MV cost of the single coded field MV (predicted from top-field predictor). */
+    int16_t mvp[2];
+    x264_mb_predict_mv_16x8_mpeg2( h, 0, 0, mvp, 0 );
+    a->i_cost_dualprime += a->p_cost_mv  [0][a->dp_base_mv[0] - mvp[0]]
+                         + a->p_cost_mv_y[0][a->dp_base_mv[1] - mvp[1]];
+
+    /* mb type + the 2 motion_type bits (dual-prime frame_motion_type = 11). */
+    int quant = h->mb.i_last_qp != a->i_qp && h->mb.i_mb_x;
+    int coded = 1;
+    if( quant && !coded )
+        quant = 0;
+    a->i_cost_dualprime += a->i_lambda * ( x264_p_mb_type[1][coded][quant].i_size + 2 );
 }
 #endif
 
@@ -3988,6 +4111,7 @@ skip_analysis:
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
             int b_mpeg2_adaptive = MPEG2 && PARAM_INTERLACED && h->mb.b_adaptive_mbaff && analysis.i_mbrd;
             int cost_field = COST_MAX;
+            analysis.i_cost_dualprime = COST_MAX;
             x264_me_t me16x8_field[2];
 
             if( b_mpeg2_adaptive )
@@ -3997,6 +4121,8 @@ skip_analysis:
                 cost_field = analysis.l0.me16x16.cost;
                 h->mc.memcpy_aligned( &me16x8_field[0], &analysis.l0.me16x8[0], sizeof(x264_me_t) );
                 h->mc.memcpy_aligned( &me16x8_field[1], &analysis.l0.me16x8[1], sizeof(x264_me_t) );
+                if( h->mb.b_dp_eligible )
+                    x264_mb_analyse_inter_dualprime_mpeg2( h, &analysis );
                 x264_mb_switch_field_mpeg2( h, 0 );
             }
 
@@ -4216,6 +4342,38 @@ skip_analysis:
                         analyse_update_cache( h, &analysis );
                     }
                 }
+
+                /* RD the dual-prime candidate against the current winner. */
+                if( b_mpeg2_adaptive && h->mb.b_dp_eligible
+                    && analysis.i_cost_dualprime < i_satd_inter + (i_satd_inter>>1) )
+                {
+                    int b_was_field = MB_INTERLACED;
+                    h->mb.i_dmv[0] = analysis.i_dmv[0];
+                    h->mb.i_dmv[1] = analysis.i_dmv[1];
+                    x264_mb_switch_field_mpeg2( h, 1 );
+                    h->mb.i_type = P_DUAL_PRIME;
+                    h->mb.i_partition = D_16x8;
+                    analyse_update_cache( h, &analysis );
+                    analysis.i_rd_dualprime = rd_cost_mb( h, analysis.i_lambda2 );
+                    if( analysis.i_rd_dualprime < i_cost )
+                    {
+                        i_cost = analysis.i_rd_dualprime;
+                        i_type = P_DUAL_PRIME;
+                        i_partition = D_16x8;
+                    }
+                    else
+                    {
+                        /* Restore the previous winner's mode and cache (the dual-prime probe
+                         * left list1 refs set and the MB in field mode). Clear list1 so a
+                         * plain P MB is not misread as bidirectional. */
+                        if( !b_was_field )
+                            x264_mb_switch_field_mpeg2( h, 0 );
+                        x264_macroblock_cache_ref( h, 0, 0, 4, 4, 1, -2 );
+                        h->mb.i_type = i_type;
+                        h->mb.i_partition = i_partition;
+                        analyse_update_cache( h, &analysis );
+                    }
+                }
 #endif
                 if( i_cost < COST_MAX )
                     mb_analyse_transform_rd( h, &analysis, &i_satd_inter, &i_cost );
@@ -4260,7 +4418,7 @@ skip_analysis:
                     analysis.l0.me16x16.cost = i_cost;
                     x264_me_refine_qpel_rd( h, &analysis.l0.me16x16, analysis.i_lambda2, 0, 0 );
                 }
-                else if( i_partition == D_16x8 )
+                else if( i_partition == D_16x8 && i_type != P_DUAL_PRIME )
                 {
                     M32( h->mb.i_sub_partition ) = D_L0_8x8 * 0x01010101;
                     x264_macroblock_cache_ref( h, 0, 0, 4, 2, 0, analysis.l0.me16x8[0].i_ref );
@@ -4961,6 +5119,20 @@ static void analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
             }
             break;
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        case P_DUAL_PRIME:
+            /* Only the single coded (base) field MV goes in the list0 cache; the same MV
+             * applies to both fields' same-parity prediction, so the ref index (field-select
+             * parity) is 0 for the top half and 1 for the bottom. The opposite-parity derived
+             * MV is recomputed in mb_mc_dualprime and the writer, so no list1 is stored (a P
+             * slice never reloads list1). */
+            x264_macroblock_cache_ref( h, 0, 0, 4, 2, 0, 0 );
+            x264_macroblock_cache_ref( h, 0, 2, 4, 2, 0, 1 );
+            x264_macroblock_cache_mv ( h, 0, 0, 4, 2, 0, pack16to32_mask( a->dp_base_mv[0], a->dp_base_mv[1] ) );
+            x264_macroblock_cache_mv ( h, 0, 2, 4, 2, 0, pack16to32_mask( a->dp_base_mv[0], a->dp_base_mv[1] ) );
+            break;
+#endif
+
         case P_8x8:
             x264_macroblock_cache_ref( h, 0, 0, 2, 2, 0, a->l0.me8x8[0].i_ref );
             x264_macroblock_cache_ref( h, 2, 0, 2, 2, 0, a->l0.me8x8[1].i_ref );
@@ -5111,7 +5283,7 @@ static void analyse_update_cache( x264_t *h, x264_mb_analysis_t *a  )
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
     /* Commit the chosen MVs to h->mb.cache.mv, which the bitstream writer reads.
      * MVs are already inside the picture from the search bounds. */
-    if( MPEG2 && !IS_INTRA(h->mb.i_type) )
+    if( MPEG2 && !IS_INTRA(h->mb.i_type) && h->mb.i_type != P_DUAL_PRIME )
     {
         if( MB_INTERLACED )
         {

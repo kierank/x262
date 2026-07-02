@@ -504,6 +504,11 @@ static int validate_parameters( x264_t *h, int b_open )
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
     if( MPEG2 && h->param.b_alternate_scan < 0 )
         h->param.b_alternate_scan = PARAM_INTERLACED;
+    if( h->param.b_dual_prime && !( MPEG2 && PARAM_INTERLACED ) )
+    {
+        x264_log( h, X264_LOG_WARNING, "dual-prime requires MPEG-2 interlaced; disabling\n" );
+        h->param.b_dual_prime = 0;
+    }
 #endif
 
 #define MAX_RESOLUTION 16384
@@ -5044,9 +5049,16 @@ void    x264_encoder_close  ( x264_t *h )
             if( MPEG2 )
             {
                 int64_t i_coded = i_mb_count - i_skip;
+                buf[0] = 0;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+                int64_t i_p_mbs = (int64_t)h->stat.i_frame_count[SLICE_TYPE_P] * h->mb.i_mb_count;
+                if( i_p_mbs )
+                    sprintf( buf, "  dual-prime: %.1f%%",
+                             h->stat.i_mb_count[SLICE_TYPE_P][P_DUAL_PRIME] * 100.0 / i_p_mbs );
+#endif
                 if( i_coded )
-                    x264_log( h, X264_LOG_INFO, "field dct: %.1f%%\n",
-                              h->stat.i_mb_field_dct * 100.0 / i_coded );
+                    x264_log( h, X264_LOG_INFO, "field dct: %.1f%%%s\n",
+                              h->stat.i_mb_field_dct * 100.0 / i_coded, buf );
             }
         }
 
