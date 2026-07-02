@@ -267,6 +267,60 @@ static NOINLINE void mb_mc_01xywh( x264_t *h, int x, int y, int width, int heigh
 #undef MC_LUMA
 #undef MC_LUMA_BI
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* MPEG-2 dual-prime reconstruction for one 16x8 field half (y=0 top, y=2 bottom). Both
+ * predictions come from the single (list0) reference frame: the same-parity field (base MV)
+ * and the opposite-parity field (derived MV), averaged 50/50 (spec //2). The derived MV is
+ * recomputed here from the base MV + dmvector so the P-slice cache never needs a list1 (which
+ * it does not reload per MB). fsel is the field parity: top output field (y=0) predicts its
+ * same parity from the top ref (0) and opposite from the bottom (1); bottom output swaps. */
+static NOINLINE void mb_mc_dualprime( x264_t *h, int y )
+{
+    int out_field = y >> 1; /* 0 = top field, 1 = bottom field */
+    int fsel0 = out_field;      /* same-parity reference field */
+    int fsel1 = 1 - out_field;  /* opposite-parity reference field */
+    int i8 = x264_scan8[0] + 8*y;
+    int16_t base[2] = { h->mb.cache.mv[0][i8][0], h->mb.cache.mv[0][i8][1] };
+    int16_t base_spec[2] = { base[0]>>1, base[1]>>1 };
+    int dmv[2] = { h->mb.i_dmv[0], h->mb.i_dmv[1] };
+    int16_t derived[2];
+    x264_mpeg2_dualprime_derive_mv( h->fenc->b_tff, out_field, base_spec, dmv, derived );
+    derived[0] <<= 1; derived[1] <<= 1;
+    int mvx0 = x264_clip3( base[0],    h->mb.mv_min[0], h->mb.mv_max[0] );
+    int mvy0 = x264_clip3( base[1],    h->mb.mv_min[1], h->mb.mv_max[1] );
+    int mvx1 = x264_clip3( derived[0], h->mb.mv_min[0], h->mb.mv_max[0] );
+    int mvy1 = x264_clip3( derived[1], h->mb.mv_min[1], h->mb.mv_max[1] );
+    ALIGNED_ARRAY_32( pixel, tmp0,[16*8] );
+    ALIGNED_ARRAY_32( pixel, tmp1,[16*8] );
+    int weight = 32; /* plain 50/50 average (spec //2); bipred_weight is B-slice only */
+
+    intptr_t ls = h->mb.pic.i_stride[0];
+    pixel *s0[4] = { h->mb.pic.p_fref[0][0][0] + fsel0*ls, h->mb.pic.p_fref[0][0][1] + fsel0*ls,
+                     h->mb.pic.p_fref[0][0][2] + fsel0*ls, h->mb.pic.p_fref[0][0][3] + fsel0*ls };
+    pixel *s1[4] = { h->mb.pic.p_fref[0][0][0] + fsel1*ls, h->mb.pic.p_fref[0][0][1] + fsel1*ls,
+                     h->mb.pic.p_fref[0][0][2] + fsel1*ls, h->mb.pic.p_fref[0][0][3] + fsel1*ls };
+    h->mc.mc_luma( tmp0, 16, s0, ls<<1, mvx0, mvy0, 16, 8, x264_weight_none );
+    h->mc.mc_luma( tmp1, 16, s1, ls<<1, mvx1, mvy1, 16, 8, x264_weight_none );
+    h->mc.avg[PIXEL_16x8]( &h->mb.pic.p_fdec[0][(y>>1)*FDEC_STRIDE], FDEC_STRIDE<<1,
+                           tmp0, 16, tmp1, 16, weight );
+
+    if( CHROMA_FORMAT )
+    {
+        int v_shift = CHROMA_V_SHIFT;
+        intptr_t cs = h->mb.pic.i_stride[1];
+        int cw = 8, ch = 8 >> v_shift;
+        h->mc.mc_chroma( tmp0, tmp0+8, 16, h->mb.pic.p_fref[0][0][4] + fsel0*cs, cs<<1,
+                         mvx0, 2*mvy0>>v_shift, cw, ch );
+        h->mc.mc_chroma( tmp1, tmp1+8, 16, h->mb.pic.p_fref[0][0][4] + fsel1*cs, cs<<1,
+                         mvx1, 2*mvy1>>v_shift, cw, ch );
+        int coff = (y>>1)*FDEC_STRIDE;
+        int chromapix = h->luma2chroma_pixel[PIXEL_16x8];
+        h->mc.avg[chromapix]( &h->mb.pic.p_fdec[1][coff], FDEC_STRIDE<<1, tmp0,   16, tmp1,   16, weight );
+        h->mc.avg[chromapix]( &h->mb.pic.p_fdec[2][coff], FDEC_STRIDE<<1, tmp0+8, 16, tmp1+8, 16, weight );
+    }
+}
+#endif
+
 void x264_mb_mc_8x8( x264_t *h, int i8 )
 {
     int x = 2*(i8&1);
@@ -311,6 +365,14 @@ void x264_mb_mc_8x8( x264_t *h, int i8 )
 
 void x264_mb_mc( x264_t *h )
 {
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( h->mb.i_type == P_DUAL_PRIME )
+    {
+        mb_mc_dualprime( h, 0 );
+        mb_mc_dualprime( h, 2 );
+        return;
+    }
+#endif
     if( h->mb.i_partition == D_8x8 )
     {
         for( int i = 0; i < 4; i++ )
@@ -597,6 +659,15 @@ void x264_macroblock_slice_init( x264_t *h )
 
             h->fdec->inv_ref_poc[field] = (256 + delta/2) / delta;
         }
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    /* Dual-prime is legal only for interlaced P-pictures whose reference frame is
+     * temporally adjacent (Table 7-11 fixes the field distance to one frame). POC is
+     * in field units, so an adjacent reference is a POC delta of 2. */
+    h->mb.b_dp_eligible = MPEG2 && PARAM_INTERLACED && h->param.b_dual_prime
+                       && h->sh.i_type == SLICE_TYPE_P && h->i_ref[0] > 0
+                       && h->fdec->i_poc - h->fref[0][0]->i_poc == 2;
+#endif
 
     h->mb.i_neighbour4[6] =
     h->mb.i_neighbour4[9] =

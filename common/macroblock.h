@@ -85,14 +85,17 @@ enum mb_class_e
     B_8x8           = 17,
     B_SKIP          = 18,
 
-    X264_MBTYPE_MAX = 19
+    P_DUAL_PRIME    = 19, /* MPEG-2 dual-prime P sub-mode; appended last so existing indices are stable */
+
+    X264_MBTYPE_MAX = 20
 };
 static const uint8_t x264_mb_type_fix[X264_MBTYPE_MAX] =
 {
     I_4x4, I_4x4, I_16x16, I_PCM,
     P_L0, P_8x8, P_SKIP,
     B_DIRECT, B_L0_L0, B_L0_L1, B_L0_BI, B_L1_L0, B_L1_L1,
-    B_L1_BI, B_BI_L0, B_BI_L1, B_BI_BI, B_8x8, B_SKIP
+    B_L1_BI, B_BI_L0, B_BI_L1, B_BI_BI, B_8x8, B_SKIP,
+    P_DUAL_PRIME
 };
 static const uint8_t x264_mb_type_list_table[X264_MBTYPE_MAX][2][2] =
 {
@@ -105,7 +108,8 @@ static const uint8_t x264_mb_type_list_table[X264_MBTYPE_MAX][2][2] =
     {{0,1},{1,0}}, {{0,0},{1,1}}, {{0,1},{1,1}},                /* B_L1_* */
     {{1,1},{1,0}}, {{1,0},{1,1}}, {{1,1},{1,1}},                /* B_BI_* */
     {{0,0},{0,0}},                                              /* B_8x8 */
-    {{0,0},{0,0}}                                               /* B_SKIP */
+    {{0,0},{0,0}},                                              /* B_SKIP */
+    {{1,1},{0,0}}                                               /* P_DUAL_PRIME (list0 forward) */
 };
 
 #define IS_SUB4x4(type) ( (type == D_L0_4x4)||(type == D_L1_4x4)||(type == D_BI_4x4) )
@@ -345,6 +349,26 @@ void x264_mb_predict_mv_16x8_mpeg2( x264_t *h, int i_list, int i_ref, int16_t mv
 /* x264_mb_setup_fref_mpeg2:
  *      rebuild reference-plane pointers for frame (0) or field (1) mode */
 void x264_mb_setup_fref_mpeg2( x264_t *h, int b_field );
+
+/* x264_mpeg2_dualprime_derive_mv:
+ *      Derive the opposite-parity field MV for dual-prime (H.262 7.6.3.6, frame picture).
+ *      All MVs are in spec half-pel field units (vector'[r][0][t]); the caller converts to
+ *      the qpel cache domain with <<1. out_field: 0=top,1=bottom (the field being predicted;
+ *      its opposite-parity reference is the other field). m/e come from Tables 7-11/7-12.
+ *      // is round-to-nearest, half away from zero (H.262 4). */
+static ALWAYS_INLINE void x264_mpeg2_dualprime_derive_mv( int b_tff, int out_field,
+        const int16_t base_mv[2], const int dmv[2], int16_t derived_mv[2] )
+{
+    /* top predicted from bottom ref: m[1][0]; bottom predicted from top ref: m[0][1] */
+    int m = out_field ? (b_tff ? 3 : 1) : (b_tff ? 1 : 3);
+    int e = out_field ? 1 : -1; /* ref bottom (top field) -> +1 ; ref top (bottom field) -> -1 */
+    int px = base_mv[0] * m;
+    int py = base_mv[1] * m;
+    px = px >= 0 ? (px + 1) >> 1 : -((-px + 1) >> 1); /* px // 2 */
+    py = py >= 0 ? (py + 1) >> 1 : -((-py + 1) >> 1); /* py // 2 */
+    derived_mv[0] = px + dmv[0];
+    derived_mv[1] = py + e + dmv[1];
+}
 #endif
 /* x264_mb_predict_mv_pskip:
  *      set mvp with predicted mv for P_SKIP
@@ -453,7 +477,7 @@ static ALWAYS_INLINE int x264_mb_predict_non_zero_code( x264_t *h, int idx )
 /* intra and skip are disallowed, p8x8 is conditional. */
 static const uint8_t x264_transform_allowed[X264_MBTYPE_MAX] =
 {
-    0,0,0,0,1,2,0,1,1,1,1,1,1,1,1,1,1,1,0
+    0,0,0,0,1,2,0,1,1,1,1,1,1,1,1,1,1,1,0,0
 };
 
 /* x264_mb_transform_8x8_allowed:

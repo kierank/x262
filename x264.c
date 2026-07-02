@@ -995,6 +995,7 @@ static void help( x264_param_t *defaults, int longhelp )
     H2( "      --linear-quant          Use MPEG-2 linear quantization table\n" );
     H2( "      --no-altintra           Use MPEG-1 VLCs (Table B.14) for intra blocks\n" );
     H2( "      --cqm-recenter          Enable per-picture quant matrix centering\n" );
+    H2( "      --dual-prime            Enable dual-prime prediction for interlaced P-frames\n" );
     H0( "\n" );
 #endif
 }
@@ -1085,6 +1086,8 @@ static struct option long_options[] =
     { "altintra",             no_argument,       NULL, 0 },
     { "no-altintra",          no_argument,       NULL, 0 },
     { "cqm-recenter",         no_argument,       NULL, 0 },
+    { "dual-prime",           no_argument,       NULL, 0 },
+    { "no-dual-prime",        no_argument,       NULL, 0 },
 #endif
     { "constrained-intra",    no_argument,       NULL, 0 },
     { "cabac",                no_argument,       NULL, 0 },

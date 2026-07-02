@@ -117,6 +117,7 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
     s->i_bits_encoded = 0;
 #endif
 
+    const int b_dual_prime = i_mb_type == P_DUAL_PRIME;
     int cbp420 = h->mb.i_cbp_luma << 2 | h->mb.i_cbp_chroma;
     int cbp = cbp420 << 2 | h->mb.i_cbp_chroma422;
     int coded = !!cbp;
@@ -125,7 +126,8 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
     if( MB_INTERLACED )
         mcoded =  mcoded || (!!M32( h->mb.cache.mv[0][X264_SCAN8_0 + 2*8] ))
                || (h->mb.cache.ref[0][X264_SCAN8_0] != 0)
-               || (h->mb.cache.ref[0][X264_SCAN8_0 + 2*8] != 1);
+               || (h->mb.cache.ref[0][X264_SCAN8_0 + 2*8] != 1)
+               || b_dual_prime;
     int mv_type = 0;
 
     /* must code a zero mv for macroblocks that cannot be (P|B)_SKIP */
@@ -146,8 +148,9 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
     // macroblock modes
     if( i_mb_type == I_16x16 )
         bs_write_vlc( s, x264_i_mb_type[h->sh.i_type][quant] );
-    else if( i_mb_type == P_L0 )
+    else if( i_mb_type == P_L0 || b_dual_prime )
     {
+        /* dual-prime uses the same P macroblock_type VLC; only motion_type differs */
         bs_write_vlc( s, x264_p_mb_type[mcoded][coded][quant] );
         if( !mcoded )
             x264_reset_mv_predictor_mpeg2( h );
@@ -163,8 +166,8 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
 
     if( PARAM_INTERLACED || h->param.b_fake_interlaced )
     {
-        if( (i_mb_type == P_L0 && mcoded) || i_mb_type > P_L0 )
-            bs_write( s, 2, 2 - MB_INTERLACED ); // frame|field_motion_type
+        if( ((i_mb_type == P_L0 || b_dual_prime) && mcoded) || (i_mb_type > P_L0 && !b_dual_prime) )
+            bs_write( s, 2, b_dual_prime ? 3 : 2 - MB_INTERLACED ); // frame|field_motion_type (3 = dual-prime)
         if( coded )
             bs_write1( s, h->mb.b_field_dct ); // dct_type
     }
@@ -177,9 +180,25 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
 #endif
 
     // write mvs
-    if( (i_mb_type == P_L0 && mcoded) || (i_mb_type != P_L0 && i_mb_type != I_16x16) )
+    if( ((i_mb_type == P_L0 || b_dual_prime) && mcoded) || (i_mb_type != P_L0 && !b_dual_prime && i_mb_type != I_16x16) )
     {
-        if( MB_INTERLACED )
+        if( b_dual_prime )
+        {
+            /* Dual-prime: one field MV in full, then dmvector[0]/dmvector[1]. No
+             * motion_vertical_field_select is coded (each field's same-parity ref is
+             * implicit). The coded MV lives in the list0 top-field cache slot. */
+            int16_t *mv = h->mb.cache.mv[0][X264_SCAN8_0];
+            x264_write_mv_vlc_mpeg2( h, (mv[0]>>1) - (h->mb.mvp[0][0][0]>>1),
+                                     h->fenc->mv_fcode[0][0] );
+            bs_write_vlc( s, x264_dmvector[h->mb.i_dmv[0] + 1] ); // dmvector[0]
+            x264_write_mv_vlc_mpeg2( h, (mv[1]>>1) - (h->mb.mvp[0][0][1]>>2),
+                                     h->fenc->mv_fcode[0][1] );
+            bs_write_vlc( s, x264_dmvector[h->mb.i_dmv[1] + 1] ); // dmvector[1]
+            // update predictors (only the coded MV; derived MVs have no predictor)
+            h->mb.mvp[0][0][0] = h->mb.mvp[1][0][0] = mv[0];
+            h->mb.mvp[0][0][1] = h->mb.mvp[1][0][1] = (mv[1] & ~1) * 2;
+        }
+        else if( MB_INTERLACED )
         {
             int mvcount = 2;
             mv_type = 0;

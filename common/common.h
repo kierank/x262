@@ -270,7 +270,7 @@ typedef struct
     /* ? */
     int i_misc_bits;
     /* MB type counts */
-    int i_mb_count[19];
+    int i_mb_count[20]; /* X264_MBTYPE_MAX */
     int i_mb_count_i;
     int i_mb_count_p;
     int i_mb_count_skip;
@@ -591,6 +591,8 @@ struct x264_t
         int     b_interlaced;
         int     b_adaptive_mbaff; /* MBAFF+subme 0 requires non-adaptive MBAFF i.e. all field mbs */
         int     b_field_dct; /* MPEG-2: per-MB field DCT (dct_type) */
+        int     b_dp_eligible; /* MPEG-2: dual-prime legal for this picture (per-slice) */
+        int     i_dmv[2]; /* MPEG-2: chosen dual-prime dmvector, -1/0/+1 per axis (i_type P_DUAL_PRIME) */
 
         /* Allowed qpel MV range to stay within the picture + emulated edge pixels */
         int     mv_min[2];
@@ -835,7 +837,7 @@ struct x264_t
         double  f_ssim_mean_y[3];
         double  f_frame_duration[3];
         /* */
-        int64_t i_mb_count[3][19];
+        int64_t i_mb_count[3][20]; /* X264_MBTYPE_MAX */
         int64_t i_mb_partition[2][17];
         int64_t i_mb_count_8x8dct[2];
         int64_t i_mb_count_ref[2][2][X264_REF_MAX*2];
