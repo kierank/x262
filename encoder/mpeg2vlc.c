@@ -48,12 +48,80 @@ static ALWAYS_INLINE int mpeg2_coef_bits( int level, int run, int intra_tab, int
     return 6 + 6 + 12; /* escape: prefix + run + level */
 }
 
+#if !RDO_SKIP_BS
+/* Composed scan permutations for the adaptive-scan bit counter: the block is
+ * only available in the current scan's linear order at write time, so build
+ * the other scan's linear order as other[k] = l[perm[k]], where
+ * perm = inverse(cur_scan_to_flat) o other_scan_to_flat. */
+static const uint8_t scan_perm_zigzag_to_alt[64] =
+{
+     0,  2,  3,  9,  1,  4,  5,  7,
+     8, 11, 10, 20, 21, 35, 36, 34,
+    22, 19, 18, 12,  6, 13, 14, 16,
+    17, 24, 23, 33, 37, 48, 32, 38,
+    47, 49, 25, 31, 15, 26, 27, 29,
+    30, 40, 39, 46, 50, 57, 45, 51,
+    56, 58, 41, 44, 28, 42, 43, 53,
+    52, 55, 59, 62, 54, 60, 61, 63,
+};
+static const uint8_t scan_perm_alt_to_zigzag[64] =
+{
+     0,  4,  1,  2,  5,  6, 20,  7,
+     8,  3, 10,  9, 19, 21, 22, 36,
+    23, 24, 18, 17, 11, 12, 16, 26,
+    25, 34, 37, 38, 52, 39, 40, 35,
+    30, 27, 15, 13, 14, 28, 31, 42,
+    41, 50, 53, 54, 51, 46, 43, 32,
+    29, 33, 44, 47, 56, 55, 60, 57,
+    48, 45, 49, 58, 61, 62, 59, 63,
+};
+
+/* AC bits x264_write_dct_vlc_mpeg2 would emit for l, without writing. */
+static int mpeg2_dct_vlc_size( x264_t *h, dctcoef *l, int intra_tab )
+{
+    x264_run_level_t runlevel;
+    const int inter = h->mb.i_type != I_16x16;
+    int i_total = h->quantf.coeff_level_run[DCT_LUMA_8x8]( l, &runlevel ) - 1;
+    uint64_t mask = runlevel.mask64;
+    int prev = inter ? -1 : 0;
+    int bits = 0;
+
+    for( int i = i_total; i >= 0 && ( runlevel.last > 0 || inter ); i-- )
+    {
+        int pos = x264_ctz64( mask );
+        mask &= mask - 1;
+        bits += mpeg2_coef_bits( runlevel.level[i], pos - prev - 1, intra_tab, inter, i == i_total );
+        prev = pos;
+    }
+    return bits;
+}
+
+/* Accumulate this block's AC bits under both scans for the per-picture
+ * adaptive-scan decision. EOB, intra DC and MB overhead are scan-independent
+ * and cancel out of the comparison. */
+static void mpeg2_accum_alt_scan_bits( x264_t *h, dctcoef *l, int intra_tab )
+{
+    ALIGNED_ARRAY_64( dctcoef, other,[64] );
+    int cur = h->fenc->b_alternate_scan;
+    const uint8_t *perm = cur ? scan_perm_alt_to_zigzag : scan_perm_zigzag_to_alt;
+    for( int i = 0; i < 64; i++ )
+        other[i] = l[perm[i]];
+    h->stat.frame.i_alt_scan_bits[cur]   += mpeg2_dct_vlc_size( h, l, intra_tab );
+    h->stat.frame.i_alt_scan_bits[cur^1] += mpeg2_dct_vlc_size( h, other, intra_tab );
+}
+#endif
+
 static void x264_write_dct_vlc_mpeg2( x264_t *h, dctcoef *l, int intra_tab )
 {
     bs_t *s = &h->out.bs;
     x264_run_level_t runlevel;
     int i_total = 0;
     const int inter = h->mb.i_type != I_16x16;
+
+#if !RDO_SKIP_BS
+    if( h->mb.b_adaptive_scan )
+        mpeg2_accum_alt_scan_bits( h, l, intra_tab );
+#endif
 
     /* minus one because runlevel is zero-indexed and backwards */
     i_total = h->quantf.coeff_level_run[DCT_LUMA_8x8]( l, &runlevel ) - 1;

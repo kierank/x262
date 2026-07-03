@@ -503,7 +503,10 @@ static int validate_parameters( x264_t *h, int b_open )
 #endif
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
     if( MPEG2 && h->param.b_alternate_scan < 0 )
+    {
         h->param.b_alternate_scan = PARAM_INTERLACED;
+        h->mb.b_adaptive_scan = 1;
+    }
     if( h->param.b_dual_prime && !( MPEG2 && PARAM_INTERLACED ) )
     {
         x264_log( h, X264_LOG_WARNING, "dual-prime requires MPEG-2 interlaced; disabling\n" );
@@ -1022,6 +1025,7 @@ static int validate_parameters( x264_t *h, int b_open )
         h->param.b_nonlinear_quant = 1;
         h->param.b_alt_intra_vlc = 1;
         h->param.b_alternate_scan = 0;
+        h->mb.b_adaptive_scan = 0;
         h->param.i_slice_max_mbs = 1;
         if( h->param.vui.i_aspect_ratio_information == X264_MPEG2_DAR_AUTO &&
             !h->param.vui.i_sar_width && !h->param.vui.i_sar_height )
@@ -1880,6 +1884,11 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
      * vectors during prediction, resulting in hpel mvs.
      * The chosen solution is to make MBAFF non-adaptive in this case. */
     h->mb.b_adaptive_mbaff = PARAM_INTERLACED && h->param.analyse.i_subpel_refine;
+#if HAVE_MPEG2
+    if( MPEG2 )
+        for( int i = 0; i < 3; i++ )
+            h->stat.i_alt_scan_decision[i] = h->param.b_alternate_scan;
+#endif
 
     /* Init frames. */
     if( h->param.i_bframe_adaptive == X264_B_ADAPT_TRELLIS && !h->param.rc.b_stat_read )
@@ -4099,6 +4108,22 @@ int     x264_encoder_encode( x264_t *h,
 #if HAVE_MPEG2
     if( MPEG2 )
     {
+        /* alternate_scan is a per-picture element; the scan tables, trellis,
+         * decimation and header write all follow h->fenc->b_alternate_scan.
+         * Adaptive mode carries forward the winner of the dual-scan bit counts
+         * from the previous picture of the same type. */
+        int i_pic_type = IS_X264_TYPE_I( h->fenc->i_type ) ? SLICE_TYPE_I :
+                         h->fenc->i_type == X264_TYPE_P ? SLICE_TYPE_P : SLICE_TYPE_B;
+        h->fenc->b_alternate_scan = h->mb.b_adaptive_scan ? h->stat.i_alt_scan_decision[i_pic_type]
+                                                          : h->param.b_alternate_scan;
+        /* 2pass: the previous pass measured this very frame's winner — use it
+         * instead of the lagged carry-forward. */
+        if( h->mb.b_adaptive_scan && h->param.rc.b_stat_read )
+        {
+            int i_as = x264_ratecontrol_alt_scan( h, h->fenc->i_frame );
+            if( i_as >= 0 )
+                h->fenc->b_alternate_scan = i_as;
+        }
         /* 2pass f_codes: no lowres MVs to derive min-fit from (the lookahead
          * fell back to the level ceiling) — restore pass-1's choices. */
         if( h->param.rc.b_stat_read )
@@ -4107,6 +4132,12 @@ int     x264_encoder_encode( x264_t *h,
             if( x264_ratecontrol_mv_fcodes( h, h->fenc->i_frame, fcodes ) )
                 memcpy( h->fenc->mv_fcode, fcodes, sizeof(fcodes) );
         }
+        /* Mirrored on fdec for encoder_frame_end, where fenc is already recycled. */
+        h->fdec->b_alternate_scan = h->fenc->b_alternate_scan;
+        if( h->mb.b_adaptive_scan )
+            x264_log( h, X264_LOG_DEBUG, "frame %d type %d alternate_scan=%d\n",
+                      h->fenc->i_frame, i_pic_type, h->fenc->b_alternate_scan );
+
         if( h->fenc->b_keyframe )
         {
             /* generate sequence header */
@@ -4742,6 +4773,17 @@ static int encoder_frame_end( x264_t *h, x264_t *thread_current,
     for( int i = 0; i < 3; i++ )
         h->stat.i_mb_field[i] += h->stat.frame.i_mb_field[i];
     h->stat.i_mb_field_dct += h->stat.frame.i_mb_field_dct;
+    /* MPEG-2 adaptive scan: the cheaper scan for this picture's coefficients
+     * becomes the choice for the next picture of the same type. */
+    if( h->mb.b_adaptive_scan )
+    {
+#if HAVE_MPEG2
+        h->stat.i_alt_scan_count[h->sh.i_type] += h->fdec->b_alternate_scan;
+#endif
+        if( h->stat.frame.i_alt_scan_bits[0] | h->stat.frame.i_alt_scan_bits[1] )
+            h->stat.i_alt_scan_decision[h->sh.i_type] =
+                h->stat.frame.i_alt_scan_bits[1] < h->stat.frame.i_alt_scan_bits[0];
+    }
     if( h->sh.i_type == SLICE_TYPE_P && h->param.analyse.i_weighted_pred >= X264_WEIGHTP_SIMPLE )
     {
         h->stat.i_wpred[0] += !!h->sh.weight[0][0].weightfn;
@@ -5062,6 +5104,12 @@ void    x264_encoder_close  ( x264_t *h )
                               h->stat.i_mb_field_dct * 100.0 / i_coded, buf );
             }
         }
+
+        if( MPEG2 && h->mb.b_adaptive_scan )
+            x264_log( h, X264_LOG_INFO, "alt-scan pictures: I:%.1f%% P:%.1f%% B:%.1f%%\n",
+                      h->stat.i_alt_scan_count[SLICE_TYPE_I] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_I], 1 ),
+                      h->stat.i_alt_scan_count[SLICE_TYPE_P] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_P], 1 ),
+                      h->stat.i_alt_scan_count[SLICE_TYPE_B] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_B], 1 ) );
 
         if( h->pps->b_transform_8x8_mode )
         {
