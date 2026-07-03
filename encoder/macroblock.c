@@ -728,7 +728,7 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
         nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf_frame[CQM_8IY+chroma422][i_qp],
                                   h->quant8_bias_frame[CQM_8IY+chroma422][i_qp] );
 
-        if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 1, h->param.b_alternate_scan ) )
+        if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 1, h->fenc->b_alternate_scan ) )
             nz = !!dct8x8[0];
     }
     /* A scaled-down CQM can push AC levels past the 12-bit run-level escape range;
@@ -752,7 +752,10 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
     if( nz )
     {
         int fdec_stride = b_field_block ? FDEC_STRIDE<<1 : FDEC_STRIDE;
-        h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
+        /* Select the scan by the per-picture flag, not h->zigzagf: sliced-thread
+         * contexts never see a per-frame h->zigzagf swap. */
+        const x264_zigzag_function_t *zf = h->fenc->b_alternate_scan ? &h->zigzagf_interlaced : &h->zigzagf_progressive;
+        zf->scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
         h->quantf.dequant_mpeg2_intra( dct8x8, h->dequant8_mf_frame[CQM_8IY+chroma422][i_qp],
                                        h->param.i_intra_dc_precision );
         pixel saved[64];
@@ -832,7 +835,7 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
     {
         nz = h->quantf.quant_8x8( dct8x8, h->quant8_mf_frame[CQM_8PY+chroma422][i_qp],
                                           h->quant8_bias_frame[CQM_8PY+chroma422][i_qp] );
-        if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 0, h->param.b_alternate_scan ) )
+        if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 0, h->fenc->b_alternate_scan ) )
             nz = 0;
     }
     /* Clamp inter AC+DC levels to the 12-bit escape range (see intra note above). */
@@ -841,7 +844,8 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
     if( nz )
     {
         int fdec_stride = b_field_block ? FDEC_STRIDE<<1 : FDEC_STRIDE;
-        h->zigzagf.scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
+        const x264_zigzag_function_t *zf = h->fenc->b_alternate_scan ? &h->zigzagf_interlaced : &h->zigzagf_progressive;
+        zf->scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
         h->quantf.dequant_mpeg2_inter( dct8x8, h->dequant8_mf_frame[CQM_8PY+chroma422][i_qp] );
         pixel saved[64];
         for( int y = 0; y < 8; y++ )

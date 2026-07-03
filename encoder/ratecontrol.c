@@ -51,6 +51,7 @@ typedef struct
     int s_count;
     float blurred_complexity;
     char direct_mode;
+    int8_t i_alt_scan; /* MPEG-2: this frame's winning scan from pass 1, -1 if absent */
     uint8_t i_mv_fcode[2][2]; /* MPEG-2: pass-1 f_codes [list][axis], 0 if absent */
     int16_t weight[3][2];
     int16_t i_weight_denom[2];
@@ -1108,11 +1109,16 @@ int x264_ratecontrol_new( x264_t *h )
             rce = &rc->entry[frame_number];
             rc->entry_out[frame_out_number] = rce;
             rce->direct_mode = 0;
+            rce->i_alt_scan = -1;
 
             e += sscanf( p, " in:%*d out:%*d type:%c dur:%"SCNd64" cpbdur:%"SCNd64" q:%f aq:%f tex:%d mv:%d misc:%d imb:%d pmb:%d smb:%d d:%c",
                    &pict_type, &rce->i_duration, &rce->i_cpb_duration, &qp_rc, &qp_aq, &rce->tex_bits,
                    &rce->mv_bits, &rce->misc_bits, &rce->i_count, &rce->p_count,
                    &rce->s_count, &rce->direct_mode );
+
+            char *p_as = strstr( p, " as:" );
+            if( p_as )
+                rce->i_alt_scan = !!atoi( p_as + 4 );
 
             memset( rce->i_mv_fcode, 0, sizeof(rce->i_mv_fcode) );
             char *p_fc = strstr( p, " fc:" );
@@ -1965,6 +1971,16 @@ int x264_ratecontrol_check_reencode( x264_t *h, int frame_bits )
     return X264_MAX_FRAME_REENCODE - rc->i_reencode_count;
 }
 
+/* MPEG-2 adaptive scan, 2pass: the frame's own winning scan measured in the
+ * previous pass, or -1 when the stats carry no token. */
+int x264_ratecontrol_alt_scan( x264_t *h, int frame_num )
+{
+    x264_ratecontrol_t *rc = h->rc;
+    if( !h->param.rc.b_stat_read || frame_num >= rc->num_entries )
+        return -1;
+    return rc->entry[frame_num].i_alt_scan;
+}
+
 /* MPEG-2 2pass: the frame's f_codes from the previous pass. Returns 1 and
  * fills fcodes when the stats carry them, 0 otherwise. */
 int x264_ratecontrol_mv_fcodes( x264_t *h, int frame_num, int16_t fcodes[2][2] )
@@ -2069,7 +2085,7 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
                           dir_avg>0 ? 's' : dir_avg<0 ? 't' : '-' )
                         : '-';
         if( fprintf( rc->p_stat_file_out,
-                 "in:%d out:%d type:%c dur:%"PRId64" cpbdur:%"PRId64" q:%.2f aq:%.2f tex:%d mv:%d misc:%d imb:%d pmb:%d smb:%d d:%c ref:",
+                 "in:%d out:%d type:%c dur:%"PRId64" cpbdur:%"PRId64" q:%.2f aq:%.2f tex:%d mv:%d misc:%d imb:%d pmb:%d smb:%d d:%c",
                  h->fenc->i_frame, h->i_frame,
                  c_type, h->fenc->i_duration,
                  h->fenc->i_cpb_duration,
@@ -2085,6 +2101,16 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
 #if HAVE_MPEG2
         if( MPEG2 )
         {
+            /* MPEG-2 adaptive scan: record this frame's own winning scan so the
+             * next pass can apply it without the carry-forward lag. */
+            if( h->mb.b_adaptive_scan )
+            {
+                int i_as = h->stat.frame.i_alt_scan_bits[0] != h->stat.frame.i_alt_scan_bits[1]
+                           ? h->stat.frame.i_alt_scan_bits[1] < h->stat.frame.i_alt_scan_bits[0]
+                           : h->fdec->b_alternate_scan;
+                if( fprintf( rc->p_stat_file_out, " as:%d", i_as ) < 0 )
+                    goto fail;
+            }
             /* Pass 2 has no lowres MVs to derive min-fit f_codes from; record
              * this pass's choices so it doesn't regress to the level ceiling. */
             if( fprintf( rc->p_stat_file_out, " fc:%d,%d,%d,%d",

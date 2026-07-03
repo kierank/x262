@@ -1292,7 +1292,7 @@ int x264_quant_8x8_trellis_mpeg2( x264_t *h, dctcoef *dct, int i_quant_cat, int 
      * coefficient: a request for the lowest quant means near-lossless, not bit-saving. */
     if( i_qp == 1 )
         lambda = 0;
-    const uint8_t *scan = h->param.b_alternate_scan ? x264_zigzag_field_mpeg2_to_flat
+    const uint8_t *scan = h->fenc->b_alternate_scan ? x264_zigzag_field_mpeg2_to_flat
                                                     : x264_zigzag_frame_to_flat;
     const int first = inter ? 0 : 1; // intra DC (scan pos 0) is coded separately
 

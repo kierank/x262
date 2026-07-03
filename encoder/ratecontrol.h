@@ -65,6 +65,8 @@ void x264_ratecontrol_start( x264_t *, int i_force_qp, int overhead );
 void x264_ratecontrol_reencode_reset( x264_t *h, int active );
 #define x264_ratecontrol_slice_type x264_template(ratecontrol_slice_type)
 int  x264_ratecontrol_slice_type( x264_t *, int i_frame );
+#define x264_ratecontrol_alt_scan x264_template(ratecontrol_alt_scan)
+int  x264_ratecontrol_alt_scan( x264_t *, int i_frame );
 #define x264_ratecontrol_mv_fcodes x264_template(ratecontrol_mv_fcodes)
 int  x264_ratecontrol_mv_fcodes( x264_t *, int i_frame, int16_t fcodes[2][2] );
 #define x264_ratecontrol_set_weights x264_template(ratecontrol_set_weights)
