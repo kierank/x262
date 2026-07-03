@@ -62,6 +62,7 @@ typedef struct x264_frame
 #if HAVE_MPEG2
     int     b_tff;
     int     b_rff;
+    int     b_alternate_scan; /* per-picture scan order (H.262 picture coding extension) */
 #endif
     int     b_keyframe;
     uint8_t b_fdec;
