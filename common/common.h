@@ -356,6 +356,8 @@ struct x264_t
      * Derived from param.i_slice_max_mbs at encoder open. */
     int             i_mpeg2_slice_max_mbs;
     int             i_mpeg2_cbg_bytes;
+    int             i_mpeg2_vbv_delay;
+    int             b_defer_pic_header;
 
     bs_t            reencode_bs_bak;
     int             reencode_nal_bak;

@@ -93,5 +93,9 @@ void x264_threads_distribute_ratecontrol( x264_t *h );
 void x264_threads_merge_ratecontrol( x264_t *h );
 #define x264_hrd_fullness x264_template(hrd_fullness)
 void x264_hrd_fullness( x264_t *h );
+#if HAVE_MPEG2
+#define x264_mpeg2_vbv_delay x264_template(mpeg2_vbv_delay)
+void x264_mpeg2_vbv_delay( x264_t *h );
+#endif
 
 #endif
