@@ -2143,7 +2143,8 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
             if( param->b_mpeg2 )
             {
                 pic.param = &p;
-                switch( pulldown->pattern[ i_frame % pulldown->mod ] )
+                pic.i_pic_struct = pulldown->pattern[ i_frame % pulldown->mod ];
+                switch( pic.i_pic_struct )
                 {
                     case PIC_STRUCT_TOP_BOTTOM:
                         pic.b_tff = 1 ^ !param->b_tff;
