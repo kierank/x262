@@ -1812,9 +1812,12 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
         }
 
         const x264_fps_mpeg2_t *f = x264_allowed_fps_mpeg2;
+        /* pulldown codes the display rate, not the source */
+        uint32_t match_num = h->param.b_pulldown ? h->param.i_timebase_den : h->param.i_fps_num;
+        uint32_t match_den = h->param.b_pulldown ? h->param.i_timebase_num : h->param.i_fps_den;
         if( !h->param.i_frame_rate_code )
         {
-            while( f->fps_code != 0 && ( h->param.i_fps_num != (uint32_t)f->fps_num || h->param.i_fps_den != (uint32_t)f->fps_den ) )
+            while( f->fps_code != 0 && ( match_num != (uint32_t)f->fps_num || match_den != (uint32_t)f->fps_den ) )
                 f++;
             if( !f->fps_code )
             {
@@ -1828,8 +1831,8 @@ x264_t *x264_encoder_open( x264_param_t *param, void *api )
             x264_log( h, X264_LOG_ERROR, "invalid frame rate code specified\n" );
             return NULL;
         }
-        else if( ( (uint32_t)f[h->param.i_frame_rate_code - 1].fps_num != h->param.i_fps_num ||
-                   (uint32_t)f[h->param.i_frame_rate_code - 1].fps_den != h->param.i_fps_den ) && !h->param.b_pulldown )
+        else if( (uint32_t)f[h->param.i_frame_rate_code - 1].fps_num != match_num ||
+                 (uint32_t)f[h->param.i_frame_rate_code - 1].fps_den != match_den )
         {
             x264_log( h, X264_LOG_ERROR, "frame rate code doesn't match specified fps\n" );
             return NULL;
