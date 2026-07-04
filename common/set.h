@@ -148,6 +148,10 @@ typedef struct
     int i_cqm_preset;
     const uint8_t *scaling_list[8]; /* could be 12, but we don't allow separate Cb/Cr lists */
 
+#if HAVE_MPEG2
+    int b_mpeg2_vbv_delay_representable;
+#endif
+
 } x264_sps_t;
 
 typedef struct

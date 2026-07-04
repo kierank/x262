@@ -1551,6 +1551,14 @@ static int validate_parameters( x264_t *h, int b_open )
         h->param.i_nal_hrd = X264_NAL_HRD_VBR;
     }
 
+    /* MPEG-2 has no VBR HRD: without filler the VBV fills and Annex C.3.2
+     * forces vbv_delay=0xFFFF, so real per-picture vbv_delay needs CBR. */
+    if( MPEG2 && h->param.i_nal_hrd == X264_NAL_HRD_VBR )
+    {
+        x264_log( h, X264_LOG_ERROR, "MPEG-2 vbr nal-hrd is not supported; use cbr\n" );
+        return -1;
+    }
+
     if( h->param.i_nal_hrd == X264_NAL_HRD_CBR )
         h->param.rc.b_filler = 1;
 
@@ -4109,8 +4117,12 @@ int     x264_encoder_encode( x264_t *h,
     }
 
 #if HAVE_MPEG2
+    h->b_defer_pic_header = MPEG2 && !h->param.i_imx_class &&
+                            h->param.i_nal_hrd == X264_NAL_HRD_CBR &&
+                            h->sps->b_mpeg2_vbv_delay_representable;
     if( MPEG2 )
     {
+        h->i_mpeg2_vbv_delay = 0xffff;
         /* alternate_scan is a per-picture element; the scan tables, trellis,
          * decimation and header write all follow h->fenc->b_alternate_scan.
          * Adaptive mode carries forward the winner of the dual-scan bit counts
@@ -4644,6 +4656,29 @@ static int encoder_frame_end( x264_t *h, x264_t *thread_current,
         memmove( &h->out.nal[idx+1], &h->out.nal[idx], (h->out.i_nal-idx-1)*sizeof(x264_nal_t) );
         h->out.nal[idx] = nal_tmp;
     }
+
+#if HAVE_MPEG2
+    // re-emit picture_header with the real vbv_delay now that it is known
+    if( MPEG2 && h->b_defer_pic_header )
+    {
+        x264_mpeg2_vbv_delay( h );
+
+        int idx = 0;
+        while( idx < h->out.i_nal && h->out.nal[idx].i_type != MPEG2_PICTURE_HEADER )
+            idx++;
+
+        if( idx < h->out.i_nal )
+        {
+            nal_start( h, MPEG2_PICTURE_HEADER, NAL_PRIORITY_HIGHEST );
+            x264_pic_header_write_mpeg2( h, &h->out.bs );
+            if( nal_end( h ) )
+                return -1;
+
+            h->out.nal[idx] = h->out.nal[h->out.i_nal-1];
+            h->out.i_nal--;
+        }
+    }
+#endif
 
     int frame_size = encoder_encapsulate_nals( h, 0 );
     if( frame_size < 0 )

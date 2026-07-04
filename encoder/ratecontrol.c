@@ -759,6 +759,21 @@ void x264_ratecontrol_init_reconfigurable( x264_t *h, int b_init )
             rc->b_vbv_min_rate = !rc->b_2pass
                           && h->param.rc.i_rc_method == X264_RC_ABR
                           && h->param.rc.i_vbv_max_bitrate <= h->param.rc.i_bitrate;
+#if HAVE_MPEG2
+            /* vbv_delay cannot mix 0xFFFF with real values, so decide representability
+              once here from worst case (full buffer at Rmax), not per-picture */
+            if( MPEG2 )
+            {
+                int64_t worst_delay = (int64_t)90000 * h->sps->vui.hrd.i_cpb_size_unscaled /
+                                      h->sps->vui.hrd.i_bit_rate_unscaled;
+                h->sps->b_mpeg2_vbv_delay_representable = worst_delay < 0xffff;
+                if( !h->sps->b_mpeg2_vbv_delay_representable &&
+                    h->param.i_nal_hrd == X264_NAL_HRD_CBR )
+                    x264_log( h, X264_LOG_WARNING, "vbv_delay %d exceeds 16-bit max %d "
+                              "(buffer too large for max rate); falling back to 0xFFFF\n",
+                              (int)worst_delay, 0xffff );
+            }
+#endif
         }
     }
 }
@@ -2492,6 +2507,26 @@ void x264_hrd_fullness( x264_t *h )
     int64_t decoder_buffer_fill = h->initial_cpb_removal_delay * denom / multiply_factor;
     rct->buffer_fill_final_min = X264_MIN( rct->buffer_fill_final_min, decoder_buffer_fill );
 }
+
+#if HAVE_MPEG2
+void x264_mpeg2_vbv_delay( x264_t *h )
+{
+    h->i_mpeg2_vbv_delay = 0xffff;
+
+    if( !h->rc->b_vbv || h->param.i_nal_hrd != X264_NAL_HRD_CBR ||
+        !h->sps->b_mpeg2_vbv_delay_representable )
+        return;
+
+    x264_ratecontrol_t *rct = h->thread[0]->rc;
+    int64_t buffer_fill_bits = rct->buffer_fill_final / h->sps->vui.i_time_scale;
+    int64_t bitrate = h->sps->vui.hrd.i_bit_rate_unscaled;
+
+    if( buffer_fill_bits < 0 || !bitrate )
+        return;
+
+    h->i_mpeg2_vbv_delay = (90000 * buffer_fill_bits) / bitrate;
+}
+#endif
 
 // provisionally update VBV according to the planned size of all frames currently in progress
 static void update_vbv_plan( x264_t *h, int overhead )
