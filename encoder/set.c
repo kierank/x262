@@ -1151,7 +1151,7 @@ void x264_pic_coding_extension_write_mpeg2( x264_t *h, bs_t *s )
     bs_write1( s, !( PARAM_INTERLACED || param->b_fake_interlaced ) ); // frame_pred_frame_dct
     bs_write1( s, 0 ); // concealment_motion_vectors
     bs_write1( s, param->b_nonlinear_quant ); // q_scale_type
-    bs_write1( s, param->b_alt_intra_vlc );   // intra_vlc_format
+    bs_write1( s, h->fenc->b_alt_intra_vlc );   // intra_vlc_format
     bs_write1( s, h->fenc->b_alternate_scan );  // alternate_scan
     bs_write1( s, h->fenc->b_rff ); // repeat_first_field
     bs_write1( s, CHROMA_FORMAT == CHROMA_420 ? !( PARAM_INTERLACED || param->b_fake_interlaced ) : 0 ); // chroma_420_type

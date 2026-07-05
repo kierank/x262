@@ -507,6 +507,11 @@ static int validate_parameters( x264_t *h, int b_open )
         h->param.b_alternate_scan = PARAM_INTERLACED;
         h->mb.b_adaptive_scan = 1;
     }
+    if( MPEG2 && h->param.b_alt_intra_vlc < 0 )
+    {
+        h->param.b_alt_intra_vlc = 1;
+        h->mb.b_adaptive_intra_vlc = 1;
+    }
     if( h->param.b_dual_prime && !( MPEG2 && PARAM_INTERLACED ) )
     {
         x264_log( h, X264_LOG_WARNING, "dual-prime requires MPEG-2 interlaced; disabling\n" );
@@ -1024,6 +1029,7 @@ static int validate_parameters( x264_t *h, int b_open )
         h->param.i_intra_dc_precision = X264_INTRA_DC_10_BIT;
         h->param.b_nonlinear_quant = 1;
         h->param.b_alt_intra_vlc = 1;
+        h->mb.b_adaptive_intra_vlc = 0;
         h->param.b_alternate_scan = 0;
         h->mb.b_adaptive_scan = 0;
         h->param.i_slice_max_mbs = 1;
@@ -4139,6 +4145,16 @@ int     x264_encoder_encode( x264_t *h,
             if( i_as >= 0 )
                 h->fenc->b_alternate_scan = i_as;
         }
+        h->fenc->b_alt_intra_vlc = h->param.b_alt_intra_vlc;
+        if( h->mb.b_adaptive_intra_vlc && !h->param.rc.b_stat_read &&
+            h->param.b_alt_intra_vlc && h->stat.i_intra_vlc_decision[i_pic_type] )
+            h->fenc->b_alt_intra_vlc = 0;
+        if( h->mb.b_adaptive_intra_vlc && h->param.rc.b_stat_read )
+        {
+            int i_iv = x264_ratecontrol_intra_vlc( h, h->fenc->i_frame );
+            if( i_iv >= 0 )
+                h->fenc->b_alt_intra_vlc = i_iv;
+        }
         /* 2pass f_codes: no lowres MVs to derive min-fit from (the lookahead
          * fell back to the level ceiling) — restore pass-1's choices. */
         if( h->param.rc.b_stat_read )
@@ -4149,9 +4165,13 @@ int     x264_encoder_encode( x264_t *h,
         }
         /* Mirrored on fdec for encoder_frame_end, where fenc is already recycled. */
         h->fdec->b_alternate_scan = h->fenc->b_alternate_scan;
+        h->fdec->b_alt_intra_vlc = h->fenc->b_alt_intra_vlc;
         if( h->mb.b_adaptive_scan )
             x264_log( h, X264_LOG_DEBUG, "frame %d type %d alternate_scan=%d\n",
                       h->fenc->i_frame, i_pic_type, h->fenc->b_alternate_scan );
+        if( h->mb.b_adaptive_intra_vlc )
+            x264_log( h, X264_LOG_DEBUG, "frame %d type %d intra_vlc_format=%d\n",
+                      h->fenc->i_frame, i_pic_type, h->fenc->b_alt_intra_vlc );
 
         if( h->fenc->b_keyframe )
         {
@@ -4822,6 +4842,20 @@ static int encoder_frame_end( x264_t *h, x264_t *thread_current,
             h->stat.i_alt_scan_decision[h->sh.i_type] =
                 h->stat.frame.i_alt_scan_bits[1] < h->stat.frame.i_alt_scan_bits[0];
     }
+#if HAVE_MPEG2
+    if( h->mb.b_adaptive_intra_vlc )
+    {
+        h->stat.i_intra_vlc_count[h->sh.i_type] += h->fdec->b_alt_intra_vlc;
+        /* Single-pass heuristic: was B.14 this picture's confident winner?
+         * "Confident" = smaller by >= 1/8 of the smaller table's bits. Near-ties
+         * keep the B.15 default. Chasing marginal per-frame wins led to BD-rate
+         * regressions during testing. */
+        int b14 = h->stat.frame.i_intra_vlc_bits[0];
+        int b15 = h->stat.frame.i_intra_vlc_bits[1];
+        if( b14 | b15 )
+            h->stat.i_intra_vlc_decision[h->sh.i_type] = b14 < b15 && (b15 - b14) * 8 >= b14;
+    }
+#endif
     if( h->sh.i_type == SLICE_TYPE_P && h->param.analyse.i_weighted_pred >= X264_WEIGHTP_SIMPLE )
     {
         h->stat.i_wpred[0] += !!h->sh.weight[0][0].weightfn;
@@ -5142,6 +5176,12 @@ void    x264_encoder_close  ( x264_t *h )
                               h->stat.i_mb_field_dct * 100.0 / i_coded, buf );
             }
         }
+
+        if( MPEG2 && h->mb.b_adaptive_intra_vlc )
+            x264_log( h, X264_LOG_INFO, "alt intra vlc: I:%.1f%% P:%.1f%% B:%.1f%%\n",
+                      h->stat.i_intra_vlc_count[SLICE_TYPE_I] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_I], 1 ),
+                      h->stat.i_intra_vlc_count[SLICE_TYPE_P] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_P], 1 ),
+                      h->stat.i_intra_vlc_count[SLICE_TYPE_B] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_B], 1 ) );
 
         if( MPEG2 && h->mb.b_adaptive_scan )
             x264_log( h, X264_LOG_INFO, "alt-scan pictures: I:%.1f%% P:%.1f%% B:%.1f%%\n",
