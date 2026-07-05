@@ -285,6 +285,7 @@ typedef struct
      * Kept int (not int64_t): the sliced-threads stat merge sums this struct as
      * an int array, and per-picture AC bit totals fit an int with huge margin. */
     int i_alt_scan_bits[2];
+    int i_intra_vlc_bits[2];
     /* Adaptive direct mv pred */
     int i_direct_score[2];
     /* Metrics */
@@ -597,6 +598,7 @@ struct x264_t
         int     b_interlaced;
         int     b_adaptive_mbaff; /* MBAFF+subme 0 requires non-adaptive MBAFF i.e. all field mbs */
         int     b_adaptive_scan; /* MPEG-2: pick alternate_scan per picture from dual-scan bit counts */
+        int     b_adaptive_intra_vlc; /* MPEG-2: pick intra_vlc_format per picture from dual-table bit counts */
         int     b_field_dct; /* MPEG-2: per-MB field DCT (dct_type) */
         int     b_dp_eligible; /* MPEG-2: dual-prime legal for this picture (per-slice) */
         int     i_dmv[2]; /* MPEG-2: chosen dual-prime dmvector, -1/0/+1 per axis (i_type P_DUAL_PRIME) */
@@ -834,6 +836,8 @@ struct x264_t
          * next picture of that type, and pictures coded with alternate scan */
         int     i_alt_scan_decision[3];
         int     i_alt_scan_count[3];
+        int     i_intra_vlc_decision[3];
+        int     i_intra_vlc_count[3];
 
         /* per slice info */
         int     i_frame_count[3];

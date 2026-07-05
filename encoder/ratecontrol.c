@@ -52,6 +52,7 @@ typedef struct
     float blurred_complexity;
     char direct_mode;
     int8_t i_alt_scan; /* MPEG-2: this frame's winning scan from pass 1, -1 if absent */
+    int8_t i_intra_vlc; /* MPEG-2: this frame's winning intra table from pass 1, -1 if absent */
     uint8_t i_mv_fcode[2][2]; /* MPEG-2: pass-1 f_codes [list][axis], 0 if absent */
     int16_t weight[3][2];
     int16_t i_weight_denom[2];
@@ -1125,6 +1126,7 @@ int x264_ratecontrol_new( x264_t *h )
             rc->entry_out[frame_out_number] = rce;
             rce->direct_mode = 0;
             rce->i_alt_scan = -1;
+            rce->i_intra_vlc = -1;
 
             e += sscanf( p, " in:%*d out:%*d type:%c dur:%"SCNd64" cpbdur:%"SCNd64" q:%f aq:%f tex:%d mv:%d misc:%d imb:%d pmb:%d smb:%d d:%c",
                    &pict_type, &rce->i_duration, &rce->i_cpb_duration, &qp_rc, &qp_aq, &rce->tex_bits,
@@ -1134,6 +1136,10 @@ int x264_ratecontrol_new( x264_t *h )
             char *p_as = strstr( p, " as:" );
             if( p_as )
                 rce->i_alt_scan = !!atoi( p_as + 4 );
+
+            char *p_ai = strstr( p, " ai:" );
+            if( p_ai )
+                rce->i_intra_vlc = !!atoi( p_ai + 4 );
 
             memset( rce->i_mv_fcode, 0, sizeof(rce->i_mv_fcode) );
             char *p_fc = strstr( p, " fc:" );
@@ -1996,6 +2002,14 @@ int x264_ratecontrol_alt_scan( x264_t *h, int frame_num )
     return rc->entry[frame_num].i_alt_scan;
 }
 
+int x264_ratecontrol_intra_vlc( x264_t *h, int frame_num )
+{
+    x264_ratecontrol_t *rc = h->rc;
+    if( !h->param.rc.b_stat_read || frame_num >= rc->num_entries )
+        return -1;
+    return rc->entry[frame_num].i_intra_vlc;
+}
+
 /* MPEG-2 2pass: the frame's f_codes from the previous pass. Returns 1 and
  * fills fcodes when the stats carry them, 0 otherwise. */
 int x264_ratecontrol_mv_fcodes( x264_t *h, int frame_num, int16_t fcodes[2][2] )
@@ -2124,6 +2138,14 @@ int x264_ratecontrol_end( x264_t *h, int bits, int *filler )
                            ? h->stat.frame.i_alt_scan_bits[1] < h->stat.frame.i_alt_scan_bits[0]
                            : h->fdec->b_alternate_scan;
                 if( fprintf( rc->p_stat_file_out, " as:%d", i_as ) < 0 )
+                    goto fail;
+            }
+            if( h->mb.b_adaptive_intra_vlc )
+            {
+                int i_iv = h->stat.frame.i_intra_vlc_bits[0] != h->stat.frame.i_intra_vlc_bits[1]
+                           ? h->stat.frame.i_intra_vlc_bits[1] < h->stat.frame.i_intra_vlc_bits[0]
+                           : h->fdec->b_alt_intra_vlc;
+                if( fprintf( rc->p_stat_file_out, " ai:%d", i_iv ) < 0 )
                     goto fail;
             }
             /* Pass 2 has no lowres MVs to derive min-fit f_codes from; record

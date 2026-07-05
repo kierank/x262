@@ -1279,7 +1279,7 @@ int x264_quant_8x8_trellis_mpeg2( x264_t *h, dctcoef *dct, int i_quant_cat, int 
     udctcoef *quant_bias0 = h->quant8_bias0_frame[i_quant_cat][i_qp];
     int *dequant_mf = h->dequant8_mf_frame[i_quant_cat][i_qp];
     const int inter = !b_intra;
-    const int intra_tab = b_intra ? h->param.b_alt_intra_vlc : 0;
+    const int intra_tab = b_intra ? h->fenc->b_alt_intra_vlc : 0;
     /* Score domain: distortion is (c - r<<FDCT_SCALE)^2 << DIST_SHIFT, where the
      * <<FDCT_SCALE lifts the dequantized reconstruction into the forward-DCT
      * scale of c (the MPEG-2 forward DCT outputs 2^FDCT_SCALE larger than IDCT
