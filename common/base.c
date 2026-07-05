@@ -388,7 +388,7 @@ static void x264_param_tune_mpeg2( x264_param_t *param )
     param->rc.f_qcompress = 0.45;
     param->i_intra_dc_precision = X264_INTRA_DC_8_BIT;
     param->b_nonlinear_quant = 1;
-    param->b_alt_intra_vlc = 1;
+    param->b_alt_intra_vlc = -1;
     param->b_alternate_scan = -1;
     param->analyse.i_trellis = 1;
     param->analyse.i_luma_deadzone[1] = 10;

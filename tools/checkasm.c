@@ -3043,6 +3043,7 @@ static int check_trellis_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
         used_asm = 1;
         ok = 1;
         x264_frame_t dummy_fenc;
+        memset( &dummy_fenc, 0, sizeof(dummy_fenc) );
         h->fenc = &dummy_fenc;
         h->param.b_nonlinear_quant = 1;
         for( int i = 0; i < 8; i++ )
@@ -3056,6 +3057,7 @@ static int check_trellis_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
             int intra = t & 1;
             int qp = 1 + t % 31;
             h->fenc->b_alternate_scan = h->param.b_alternate_scan = (t >> 1) & 1;
+            h->fenc->b_alt_intra_vlc = (t >> 6) & 1;
             h->mb.i_trellis_lambda2_mpeg2 = lam2s[(t >> 2) & 3];
             int mode = (t >> 4) & 3;
             for( int i = 0; i < 64; i++ )

@@ -63,6 +63,7 @@ typedef struct x264_frame
     int     b_tff;
     int     b_rff;
     int     b_alternate_scan; /* per-picture scan order (H.262 picture coding extension) */
+    int     b_alt_intra_vlc;
 #endif
     int     b_keyframe;
     uint8_t b_fdec;
