@@ -476,7 +476,7 @@ static void add16x16_idct_dc( pixel *p_dst, dctcoef dct[16] )
  * 8x8 forward DCT (for MPEG-2): AP-922 SSE2 algorithm written in C.
  * This is a scalar model of ffmpeg's SSE2 forward DCT. It reproduces its
  * 16-bit fixed-point arithmetic bit-for-bit so the C reference matches
- * x264_fdct_mpeg2_sse2.
+ * x264_sub8x8_dct8_mpeg2_sse2.
  ****************************************************************************/
 
 #define FDCT_SHIFT_COL 3
@@ -827,33 +827,19 @@ static void sub16x16_dct_mpeg2( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )
 }
 
 #if HAVE_MMX && ARCH_X86_64
-/* The asm forward DCT (x264_fdct_mpeg2_sse2) runs in place on dct[] and
- * transposes its output to the cqm/zigzag layout, like the C fdct_mpeg2. */
-#define SUB8X8_DCT_MPEG2_ASM( name, asm_func )\
-static void name( dctcoef dct[64], pixel *pix1, pixel *pix2 )\
+/* Fold the pixel subtraction into the load and run the FDCT in place, transposing
+ * to the cqm/zigzag layout. The 16x16 wrappers run on the four 8x8 quadrants.
+ * AVX2/AVX-512 instead batch several blocks per register. */
+#define SUB16X16_DCT_MPEG2( name, block_func )\
+static void name( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )\
 {\
-    pixel_sub_wxh( dct, 8, pix1, FENC_STRIDE, pix2, FDEC_STRIDE );\
-    asm_func( dct );\
-}\
-static void name##_field( dctcoef dct[64], pixel *pix1, pixel *pix2 )\
-{\
-    pixel_sub_wxh( dct, 8, pix1, FENC_STRIDE<<1, pix2, FDEC_STRIDE<<1 );\
-    asm_func( dct );\
-}\
-static void name##_16x16( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )\
-{\
-    name( dct[0], &pix1[0],               &pix2[0] );\
-    name( dct[1], &pix1[8],               &pix2[8] );\
-    name( dct[2], &pix1[8*FENC_STRIDE+0], &pix2[8*FDEC_STRIDE+0] );\
-    name( dct[3], &pix1[8*FENC_STRIDE+8], &pix2[8*FDEC_STRIDE+8] );\
+    block_func( dct[0], &pix1[0],               &pix2[0] );\
+    block_func( dct[1], &pix1[8],               &pix2[8] );\
+    block_func( dct[2], &pix1[8*FENC_STRIDE+0], &pix2[8*FDEC_STRIDE+0] );\
+    block_func( dct[3], &pix1[8*FENC_STRIDE+8], &pix2[8*FDEC_STRIDE+8] );\
 }
-SUB8X8_DCT_MPEG2_ASM( sub8x8_dct_mpeg2_sse2, x264_fdct_mpeg2_sse2 )
-SUB8X8_DCT_MPEG2_ASM( sub8x8_dct_mpeg2_avx,  x264_fdct_mpeg2_avx )
-
-/* The batched kernels fold the pixel subtraction in and transform several
- * blocks at once (AVX2: 2 per ymm, two calls for the 16x16; AVX-512: all 4
- * quadrants per zmm in one call). The single 8x8 and field paths have no pair
- * to batch, so they stay on the SSE2 kernel. */
+SUB16X16_DCT_MPEG2( sub16x16_dct_mpeg2_sse2, x264_sub8x8_dct8_mpeg2_sse2 )
+SUB16X16_DCT_MPEG2( sub16x16_dct_mpeg2_avx,  x264_sub8x8_dct8_mpeg2_avx )
 static void sub16x16_dct_mpeg2_avx2( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )
 {
     x264_fdct_mpeg2_x2_avx2( (void*)dct[0], &pix1[0], &pix2[0] );
@@ -1182,9 +1168,9 @@ void x264_dct_init( uint32_t cpu, x264_dct_function_t *dctf, int b_mpeg2 )
         {
             dctf->add8x8_idct8       = add8x8_idct_mpeg2_sse2;
             dctf->add8x8_idct8_field = add8x8_idct_mpeg2_sse2_field;
-            dctf->sub8x8_dct8        = sub8x8_dct_mpeg2_sse2;
-            dctf->sub8x8_dct8_field  = sub8x8_dct_mpeg2_sse2_field;
-            dctf->sub16x16_dct8      = sub8x8_dct_mpeg2_sse2_16x16;
+            dctf->sub8x8_dct8        = x264_sub8x8_dct8_mpeg2_sse2;
+            dctf->sub8x8_dct8_field  = x264_sub8x8_dct8_field_mpeg2_sse2;
+            dctf->sub16x16_dct8      = sub16x16_dct_mpeg2_sse2;
         }
         if( cpu&X264_CPU_SSE4 )
         {
@@ -1195,9 +1181,9 @@ void x264_dct_init( uint32_t cpu, x264_dct_function_t *dctf, int b_mpeg2 )
         {
             dctf->add8x8_idct8       = add8x8_idct_mpeg2_avx;
             dctf->add8x8_idct8_field = add8x8_idct_mpeg2_avx_field;
-            dctf->sub8x8_dct8        = sub8x8_dct_mpeg2_avx;
-            dctf->sub8x8_dct8_field  = sub8x8_dct_mpeg2_avx_field;
-            dctf->sub16x16_dct8      = sub8x8_dct_mpeg2_avx_16x16;
+            dctf->sub8x8_dct8        = x264_sub8x8_dct8_mpeg2_avx;
+            dctf->sub8x8_dct8_field  = x264_sub8x8_dct8_field_mpeg2_avx;
+            dctf->sub16x16_dct8      = sub16x16_dct_mpeg2_avx;
         }
         if( cpu&X264_CPU_AVX2 )
             dctf->sub16x16_dct8 = sub16x16_dct_mpeg2_avx2;

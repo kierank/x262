@@ -231,10 +231,14 @@ void x264_add8x8_idct_mpeg2_sse2( uint8_t *pixels, intptr_t stride, int16_t bloc
 void x264_add8x8_idct_mpeg2_sse4( uint8_t *pixels, intptr_t stride, int16_t block[64] );
 #define x264_add8x8_idct_mpeg2_avx x264_template(add8x8_idct_mpeg2_avx)
 void x264_add8x8_idct_mpeg2_avx ( uint8_t *pixels, intptr_t stride, int16_t block[64] );
-#define x264_fdct_mpeg2_sse2 x264_template(fdct_mpeg2_sse2)
-void x264_fdct_mpeg2_sse2( int16_t block[64] );
-#define x264_fdct_mpeg2_avx x264_template(fdct_mpeg2_avx)
-void x264_fdct_mpeg2_avx( int16_t block[64] );
+#define x264_sub8x8_dct8_mpeg2_sse2 x264_template(sub8x8_dct8_mpeg2_sse2)
+void x264_sub8x8_dct8_mpeg2_sse2       ( int16_t dct[64], uint8_t *pix1, uint8_t *pix2 );
+#define x264_sub8x8_dct8_field_mpeg2_sse2 x264_template(sub8x8_dct8_field_mpeg2_sse2)
+void x264_sub8x8_dct8_field_mpeg2_sse2 ( int16_t dct[64], uint8_t *pix1, uint8_t *pix2 );
+#define x264_sub8x8_dct8_mpeg2_avx x264_template(sub8x8_dct8_mpeg2_avx)
+void x264_sub8x8_dct8_mpeg2_avx        ( int16_t dct[64], uint8_t *pix1, uint8_t *pix2 );
+#define x264_sub8x8_dct8_field_mpeg2_avx x264_template(sub8x8_dct8_field_mpeg2_avx)
+void x264_sub8x8_dct8_field_mpeg2_avx  ( int16_t dct[64], uint8_t *pix1, uint8_t *pix2 );
 #define x264_fdct_mpeg2_x2_avx2 x264_template(fdct_mpeg2_x2_avx2)
 void x264_fdct_mpeg2_x2_avx2  ( int16_t dct[2][64], uint8_t *pix1, uint8_t *pix2 );
 #define x264_fdct_mpeg2_x4_avx512 x264_template(fdct_mpeg2_x4_avx512)
