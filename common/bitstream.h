@@ -72,7 +72,6 @@ extern const vlc_large_t x264_dc_chroma_code[12];
 extern const vlc_t x264_dmvector[3];
 extern const vlc_large_t x264_motion_code[33];
 extern const vlc_large_t dct_vlcs[2][41][32];
-extern const uint8_t dct_vlc_largest_run[41];
 #endif
 
 typedef struct
