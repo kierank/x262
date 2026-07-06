@@ -456,13 +456,13 @@ void x264_rdo_init( void )
     }
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
     for( int t = 0; t < 2; t++ )
-        for( int L = 0; L <= 40; L++ )
-        {
-            int lr = dct_vlc_largest_run[L];
+        for( int L = 1; L <= 40; L++ )
             for( int run = 0; run < 32; run++ )
-                x264_mpeg2_coef_bits_tab[t][L][run] =
-                    ( L >= 1 && run <= lr ) ? dct_vlcs[t][L][run].i_size + 1 : (6+6+12);
-        }
+                x264_mpeg2_coef_bits_tab[t][L][run] = dct_vlcs[t][L][run].i_size;
+    /* L=0: trellis should treat level-0 coeffs as always escape */
+    for( int t = 0; t < 2; t++ )
+        for( int run = 0; run < 32; run++ )
+            x264_mpeg2_coef_bits_tab[t][0][run] = 24;
 #endif
 }
 
