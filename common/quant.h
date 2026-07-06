@@ -89,6 +89,7 @@ typedef struct
 #if HAVE_MPEG2
     void (*dequant_mpeg2_intra)( dctcoef dct[64], int dequant_mf[64], int precision );
     void (*dequant_mpeg2_inter)( dctcoef dct[64], int dequant_mf[64] );
+    void (*coeff_clip_mpeg2)( dctcoef dct[64] );
     /* MPEG-2 trellis per-level rate row: dst[run] = bits[run]*lambda, run 0..31. */
     void (*trellis_rate_build_mpeg2)( int64_t *dst, const uint16_t *bits, int64_t lambda );
     /* MPEG-2 trellis per-position setup: fills n/sgn[0..63] and returns nonzero

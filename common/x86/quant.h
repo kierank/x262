@@ -121,6 +121,10 @@ void x264_dequant_mpeg2_intra_sse2( dctcoef dct[64], int dequant_mf[64], int pre
 void x264_dequant_mpeg2_intra_avx( dctcoef dct[64], int dequant_mf[64], int precision );
 #define x264_dequant_mpeg2_intra_avx2 x264_template(dequant_mpeg2_intra_avx2)
 void x264_dequant_mpeg2_intra_avx2( dctcoef dct[64], int dequant_mf[64], int precision );
+#define x264_coeff_clip_mpeg2_sse2 x264_template(coeff_clip_mpeg2_sse2)
+void x264_coeff_clip_mpeg2_sse2( dctcoef dct[64] );
+#define x264_coeff_clip_mpeg2_avx2 x264_template(coeff_clip_mpeg2_avx2)
+void x264_coeff_clip_mpeg2_avx2( dctcoef dct[64] );
 #define x264_trellis_dp_mpeg2_sse42 x264_template(trellis_dp_mpeg2_sse42)
 int x264_trellis_dp_mpeg2_sse42( const x264_trellis_dp_ctx_t *t );
 #define x264_trellis_dp_mpeg2_avx2 x264_template(trellis_dp_mpeg2_avx2)

@@ -732,9 +732,11 @@ static void x264_mb_encode_intra_block_mpeg2( x264_t *h, int idx, int i_qp )
             nz = !!dct8x8[0];
     }
     /* A scaled-down CQM can push AC levels past the 12-bit run-level escape range;
-     * clamp to the codable max (inert without centering). */
-    for( int z = 1; z < 64; z++ )
-        dct8x8[z] = x264_clip3( dct8x8[z], -2047, 2047 );
+     * clamp to the codable max (inert without centering). DC has its own coding
+     * path (differential, wider range) so preserve it across the AC clamp. */
+    dctcoef dc = dct8x8[0];
+    h->quantf.coeff_clip_mpeg2( dct8x8 );
+    dct8x8[0] = dc;
 
     // DC prediction
     dc_diff = dct8x8[0] - cur_dc_predictor;
@@ -838,11 +840,10 @@ static void x264_mb_encode_inter_block_mpeg2( x264_t *h, int idx, int i_qp )
         if( nz && h->mb.b_dct_decimate && mpeg2_decimate_trailing_ones( dct8x8, 0, h->fenc->b_alternate_scan ) )
             nz = 0;
     }
-    /* Clamp inter AC+DC levels to the 12-bit escape range (see intra note above). */
-    for( int z = 0; z < 64; z++ )
-        dct8x8[z] = x264_clip3( dct8x8[z], -2047, 2047 );
     if( nz )
     {
+        /* Clamp inter AC+DC levels to the 12-bit escape range (see intra note above). */
+        h->quantf.coeff_clip_mpeg2( dct8x8 );
         int fdec_stride = b_field_block ? FDEC_STRIDE<<1 : FDEC_STRIDE;
         const x264_zigzag_function_t *zf = h->fenc->b_alternate_scan ? &h->zigzagf_interlaced : &h->zigzagf_progressive;
         zf->scan_8x8( h->dct.mpeg2_8x8[idx], dct8x8 );
