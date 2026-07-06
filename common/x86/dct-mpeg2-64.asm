@@ -367,12 +367,11 @@ INIT_XMM avx
 ADD8X8_IDCT_MPEG2
 
 ;-----------------------------------------------------------------------------
-; MPEG-2 forward DCT (AP-922 SSE2)
+; MPEG-2 forward DCT (AP-922)
 ; Ported from ffmpeg libavcodec/x86/fdct.c
 ;
-; void sub8x8_dct_mpeg2_sse2( int16_t dct[64], pixel *pix1, pixel *pix2 )
-; The transform itself operates in place on a 16-bit block. The sub (residual)
-; and the wrapping are done in C; this kernel is the forward DCT on dct[].
+; The pixel subtraction is folded into the load in FDCT_MPEG2_XN, and the result
+; is transposed to x262's cqm/zigzag layout.
 ;-----------------------------------------------------------------------------
 
 ; Column pass: in -> out (interleaved rows at r*%1; %1 = row stride in bytes,
@@ -493,53 +492,6 @@ ADD8X8_IDCT_MPEG2
     mova       [outq + %1], m1
 %endmacro
 
-; void fdct_mpeg2( int16_t block[64] ) — forward DCT in place.
-%macro FDCT_MPEG2 0
-cglobal fdct_mpeg2, 1, 4, 9, 0-128, block, in, out, tab
-    ; column pass: block -> stack tmp (rsp)
-    mov         inq, blockq
-    mov         outq, rsp
-    FDCT_COL 16
-    ; row pass: stack tmp -> block, one row per FDCT_ROW invocation
-    mov         inq, rsp
-    mov         outq, blockq
-    lea         tabq, [tab_frw_01234567]
-    movdqa      m6, [fdct_r_row]
-    FDCT_ROW    0,   0
-    FDCT_ROW   64,   0
-    FDCT_ROW   16,  64
-    FDCT_ROW  112,  64
-    FDCT_ROW   32, 128
-    FDCT_ROW   96, 128
-    FDCT_ROW   48, 192
-    FDCT_ROW   80, 192
-    ; transpose the 8x8 result in place to match x262's cqm/zigzag layout
-    ; (ff_fdct is natural order; x262's islow transposes its output)
-    mova        m0, [outq+  0]
-    mova        m1, [outq+ 16]
-    mova        m2, [outq+ 32]
-    mova        m3, [outq+ 48]
-    mova        m4, [outq+ 64]
-    mova        m5, [outq+ 80]
-    mova        m6, [outq+ 96]
-    mova        m7, [outq+112]
-    TRANSPOSE8x8W 0, 1, 2, 3, 4, 5, 6, 7, 8
-    mova        [outq+  0], m0
-    mova        [outq+ 16], m1
-    mova        [outq+ 32], m2
-    mova        [outq+ 48], m3
-    mova        [outq+ 64], m4
-    mova        [outq+ 80], m5
-    mova        [outq+ 96], m6
-    mova        [outq+112], m7
-    RET
-%endmacro
-
-INIT_XMM sse2
-FDCT_MPEG2
-INIT_XMM avx
-FDCT_MPEG2
-
 ;-----------------------------------------------------------------------------
 ; Batched forward DCT: N horizontally-adjacent 8x8 blocks, one per 128-bit lane
 ; (block i in lane i). Every op in the col/row/transpose pass is in-lane, so the
@@ -554,11 +506,12 @@ FDCT_MPEG2
 ; are arranged 2 per grid row (the 16x16 macroblock's 8x8 quadrants), so lane i
 ; reads block i at column (i&1)*8 and macroblock-row (i>>1)*8.
 ; %1 = dst reg, %2 = row, %3 = block count. m8 = scratch, m9 = zero.
-%macro LOAD_DIFF_XN 3
+; %4 = row-stride multiplier (1 = frame, 2 = field/same-parity lines); default 1.
+%macro LOAD_DIFF_XN 3-4 1
 %assign %%i 0
 %rep %3
-    %assign %%fo (%2 + (%%i>>1)*8)*FENC_STRIDE + (%%i&1)*8
-    %assign %%go (%2 + (%%i>>1)*8)*FDEC_STRIDE + (%%i&1)*8
+    %assign %%fo (%2*%4 + (%%i>>1)*8)*FENC_STRIDE + (%%i&1)*8
+    %assign %%go (%2*%4 + (%%i>>1)*8)*FDEC_STRIDE + (%%i&1)*8
 %if %%i == 0
     movq         xm%1, [pix1q + %%fo]
     movq         xm8,  [pix2q + %%go]
@@ -573,18 +526,35 @@ FDCT_MPEG2
     psubw        m%1, m8
 %endmacro
 
-; void fdct_mpeg2_xN( int16_t dct[N][64], pixel *pix1, pixel *pix2 ) — subtract N
-; horizontally-adjacent 8x8 blocks and forward-DCT them, writing block0..N-1 to
-; dct. pix1 = fenc (FENC_STRIDE), pix2 = fdec (FDEC_STRIDE). %1 = block count.
-%macro FDCT_MPEG2_XN 1
+; Subtract N horizontally-adjacent 8x8 blocks and forward-DCT them, writing
+; block0..N-1 to dct. pix1 = fenc (FENC_STRIDE), pix2 = fdec (FDEC_STRIDE).
+; %1 = block count. %2 = "field" for the doubled-stride (same-parity) variant.
+;
+; void sub8x8_dct8_mpeg2( int16_t dct[64], pixel *pix1, pixel *pix2 )
+%macro FDCT_MPEG2_XN 1-2
 %assign %%stride (%1*16)
-cglobal fdct_mpeg2_x%1, 3, 6, 10, 0-(8*%%stride), block, pix1, pix2, in, out, tab
+%if %1 == 1
+    %define %%name sub8x8_dct8_mpeg2
+%else
+    %define %%name fdct_mpeg2_x %+ %1
+%endif
+%if %0 >= 2
+    %assign %%rowmul 2
+    %if %1 == 1
+        cglobal sub8x8_dct8_%2_mpeg2, 3, 6, 10, 0-(8*%%stride), block, pix1, pix2, in, out, tab
+    %else
+        cglobal %%name %+ _%2, 3, 6, 10, 0-(8*%%stride), block, pix1, pix2, in, out, tab
+    %endif
+%else
+    %assign %%rowmul 1
+    cglobal %%name, 3, 6, 10, 0-(8*%%stride), block, pix1, pix2, in, out, tab
+%endif
     ; load+subtract each row into the interleaved stack temp (row r -> rsp+r*N*16,
     ; block i in lane i).
     pxor         m9, m9
 %assign %%r 0
 %rep 8
-    LOAD_DIFF_XN 0, %%r, %1
+    LOAD_DIFF_XN 0, %%r, %1, %%rowmul
     mova         [rsp + %%r*%%stride], m0
 %assign %%r %%r+1
 %endrep
@@ -594,7 +564,11 @@ cglobal fdct_mpeg2_x%1, 3, 6, 10, 0-(8*%%stride), block, pix1, pix2, in, out, ta
     mov          inq, rsp
     mov          outq, rsp
     lea          tabq, [tab_frw_01234567]
+%if mmsize >= 32
     vbroadcasti128 m6, [fdct_r_row]
+%else
+    movdqa       m6, [fdct_r_row]
+%endif
     FDCT_ROW   0*%%stride,   0
     FDCT_ROW   4*%%stride,   0
     FDCT_ROW   1*%%stride,  64
@@ -638,6 +612,12 @@ cglobal fdct_mpeg2_x%1, 3, 6, 10, 0-(8*%%stride), block, pix1, pix2, in, out, ta
     RET
 %endmacro
 
+INIT_XMM sse2
+FDCT_MPEG2_XN 1
+FDCT_MPEG2_XN 1, field
+INIT_XMM avx
+FDCT_MPEG2_XN 1
+FDCT_MPEG2_XN 1, field
 INIT_YMM avx2
 FDCT_MPEG2_XN 2
 INIT_ZMM avx512
