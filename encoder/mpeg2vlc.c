@@ -39,13 +39,12 @@
 static ALWAYS_INLINE int mpeg2_coef_bits( int level, int run, int intra_tab, int inter, int b_first )
 {
     int abs_level = abs( level );
-    if( abs_level <= 40 && run <= dct_vlc_largest_run[abs_level] )
-    {
-        if( b_first && run == 0 && abs_level == 1 && inter )
-            return 1 + 1; /* special case in table B.14 + sign */
-        return dct_vlcs[intra_tab][abs_level][run].i_size + 1; /* VLC + sign */
-    }
-    return 6 + 6 + 12; /* escape: prefix + run + level */
+    /* B.14 special case: inter DC magnitude 1 -> single '1' bit + sign */
+    if( b_first && run == 0 && abs_level == 1 && inter )
+        return 2;
+    if( abs_level > 40 || run > 31 )
+        return 24; /* escape: prefix + run + level */
+    return dct_vlcs[intra_tab][abs_level][run].i_size;
 }
 
 #if !RDO_SKIP_BS
@@ -116,8 +115,8 @@ static void mpeg2_accum_intra_vlc_bits( x264_t *h, dctcoef *l )
     int i_total = h->quantf.coeff_level_run[DCT_LUMA_8x8]( l, &runlevel ) - 1;
     uint64_t mask = runlevel.mask64;
     int prev = 0;
-    int bits0 = dct_vlcs[0][0][0].i_size;
-    int bits1 = dct_vlcs[1][0][0].i_size;
+    int bits0 = dct_vlcs[0][0][0].i_size; /* EOB size for table 0 */
+    int bits1 = dct_vlcs[1][0][0].i_size; /* EOB size for table 1 */
 
     for( int i = i_total; i >= 0 && runlevel.last > 0; i-- )
     {
@@ -127,10 +126,12 @@ static void mpeg2_accum_intra_vlc_bits( x264_t *h, dctcoef *l )
         prev = pos;
         int abs_level = abs( runlevel.level[i] );
 
-        if( abs_level <= 40 && run <= dct_vlc_largest_run[abs_level] )
+        if( abs_level <= 40 && run <= 31 )
         {
-            bits0 += dct_vlcs[0][abs_level][run].i_size + 1;
-            bits1 += dct_vlcs[1][abs_level][run].i_size + 1;
+            int sz0 = dct_vlcs[0][abs_level][run].i_size;
+            int sz1 = dct_vlcs[1][abs_level][run].i_size;
+            bits0 += sz0;
+            bits1 += sz1;
         }
         else
         {
@@ -168,19 +169,31 @@ static void x264_write_dct_vlc_mpeg2( x264_t *h, dctcoef *l, int intra_tab )
         mask &= mask - 1;
         int run = pos - prev - 1;
         prev = pos;
-        if( abs( runlevel.level[i] ) <= 40 && run <= dct_vlc_largest_run[abs( runlevel.level[i] )] )
+        int abs_level = abs( runlevel.level[i] );
+        if( abs_level <= 40 && run <= 31 )
         {
-            /* special case in table B.14 for abs(DC) == 1 */
-            if( i == i_total && run == 0 &&
-                ( runlevel.level[i] == 1 || runlevel.level[i] == -1 ) && inter )
-                bs_write1( s, 1 );
+            vlc_large_t vlc = dct_vlcs[intra_tab][abs_level][run];
+            int sz = vlc.i_size;
+            if( sz != 24 )
+            {
+                /* special case in table B.14 for abs(DC) == 1 */
+                if( i == i_total && run == 0 &&
+                    ( runlevel.level[i] == 1 || runlevel.level[i] == -1 ) && inter )
+                    bs_write1( s, 1 );
+                else
+                    bs_write( s, vlc.i_size - 1, vlc.i_bits ); /* i_size includes sign; write code only */
+                bs_write1( s, runlevel.level[i] < 0 );
+            }
             else
-                bs_write_vlc( s, dct_vlcs[intra_tab][abs( runlevel.level[i] )][run] );
-            bs_write1( s, runlevel.level[i] < 0 );
+            {
+                bs_write( s, 6, 0x01 ); // escape prefix
+                bs_write( s, 6, run );
+                bs_write( s, 12, runlevel.level[i] & ((1<<12)-1) ); // convert to 12-bit signed
+            }
         }
         else
         {
-            bs_write_vlc( s, dct_vlcs[h->fenc->b_alt_intra_vlc][0][1] ); // escape
+            bs_write( s, 6, 0x01 ); // escape prefix
             bs_write( s, 6, run );
             bs_write( s, 12, runlevel.level[i] & ((1<<12)-1) ); // convert to 12-bit signed
         }
@@ -369,7 +382,8 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
             if( h->mb.i_dct_dc_size[i] )
                 bs_write( s, h->mb.i_dct_dc_size[i], h->mb.i_dct_dc_diff[i] ); // DC
             x264_write_dct_vlc_mpeg2( h, h->dct.mpeg2_8x8[i], h->fenc->b_alt_intra_vlc ); // AC
-            bs_write_vlc( s, dct_vlcs[h->fenc->b_alt_intra_vlc][0][0] ); // end of block
+            vlc_large_t _eob = dct_vlcs[h->fenc->b_alt_intra_vlc][0][0];
+            bs_write( s, _eob.i_size, _eob.i_bits ); // end of block
         }
     }
     else if( cbp )
@@ -383,7 +397,7 @@ void x264_macroblock_write_vlc_mpeg2( x264_t *h )
             if( cbp & (1<<(7-i)) )
             {
                 x264_write_dct_vlc_mpeg2( h, h->dct.mpeg2_8x8[i], 0 ); // DC and AC
-                bs_write_vlc( s, dct_vlcs[0][0][0] ); // end of block
+                bs_write( s, 2, 0x2 ); // end of block
             }
         }
     }
