@@ -41,6 +41,7 @@ levelrun_reverse_avx512: dw 31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16
                         dw 15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
 mpeg2_clip_max: times 32 dw 2047
 mpeg2_clip_min: times 32 dw -2048
+mpeg2_clip_esc_min: times 32 dw -2047
 mpeg2_dc_summask: dw 0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
 ALIGN 64
 ; reverse 8 qwords (for aligning the backward-indexed rl window with forward p)
@@ -1026,6 +1027,31 @@ INIT_XMM avx
 DEQUANT_MPEG2_INTER
 INIT_YMM avx2
 DEQUANT_MPEG2_INTER
+
+;-----------------------------------------------------------------------------
+; void coeff_clip_mpeg2( dctcoef dct[64] )
+; Clamp all 64 coefficients in place to the 12-bit run-level escape range
+; [-2047, 2047]. The intra caller preserves dct[0] itself.
+;-----------------------------------------------------------------------------
+%macro COEFF_CLIP_MPEG2 0
+cglobal coeff_clip_mpeg2, 1,1,3
+    mova       m1, [mpeg2_clip_esc_min]
+    mova       m2, [mpeg2_clip_max]
+%assign i 0
+%rep 128/mmsize
+    mova       m0, [r0+i]
+    pmaxsw     m0, m1
+    pminsw     m0, m2
+    mova       [r0+i], m0
+%assign i i+mmsize
+%endrep
+    RET
+%endmacro
+
+INIT_XMM sse2
+COEFF_CLIP_MPEG2
+INIT_YMM avx2
+COEFF_CLIP_MPEG2
 
 ;-----------------------------------------------------------------------------
 ; void dequant_mpeg2_intra( dctcoef dct[64], int dequant_mf[64], int precision )

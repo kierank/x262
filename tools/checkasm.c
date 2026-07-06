@@ -2785,6 +2785,33 @@ static int check_quant_mpeg2( uint32_t cpu_ref, uint32_t cpu_new )
 
     report( "dequant mpeg2 :" );
 
+    x264_quant_init( h, 0, &qf_c );
+    x264_quant_init( h, cpu_ref, &qf_ref );
+    x264_quant_init( h, cpu_new, &qf_a );
+    if( qf_a.coeff_clip_mpeg2 != qf_ref.coeff_clip_mpeg2 )
+    {
+        set_func_name( "coeff_clip_mpeg2" );
+        used_asm = 1;
+        ok = 1;
+        for( int t = 0; t < 100 && ok; t++ )
+        {
+            for( int i = 0; i < 64; i++ )
+                dct1[i] = (rand() & 0x3fff) - 0x2000; /* [-8192, 8191], straddles +-2047 */
+            memcpy( dct2, dct1, 64*sizeof(dctcoef) );
+            call_c1( qf_c.coeff_clip_mpeg2, dct1 );
+            call_a1( qf_a.coeff_clip_mpeg2, dct2 );
+            if( memcmp( dct1, dct2, 64*sizeof(dctcoef) ) )
+            {
+                ok = 0;
+                fprintf( stderr, "coeff_clip_mpeg2 [FAILED]\n" );
+                break;
+            }
+            call_c2( qf_c.coeff_clip_mpeg2, dct1 );
+            call_a2( qf_a.coeff_clip_mpeg2, dct2 );
+        }
+    }
+    report( "coeff_clip mpeg2 :" );
+
     return ret;
 }
 
