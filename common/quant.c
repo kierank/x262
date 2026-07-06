@@ -182,6 +182,12 @@ static void dequant_mpeg2_inter( dctcoef dct[64], int dequant_mf[64] )
     dct[63] ^= 1&~sum;
 }
 
+static void coeff_clip_mpeg2( dctcoef dct[64] )
+{
+    for( int i = 0; i < 64; i++ )
+        dct[i] = x264_clip3( dct[i], -2047, 2047 );
+}
+
 static void dequant_mpeg2_intra( dctcoef dct[64], int dequant_mf[64], int precision )
 {
     int sign = 0;
@@ -717,6 +723,7 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
     pf->dequant_mpeg2_intra = dequant_mpeg2_intra;
     pf->dequant_mpeg2_inter = dequant_mpeg2_inter;
+    pf->coeff_clip_mpeg2 = coeff_clip_mpeg2;
     pf->coeff_level_run[ DCT_LUMA_8x8] = coeff_level_run64;
     pf->trellis_rate_build_mpeg2 = trellis_rate_build_mpeg2;
     pf->trellis_setup_mpeg2 = trellis_setup_mpeg2;
@@ -945,6 +952,7 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
 #if HAVE_MPEG2
         pf->dequant_mpeg2_inter = x264_dequant_mpeg2_inter_sse2;
         pf->dequant_mpeg2_intra = x264_dequant_mpeg2_intra_sse2;
+        pf->coeff_clip_mpeg2 = x264_coeff_clip_mpeg2_sse2;
 #endif
     }
 
@@ -1062,6 +1070,7 @@ void x264_quant_init( x264_t *h, uint32_t cpu, x264_quant_function_t *pf )
 #if HAVE_MPEG2
         pf->dequant_mpeg2_inter = x264_dequant_mpeg2_inter_avx2;
         pf->dequant_mpeg2_intra = x264_dequant_mpeg2_intra_avx2;
+        pf->coeff_clip_mpeg2 = x264_coeff_clip_mpeg2_avx2;
 #if ARCH_X86_64
         pf->trellis_dp_mpeg2 = x264_trellis_dp_mpeg2_avx2;
         pf->trellis_rate_build_mpeg2 = x264_trellis_rate_build_mpeg2_avx2;
