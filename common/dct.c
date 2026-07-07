@@ -826,6 +826,18 @@ static void sub16x16_dct_mpeg2( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )
     sub8x8_dct_mpeg2( dct[3], &pix1[8*FENC_STRIDE+8], &pix2[8*FDEC_STRIDE+8] );
 }
 
+/* Two-block pairs for the batched AVX2 kernels: _x2 is a horizontally adjacent
+ * pair (+8 in fenc and fdec), _x2_chroma is the U/V pair (fenc packs V at +8,
+ * fdec keeps it a full plane slot away at +16). */
+#define SUB8X8_DCT_X2_MPEG2( name, block_func, fdec_off )\
+static void name( dctcoef dct[2][64], pixel *pix1, pixel *pix2 )\
+{\
+    block_func( dct[0], pix1,   pix2 );\
+    block_func( dct[1], pix1+8, pix2+fdec_off );\
+}
+SUB8X8_DCT_X2_MPEG2( sub8x8_dct_x2_mpeg2,        sub8x8_dct_mpeg2,  8 )
+SUB8X8_DCT_X2_MPEG2( sub8x8_dct_x2_chroma_mpeg2, sub8x8_dct_mpeg2, 16 )
+
 #if HAVE_MMX && ARCH_X86_64
 /* Fold the pixel subtraction into the load and run the FDCT in place, transposing
  * to the cqm/zigzag layout. The 16x16 wrappers run on the four 8x8 quadrants.
@@ -840,6 +852,10 @@ static void name( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )\
 }
 SUB16X16_DCT_MPEG2( sub16x16_dct_mpeg2_sse2, x264_sub8x8_dct8_mpeg2_sse2 )
 SUB16X16_DCT_MPEG2( sub16x16_dct_mpeg2_avx,  x264_sub8x8_dct8_mpeg2_avx )
+SUB8X8_DCT_X2_MPEG2( sub8x8_dct_x2_mpeg2_sse2,        x264_sub8x8_dct8_mpeg2_sse2,  8 )
+SUB8X8_DCT_X2_MPEG2( sub8x8_dct_x2_chroma_mpeg2_sse2, x264_sub8x8_dct8_mpeg2_sse2, 16 )
+SUB8X8_DCT_X2_MPEG2( sub8x8_dct_x2_mpeg2_avx,         x264_sub8x8_dct8_mpeg2_avx,   8 )
+SUB8X8_DCT_X2_MPEG2( sub8x8_dct_x2_chroma_mpeg2_avx,  x264_sub8x8_dct8_mpeg2_avx,  16 )
 static void sub16x16_dct_mpeg2_avx2( dctcoef dct[4][64], pixel *pix1, pixel *pix2 )
 {
     x264_fdct_mpeg2_x2_avx2( (void*)dct[0], &pix1[0], &pix2[0] );
@@ -1161,6 +1177,8 @@ void x264_dct_init( uint32_t cpu, x264_dct_function_t *dctf, int b_mpeg2 )
         dctf->add8x8_idct8       = add8x8_idct_mpeg2;
         dctf->sub8x8_dct8_field  = sub8x8_dct_field_mpeg2;
         dctf->add8x8_idct8_field = add8x8_idct_field_mpeg2;
+        dctf->sub8x8_dct8_x2        = sub8x8_dct_x2_mpeg2;
+        dctf->sub8x8_dct8_x2_chroma = sub8x8_dct_x2_chroma_mpeg2;
         dctf->sub16x16_dct8  = sub16x16_dct_mpeg2;
         dctf->add16x16_idct8 = add16x16_idct_mpeg2;
 #if HAVE_MMX && ARCH_X86_64
@@ -1170,6 +1188,8 @@ void x264_dct_init( uint32_t cpu, x264_dct_function_t *dctf, int b_mpeg2 )
             dctf->add8x8_idct8_field = add8x8_idct_mpeg2_sse2_field;
             dctf->sub8x8_dct8        = x264_sub8x8_dct8_mpeg2_sse2;
             dctf->sub8x8_dct8_field  = x264_sub8x8_dct8_field_mpeg2_sse2;
+            dctf->sub8x8_dct8_x2        = sub8x8_dct_x2_mpeg2_sse2;
+            dctf->sub8x8_dct8_x2_chroma = sub8x8_dct_x2_chroma_mpeg2_sse2;
             dctf->sub16x16_dct8      = sub16x16_dct_mpeg2_sse2;
         }
         if( cpu&X264_CPU_SSE4 )
@@ -1183,10 +1203,16 @@ void x264_dct_init( uint32_t cpu, x264_dct_function_t *dctf, int b_mpeg2 )
             dctf->add8x8_idct8_field = add8x8_idct_mpeg2_avx_field;
             dctf->sub8x8_dct8        = x264_sub8x8_dct8_mpeg2_avx;
             dctf->sub8x8_dct8_field  = x264_sub8x8_dct8_field_mpeg2_avx;
+            dctf->sub8x8_dct8_x2        = sub8x8_dct_x2_mpeg2_avx;
+            dctf->sub8x8_dct8_x2_chroma = sub8x8_dct_x2_chroma_mpeg2_avx;
             dctf->sub16x16_dct8      = sub16x16_dct_mpeg2_avx;
         }
         if( cpu&X264_CPU_AVX2 )
+        {
+            dctf->sub8x8_dct8_x2        = x264_fdct_mpeg2_x2_avx2;
+            dctf->sub8x8_dct8_x2_chroma = x264_fdct_mpeg2_x2_chroma_avx2;
             dctf->sub16x16_dct8 = sub16x16_dct_mpeg2_avx2;
+        }
         if( cpu&X264_CPU_AVX512 )
             dctf->sub16x16_dct8 = sub16x16_dct_mpeg2_avx512;
 #endif

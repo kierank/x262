@@ -507,11 +507,13 @@ ADD8X8_IDCT_MPEG2
 ; reads block i at column (i&1)*8 and macroblock-row (i>>1)*8.
 ; %1 = dst reg, %2 = row, %3 = block count. m8 = scratch, m9 = zero.
 ; %4 = row-stride multiplier (1 = frame, 2 = field/same-parity lines); default 1.
-%macro LOAD_DIFF_XN 3-4 1
+; %5 = fdec column step (8 = adjacent blocks; 16 = U/V pair, where fdec keeps V
+;      a full plane slot to the right of U while fenc packs them at +8).
+%macro LOAD_DIFF_XN 3-5 1, 8
 %assign %%i 0
 %rep %3
     %assign %%fo (%2*%4 + (%%i>>1)*8)*FENC_STRIDE + (%%i&1)*8
-    %assign %%go (%2*%4 + (%%i>>1)*8)*FDEC_STRIDE + (%%i&1)*8
+    %assign %%go (%2*%4 + (%%i>>1)*8)*FDEC_STRIDE + (%%i&1)*%5
 %if %%i == 0
     movq         xm%1, [pix1q + %%fo]
     movq         xm8,  [pix2q + %%go]
@@ -528,7 +530,8 @@ ADD8X8_IDCT_MPEG2
 
 ; Subtract N horizontally-adjacent 8x8 blocks and forward-DCT them, writing
 ; block0..N-1 to dct. pix1 = fenc (FENC_STRIDE), pix2 = fdec (FDEC_STRIDE).
-; %1 = block count. %2 = "field" for the doubled-stride (same-parity) variant.
+; %1 = block count. %2 = "field" for the doubled-stride (same-parity) variant,
+; or "chroma" for the U/V pair variant (fenc packed at +8, fdec V at +16).
 ;
 ; void sub8x8_dct8_mpeg2( int16_t dct[64], pixel *pix1, pixel *pix2 )
 %macro FDCT_MPEG2_XN 1-2
@@ -538,15 +541,22 @@ ADD8X8_IDCT_MPEG2
 %else
     %define %%name fdct_mpeg2_x %+ %1
 %endif
+%assign %%rowmul 1
+%assign %%gcol 8
 %if %0 >= 2
+%ifidn %2, field
     %assign %%rowmul 2
+%elifidn %2, chroma
+    %assign %%gcol 16
+%else
+    %error unknown FDCT_MPEG2_XN variant %2
+%endif
     %if %1 == 1
         cglobal sub8x8_dct8_%2_mpeg2, 3, 6, 10, 0-(8*%%stride), block, pix1, pix2, in, out, tab
     %else
         cglobal %%name %+ _%2, 3, 6, 10, 0-(8*%%stride), block, pix1, pix2, in, out, tab
     %endif
 %else
-    %assign %%rowmul 1
     cglobal %%name, 3, 6, 10, 0-(8*%%stride), block, pix1, pix2, in, out, tab
 %endif
     ; load+subtract each row into the interleaved stack temp (row r -> rsp+r*N*16,
@@ -554,7 +564,7 @@ ADD8X8_IDCT_MPEG2
     pxor         m9, m9
 %assign %%r 0
 %rep 8
-    LOAD_DIFF_XN 0, %%r, %1, %%rowmul
+    LOAD_DIFF_XN 0, %%r, %1, %%rowmul, %%gcol
     mova         [rsp + %%r*%%stride], m0
 %assign %%r %%r+1
 %endrep
@@ -620,6 +630,7 @@ FDCT_MPEG2_XN 1
 FDCT_MPEG2_XN 1, field
 INIT_YMM avx2
 FDCT_MPEG2_XN 2
+FDCT_MPEG2_XN 2, chroma
 INIT_ZMM avx512
 FDCT_MPEG2_XN 4
 
