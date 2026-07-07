@@ -31,7 +31,7 @@
 
 %macro CONST_DEC 3
 const %1
-times 4 dw %2, %3
+times 8 dw %2, %3
 %endmacro
 
 %macro FDCT_TABLE_ROW 7 ; C1 C2 C3 C4 C5 C6 C7
@@ -52,8 +52,6 @@ times 4 dw %2, %3
 
 SECTION_RODATA 64
 
-cextern pw_32
-
 ; 64-byte FDCT constants: the same operand serves an xmm (low 16), ymm (low 32)
 ; or zmm forward-DCT load.
 fdct_tg_1_16: times 32 dw 13036               ; tg(pi/16)   * (2<<16) + 0.5
@@ -73,8 +71,10 @@ tab_frw_01234567:
     FDCT_TABLE_ROW 29692, 27969, 25172, 21407, 16819, 11585,  5906
     FDCT_TABLE_ROW 31521, 29692, 26722, 22725, 17855, 12299,  6270
 
-; 16-byte IDCT constants.
-pd_round_11: times 4 dd 1<<(11-1)
+; 32-byte IDCT constants: the low 16 bytes serve the single-block xmm kernels,
+; the full width the batched ymm x2 kernels.
+pd_round_11: times 8 dd 1<<(11-1)
+idct_pw_32:  times 16 dw 32
 CONST_DEC  w4_plus_w2,   W4sh2_lo, +W2sh2
 CONST_DEC  w4_min_w2,    W4sh2_lo, -W2sh2
 CONST_DEC  w4_plus_w6,   W4sh2_lo, +W6sh2
@@ -158,19 +158,20 @@ CONST_DEC  w7_min_w5,    W7sh2,    -W5sh2
     psubd       m2,  m8            ; a1[0-3] intermediate
     psubd       m3,  m9            ; a1[4-7] intermediate
 
-    ; load/store
-    mova   [blockq+  0], m0
-    mova   [blockq+ 32], m2
-    mova   [blockq+ 64], m4
-    mova   [blockq+ 96], m6
-    mova        m10,[blockq+ 16]       ; { row[1] }[0-7]
-    mova        m8, [blockq+ 48]       ; { row[3] }[0-7]
-    mova        m13,[blockq+ 80]       ; { row[5] }[0-7]
-    mova        m11,[blockq+112]       ; { row[7] }[0-7]
-    mova   [blockq+ 16], m1
-    mova   [blockq+ 48], m3
-    mova   [blockq+ 80], m5
-    mova   [blockq+112], m7
+    ; load/store (slot k at k*mmsize: the batched ymm variant runs on a
+    ; lane-major temp with two blocks interleaved, so slots are register-wide)
+    mova   [blockq+0*mmsize], m0
+    mova   [blockq+2*mmsize], m2
+    mova   [blockq+4*mmsize], m4
+    mova   [blockq+6*mmsize], m6
+    mova        m10,[blockq+1*mmsize]  ; { row[1] }[0-7]
+    mova        m8, [blockq+3*mmsize]  ; { row[3] }[0-7]
+    mova        m13,[blockq+5*mmsize]  ; { row[5] }[0-7]
+    mova        m11,[blockq+7*mmsize]  ; { row[7] }[0-7]
+    mova   [blockq+1*mmsize], m1
+    mova   [blockq+3*mmsize], m3
+    mova   [blockq+5*mmsize], m5
+    mova   [blockq+7*mmsize], m7
 
     SBUTTERFLY3 wd,  0,  1, 10, 8  ; { row[1], row[3] }[0-3]/[4-7]
     pmaddwd     m2,  m0, [w3_min_w7]
@@ -201,36 +202,38 @@ CONST_DEC  w7_min_w5,    W7sh2,    -W5sh2
     paddd       m6,  m8            ; b3[0-3]
     paddd       m7,  m9            ; b3[4-7]
 
-    mova        m8, [blockq+ 0]        ; a0[0-3]
-    mova        m9, [blockq+16]        ; a0[4-7]
+    mova        m8, [blockq+0*mmsize]  ; a0[0-3]
+    mova        m9, [blockq+1*mmsize]  ; a0[4-7]
     SUMSUB_SHPK m8,  m9,  m10, m11, m0,  m1,  %2
-    mova        m0, [blockq+32]        ; a1[0-3]
-    mova        m1, [blockq+48]        ; a1[4-7]
+    mova        m0, [blockq+2*mmsize]  ; a1[0-3]
+    mova        m1, [blockq+3*mmsize]  ; a1[4-7]
     SUMSUB_SHPK m0,  m1,  m9,  m11, m2,  m3,  %2
-    mova        m1, [blockq+64]        ; a2[0-3]
-    mova        m2, [blockq+80]        ; a2[4-7]
+    mova        m1, [blockq+4*mmsize]  ; a2[0-3]
+    mova        m2, [blockq+5*mmsize]  ; a2[4-7]
     SUMSUB_SHPK m1,  m2,  m11, m3,  m4,  m5,  %2
-    mova        m2, [blockq+96]        ; a3[0-3]
-    mova        m3, [blockq+112]       ; a3[4-7]
+    mova        m2, [blockq+6*mmsize]  ; a3[0-3]
+    mova        m3, [blockq+7*mmsize]  ; a3[4-7]
     SUMSUB_SHPK m2,  m3,  m4,  m5,  m6,  m7,  %2
 %endmacro
 
 ; %1 = row shift, %2 = row bias macro, %3 = column shift, %4 = column bias macro
 %macro IDCT_FN 4
-    mova        m10,[blockq+ 0]        ; { row[0] }[0-7]
-    mova        m8, [blockq+32]        ; { row[2] }[0-7]
-    mova        m13,[blockq+64]        ; { row[4] }[0-7]
-    mova        m12,[blockq+96]        ; { row[6] }[0-7]
+    mova        m10,[blockq+0*mmsize]  ; { row[0] }[0-7]
+    mova        m8, [blockq+2*mmsize]  ; { row[2] }[0-7]
+    mova        m13,[blockq+4*mmsize]  ; { row[4] }[0-7]
+    mova        m12,[blockq+6*mmsize]  ; { row[6] }[0-7]
 
     ; DC-only shortcut.  When there is only a DC coefficient the C shifts the
     ; value and splats it to all coeffs rather than doing the full IDCT.  This
     ; differs on 8-bit because the coefficient is 16383 rather than 16384.
+    ; The por/pcmpeqw masks are per-lane, so on ymm each block takes the
+    ; shortcut independently.
     por      m1,  m8, m13
     por      m1,  m12
-    por      m1, [blockq+ 16]       ; { row[1] }[0-7]
-    por      m1, [blockq+ 48]       ; { row[3] }[0-7]
-    por      m1, [blockq+ 80]       ; { row[5] }[0-7]
-    por      m1, [blockq+112]       ; { row[7] }[0-7]
+    por      m1, [blockq+1*mmsize]  ; { row[1] }[0-7]
+    por      m1, [blockq+3*mmsize]  ; { row[3] }[0-7]
+    por      m1, [blockq+5*mmsize]  ; { row[5] }[0-7]
+    por      m1, [blockq+7*mmsize]  ; { row[7] }[0-7]
     pxor     m2,  m2
     pcmpeqw  m1,  m2
     psllw   m15,  m10, 3
@@ -262,12 +265,13 @@ CONST_DEC  w7_min_w5,    W7sh2,    -W5sh2
     por      m9,  m15
     por      m10, m15
 
-    ; transpose for second part of IDCT
+    ; transpose for second part of IDCT (in-lane per 128 bits: on ymm this is
+    ; two independent 8x8 transposes, one per block)
     TRANSPOSE8x8W 8, 0, 1, 2, 4, 11, 9, 10, 3
-    mova   [blockq+ 16], m0
-    mova   [blockq+ 48], m2
-    mova   [blockq+ 80], m11
-    mova   [blockq+112], m10
+    mova   [blockq+1*mmsize], m0
+    mova   [blockq+3*mmsize], m2
+    mova   [blockq+5*mmsize], m11
+    mova   [blockq+7*mmsize], m10
     SWAP         8,  10
     SWAP         1,   8
     SWAP         4,  13
@@ -323,7 +327,7 @@ SECTION .text
 ; the residual into pixels with saturation, i.e. pixels = clip( pixels + idct ).
 %macro ADD8X8_IDCT_MPEG2 0
 cglobal add8x8_idct_mpeg2, 3, 5, 16, pixels, stride, block, stride3, base3
-    IDCT_FN    "", 11, pw_32, 20
+    IDCT_FN    "", 11, idct_pw_32, 20
     lea stride3q, [3*strideq]
 %if cpuflag(sse4)
     lea base3q, [pixelsq + stride3q]
@@ -365,6 +369,70 @@ INIT_XMM sse4
 ADD8X8_IDCT_MPEG2
 INIT_XMM avx
 ADD8X8_IDCT_MPEG2
+
+; Load one pixel row of both blocks (second at column +%4) into lanes, widen to
+; words and add into row register m%1 with saturation.
+%macro IDCT_ADD_ROW_X2 5 ; row reg num, base, row offset, col offset, zero reg
+    movq        xm5, [%2 + %3]
+    vinserti128 m5, m5, [%2 + %3 + %4], 1
+    punpcklbw   m5, %5
+    paddsw      m%1, m5
+%endmacro
+
+; Store a packed register holding two pixel rows of both blocks:
+; lane 0 = block0 rows r,r+1, lane 1 = block1 rows r,r+1.
+%macro IDCT_STORE_ROWS_X2 5 ; packed reg num, base, row offset r, row offset r+1, col offset
+    movq         [%2 + %3], xm%1
+    movhps       [%2 + %4], xm%1
+    vextracti128 xm5, m%1, 1
+    movq         [%2 + %3 + %5], xm5
+    movhps       [%2 + %4 + %5], xm5
+%endmacro
+
+; Batched IDCT: two 8x8 blocks, one per 128-bit lane, mirroring FDCT_MPEG2_XN.
+; The two block-major inputs are interleaved into a lane-major stack temp so the
+; single-block IDCT schedule runs unchanged at ymm width (every op is in-lane);
+; the pixel rows are then gathered/scattered per lane. The destinations sit at
+; +%2 columns apart: 8 for a horizontally adjacent luma pair, 16 for the U/V
+; chroma pair (fdec keeps V a full plane slot to the right of U).
+;
+; void add8x8_idct_mpeg2_x2( pixel *pixels, intptr_t stride, dctcoef block[2][64] )
+%macro ADD8X8_IDCT_MPEG2_X2 2 ; %1 = name, %2 = second block's column offset
+cglobal %1, 3, 5, 16, 0-(8*mmsize), pixels, stride, block, stride3, base3
+%assign %%r 0
+%rep 8
+    mova        xm0, [blockq + %%r*16]
+    vinserti128 m0, m0, [blockq + %%r*16 + 128], 1
+    mova        [rsp + %%r*mmsize], m0
+%assign %%r %%r+1
+%endrep
+    mov         blockq, rsp
+    IDCT_FN    "", 11, idct_pw_32, 20
+    lea         stride3q, [3*strideq]
+    lea         base3q, [pixelsq + 4*strideq]
+    pxor        m3, m3
+    IDCT_ADD_ROW_X2  8, pixelsq, 0,         %2, m3
+    IDCT_ADD_ROW_X2  0, pixelsq, strideq,   %2, m3
+    IDCT_ADD_ROW_X2  1, pixelsq, 2*strideq, %2, m3
+    IDCT_ADD_ROW_X2  2, pixelsq, stride3q,  %2, m3
+    IDCT_ADD_ROW_X2  4, base3q,  0,         %2, m3
+    IDCT_ADD_ROW_X2 11, base3q,  strideq,   %2, m3
+    IDCT_ADD_ROW_X2  9, base3q,  2*strideq, %2, m3
+    IDCT_ADD_ROW_X2 10, base3q,  stride3q,  %2, m3
+    packuswb    m8, m0             ; per lane: rows 0,1
+    packuswb    m1, m2             ; per lane: rows 2,3
+    packuswb    m4, m11            ; per lane: rows 4,5
+    packuswb    m9, m10            ; per lane: rows 6,7
+    IDCT_STORE_ROWS_X2 8, pixelsq, 0,         strideq,  %2
+    IDCT_STORE_ROWS_X2 1, pixelsq, 2*strideq, stride3q, %2
+    IDCT_STORE_ROWS_X2 4, base3q,  0,         strideq,  %2
+    IDCT_STORE_ROWS_X2 9, base3q,  2*strideq, stride3q, %2
+    RET
+%endmacro
+
+INIT_YMM avx2
+ADD8X8_IDCT_MPEG2_X2 add8x8_idct_mpeg2_x2, 8
+ADD8X8_IDCT_MPEG2_X2 add8x8_idct_mpeg2_x2_chroma, 16
 
 ;-----------------------------------------------------------------------------
 ; MPEG-2 forward DCT (AP-922)
