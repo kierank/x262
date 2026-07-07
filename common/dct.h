@@ -58,6 +58,10 @@ typedef struct
     void (*sub8x8_dct8_x2)       ( dctcoef dct[2][64], pixel *pix1, pixel *pix2 );
     void (*sub8x8_dct8_x2_chroma)( dctcoef dct[2][64], pixel *pix1, pixel *pix2 );
 
+    /* MPEG-2 batched IDCT: same two-block pairings as the forward-DCT _x2. */
+    void (*add8x8_idct8_x2)       ( pixel *p_dst, dctcoef dct[2][64] );
+    void (*add8x8_idct8_x2_chroma)( pixel *p_dst, dctcoef dct[2][64] );
+
     void (*sub16x16_dct8) ( dctcoef dct[4][64], pixel *pix1, pixel *pix2 );
     void (*add16x16_idct8)( pixel *p_dst, dctcoef dct[4][64] );
 
