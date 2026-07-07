@@ -52,6 +52,12 @@ typedef struct
     void (*sub8x8_dct8_field) ( dctcoef dct[64], pixel *pix1, pixel *pix2 );
     void (*add8x8_idct8_field)( pixel *p_dst, dctcoef dct[64] );
 
+    /* MPEG-2 batched forward DCT: two 8x8 blocks per call. _x2 takes blocks
+     * horizontally adjacent in both fenc and fdec (+8); _x2_chroma takes the
+     * U/V pair, packed at +8 in fenc but a full plane slot apart (+16) in fdec. */
+    void (*sub8x8_dct8_x2)       ( dctcoef dct[2][64], pixel *pix1, pixel *pix2 );
+    void (*sub8x8_dct8_x2_chroma)( dctcoef dct[2][64], pixel *pix1, pixel *pix2 );
+
     void (*sub16x16_dct8) ( dctcoef dct[4][64], pixel *pix1, pixel *pix2 );
     void (*add16x16_idct8)( pixel *p_dst, dctcoef dct[4][64] );
 

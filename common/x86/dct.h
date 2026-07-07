@@ -241,6 +241,8 @@ void x264_sub8x8_dct8_mpeg2_avx        ( int16_t dct[64], uint8_t *pix1, uint8_t
 void x264_sub8x8_dct8_field_mpeg2_avx  ( int16_t dct[64], uint8_t *pix1, uint8_t *pix2 );
 #define x264_fdct_mpeg2_x2_avx2 x264_template(fdct_mpeg2_x2_avx2)
 void x264_fdct_mpeg2_x2_avx2  ( int16_t dct[2][64], uint8_t *pix1, uint8_t *pix2 );
+#define x264_fdct_mpeg2_x2_chroma_avx2 x264_template(fdct_mpeg2_x2_chroma_avx2)
+void x264_fdct_mpeg2_x2_chroma_avx2( int16_t dct[2][64], uint8_t *pix1, uint8_t *pix2 );
 #define x264_fdct_mpeg2_x4_avx512 x264_template(fdct_mpeg2_x4_avx512)
 void x264_fdct_mpeg2_x4_avx512( int16_t dct[4][64], uint8_t *pix1, uint8_t *pix2 );
 #endif
