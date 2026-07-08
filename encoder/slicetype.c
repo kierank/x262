@@ -472,7 +472,13 @@ void x264_weights_analyse( x264_t *h, x264_frame_t *fenc, x264_frame_t *ref, int
             SET_WEIGHT( weights[plane], 1, minscale, mindenom, minoff );
 
         if( h->param.analyse.i_weighted_pred == X264_WEIGHTP_FAKE && weights[0].weightfn && !plane )
+        {
             fenc->f_weighted_cost_delta[i_delta_index] = (float)minscore / origscore;
+            /* keep the cost delta for the mbtree fade boost, but drop the weight
+             * so lowres search costs are correct. */
+            if( MPEG2 )
+                SET_WEIGHT( weights[0], 0, 1, 0, 0 );
+        }
     }
 
     /* Optimize and unify denominator */
