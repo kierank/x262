@@ -446,10 +446,11 @@ typedef struct x264_param_t
     /* MPEG-2 only */
     int         i_intra_dc_precision;
     int         b_nonlinear_quant;
-    int         b_cqm_recenter;
+    int         b_cqm_recenter;     /* Per-picture quant matrix centering. */
     int         b_alt_intra_vlc;
     int         b_alternate_scan;
-    int         b_dual_prime;       /* Dual-prime prediction for interlaced P-frames. */
+    int         b_dual_prime;       /* Dual-prime prediction for interlaced P-frames:
+                                     * -1 = auto (on when interlaced). */
     int         b_high_profile;     /* Force a higher MPEG-2 profile than required. */
     int         b_422_profile;      /* Alternatively, use x264_param_apply_profile. */
     int         b_main_profile;
