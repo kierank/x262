@@ -607,6 +607,41 @@ static void help( x264_param_t *defaults, int longhelp )
     else H0( "                                  - %s\n", stringify_names( buf, x264_valid_profile_names ) );
     H0( "      --preset <string>       Use a preset to select encoding settings [medium]\n"
         "                                  Overridden by user settings.\n" );
+#if HAVE_MPEG2
+    if( defaults->b_mpeg2 )
+    {
+        H2( "                                  - ultrafast:\n"
+            "                                    --aq-mode 0 --b-adapt 0 --bframes 0\n"
+            "                                    --no-mbtree --me dia --rc-lookahead 0\n"
+            "                                    --scenecut 0 --subme 0 --trellis 0\n"
+            "                                  - superfast:\n"
+            "                                    --b-adapt 0 --bframes 0 --me dia\n"
+            "                                    --rc-lookahead 15 --subme 1 --trellis 0\n"
+            "                                  - veryfast:\n"
+            "                                    --me dia --rc-lookahead 20 --subme 2\n"
+            "                                    --trellis 0\n"
+            "                                  - faster:\n"
+            "                                    --me dia --rc-lookahead 20 --subme 4\n"
+            "                                    --trellis 1\n"
+            "                                  - fast:\n"
+            "                                    --rc-lookahead 30 --subme 6 --trellis 1\n"
+            "                                  - medium:\n"
+            "                                    Default settings apply.\n"
+            "                                  - slow:\n"
+            "                                    --rc-lookahead 50 --subme 8\n"
+            "                                  - slower:\n"
+            "                                    --rc-lookahead 60 --subme 9\n"
+            "                                  - veryslow:\n"
+            "                                    --merange 32 --rc-lookahead 60 --subme 10\n"
+            "                                  - placebo:\n"
+            "                                    --no-fast-pskip --me tesa --merange 32\n"
+            "                                    --rc-lookahead 60 --subme 10\n" );
+        else H0( "                                  - ultrafast,superfast,veryfast,faster,fast\n"
+                 "                                  - medium,slow,slower,veryslow,placebo\n" );
+    }
+    else
+#endif
+    {
     H2( "                                  - ultrafast:\n"
         "                                    --no-8x8dct --aq-mode 0 --b-adapt 0\n"
         "                                    --bframes 0 --no-cabac --no-deblock\n"
@@ -649,11 +684,41 @@ static void help( x264_param_t *defaults, int longhelp )
         "                                    --trellis 2\n" );
     else H0( "                                  - ultrafast,superfast,veryfast,faster,fast\n"
              "                                  - medium,slow,slower,veryslow,placebo\n" );
+    }
     H0( "      --tune <string>         Tune the settings for a particular type of source\n"
         "                              or situation\n"
         "                                  Overridden by user settings.\n"
         "                                  Multiple tunings are separated by commas.\n"
         "                                  Only one psy tuning can be used at a time.\n" );
+#if HAVE_MPEG2
+    if( defaults->b_mpeg2 )
+    {
+        H2( "                                  - film (psy tuning):\n"
+            "                                    No effect for MPEG-2.\n"
+            "                                  - animation (psy tuning):\n"
+            "                                    --aq-strength 0.6\n"
+            "                                  - grain (psy tuning):\n"
+            "                                    --aq-strength 0.5 --no-dct-decimate\n"
+            "                                    --deadzone-inter 9 --deadzone-intra 4\n"
+            "                                    --ipratio 1.1 --pbratio 1.1 --qcomp 0.8\n"
+            "                                  - stillimage (psy tuning):\n"
+            "                                    --aq-strength 1.2\n"
+            "                                  - psnr (psy tuning):\n"
+            "                                    --aq-mode 0 --no-psy\n"
+            "                                  - ssim (psy tuning):\n"
+            "                                    --aq-mode 2 --no-psy\n"
+            "                                  - fastdecode:\n"
+            "                                    No effect for MPEG-2.\n"
+            "                                  - zerolatency:\n"
+            "                                    --bframes 0 --no-mbtree\n"
+            "                                    --sync-lookahead 0 --rc-lookahead 0\n" );
+        else H0( "                                  - psy tunings: film,animation,grain,\n"
+                 "                                                 stillimage,psnr,ssim\n"
+                 "                                  - other tunings: fastdecode,zerolatency\n" );
+    }
+    else
+#endif
+    {
     H2( "                                  - film (psy tuning):\n"
         "                                    --deblock -1:-1 --psy-rd <unset>:0.15\n"
         "                                  - animation (psy tuning):\n"
@@ -683,6 +748,7 @@ static void help( x264_param_t *defaults, int longhelp )
     else H0( "                                  - psy tunings: film,animation,grain,\n"
              "                                                 stillimage,psnr,ssim\n"
              "                                  - other tunings: fastdecode,zerolatency\n" );
+    }
     H2( "      --slow-firstpass        Don't force these faster settings with --pass 1:\n"
         "                                  --no-8x8dct --me dia --partitions none\n"
         "                                  --ref 1 --subme {2 if >2 else unchanged}\n"
@@ -994,8 +1060,8 @@ static void help( x264_param_t *defaults, int longhelp )
     H2( "      --altscan               Use alternate MPEG-2 VLC scan order, not zigzag\n" );
     H2( "      --linear-quant          Use MPEG-2 linear quantization table\n" );
     H2( "      --no-altintra           Use MPEG-1 VLCs (Table B.14) for intra blocks\n" );
-    H2( "      --cqm-recenter          Enable per-picture quant matrix centering\n" );
-    H2( "      --dual-prime            Enable dual-prime prediction for interlaced P-frames\n" );
+    H2( "      --no-cqm-recenter       Disable per-picture quant matrix centering\n" );
+    H2( "      --dual-prime            Dual-prime prediction for interlaced P-frames [auto]\n" );
     H0( "\n" );
 #endif
 }
@@ -1086,6 +1152,7 @@ static struct option long_options[] =
     { "altintra",             no_argument,       NULL, 0 },
     { "no-altintra",          no_argument,       NULL, 0 },
     { "cqm-recenter",         no_argument,       NULL, 0 },
+    { "no-cqm-recenter",      no_argument,       NULL, 0 },
     { "dual-prime",           no_argument,       NULL, 0 },
     { "no-dual-prime",        no_argument,       NULL, 0 },
 #endif
