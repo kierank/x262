@@ -512,6 +512,8 @@ static int validate_parameters( x264_t *h, int b_open )
         h->param.b_alt_intra_vlc = 1;
         h->mb.b_adaptive_intra_vlc = 1;
     }
+    if( h->param.b_dual_prime < 0 )
+        h->param.b_dual_prime = MPEG2 && PARAM_INTERLACED;
     if( h->param.b_dual_prime && !( MPEG2 && PARAM_INTERLACED ) )
     {
         x264_log( h, X264_LOG_WARNING, "dual-prime requires MPEG-2 interlaced; disabling\n" );

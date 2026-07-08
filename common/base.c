@@ -381,8 +381,12 @@ void x264_param_force_mpeg2( x264_param_t *param )
     param->i_frame_reference = 1;
 }
 
-/* MPEG-2 tuning defaults (not structural constraints); applied before preset/tune. */
-static void x264_param_tune_mpeg2( x264_param_t *param )
+/* MPEG-2 base defaults: the analog of x264_param_default() for MPEG-2, applied before the
+ * MPEG-2 preset/tune ladders. Holds the MPEG-2-specific settings that no preset touches
+ * (nonlinear quant, alt-intra VLC, alternate scan, DC precision, log callback) together with
+ * the default ("medium") values that faster/slower presets adjust on top in
+ * param_apply_preset_mpeg2(). Every member differs from the H.264 base. */
+static void x264_param_base_mpeg2( x264_param_t *param )
 {
     param->pf_log = x264_log_mpeg2;
     param->rc.f_qcompress = 0.45;
@@ -390,10 +394,16 @@ static void x264_param_tune_mpeg2( x264_param_t *param )
     param->b_nonlinear_quant = 1;
     param->b_alt_intra_vlc = -1;
     param->b_alternate_scan = -1;
-    param->analyse.i_trellis = 1;
+    param->b_cqm_recenter = 1;
+    param->b_dual_prime = -1;
+    param->analyse.f_psy_rd = 0.1;
+    param->analyse.i_trellis = 2;
+    param->analyse.i_luma_deadzone[0] = 31;
     param->analyse.i_luma_deadzone[1] = 10;
     param->i_keyint_max = 125;
     param->i_bframe = 2;
+    param->i_scenecut_threshold = 20;
+    param->analyse.i_me_method = X264_ME_UMH;
 }
 #endif /* HAVE_MPEG2 */
 
@@ -666,6 +676,98 @@ static int param_apply_preset( x264_param_t *param, const char *preset )
     return 0;
 }
 
+#if HAVE_MPEG2
+/* MPEG-2 preset ladder, applied instead of param_apply_preset() when encoding MPEG-2. The
+ * "medium"/default values live in x264_param_base_mpeg2() (run first); each block here only
+ * adjusts on top, mirroring how the H.264 ladder adjusts x264_param_default(). Options that
+ * x264_param_force_mpeg2() overrides unconditionally (ref/cabac/deblock/8x8dct/partitions/
+ * weightp/direct/mixed-refs) are omitted -- setting them here would be dead. B-frame counts
+ * stay within the MPEG-2 default (2); an explicit --bframes still overrides afterwards. */
+static int param_apply_preset_mpeg2( x264_param_t *param, const char *preset )
+{
+    char *end;
+    int i = strtol( preset, &end, 10 );
+    if( *end == 0 && i >= 0 && i < ARRAY_ELEMS(x264_preset_names)-1 )
+        preset = x264_preset_names[i];
+
+    if( !strcasecmp( preset, "ultrafast" ) )
+    {
+        param->i_scenecut_threshold = 0;
+        param->i_bframe = 0;
+        param->analyse.i_me_method = X264_ME_DIA;
+        param->analyse.i_subpel_refine = 0;
+        param->rc.i_aq_mode = 0;
+        param->analyse.i_trellis = 0;
+        param->i_bframe_adaptive = X264_B_ADAPT_NONE;
+        param->rc.b_mb_tree = 0;
+        param->rc.i_lookahead = 0;
+    }
+    else if( !strcasecmp( preset, "superfast" ) )
+    {
+        param->i_bframe = 0;
+        param->analyse.i_me_method = X264_ME_DIA;
+        param->analyse.i_subpel_refine = 1;
+        param->analyse.i_trellis = 0;
+        param->i_bframe_adaptive = X264_B_ADAPT_NONE;
+        param->rc.i_lookahead = 15;
+    }
+    else if( !strcasecmp( preset, "veryfast" ) )
+    {
+        param->analyse.i_me_method = X264_ME_DIA;
+        param->analyse.i_subpel_refine = 2;
+        param->analyse.i_trellis = 0;
+        param->rc.i_lookahead = 20;
+    }
+    else if( !strcasecmp( preset, "faster" ) )
+    {
+        param->analyse.i_me_method = X264_ME_DIA;
+        param->analyse.i_subpel_refine = 4;
+        param->analyse.i_trellis = 1;
+        param->rc.i_lookahead = 20;
+    }
+    else if( !strcasecmp( preset, "fast" ) )
+    {
+        param->analyse.i_subpel_refine = 6;
+        param->analyse.i_trellis = 1;
+        param->rc.i_lookahead = 30;
+    }
+    else if( !strcasecmp( preset, "medium" ) )
+    {
+        /* Default is medium */
+    }
+    else if( !strcasecmp( preset, "slow" ) )
+    {
+        param->analyse.i_subpel_refine = 8;
+        param->rc.i_lookahead = 50;
+    }
+    else if( !strcasecmp( preset, "slower" ) )
+    {
+        param->analyse.i_subpel_refine = 9;
+        param->rc.i_lookahead = 60;
+    }
+    else if( !strcasecmp( preset, "veryslow" ) )
+    {
+        param->analyse.i_subpel_refine = 10;
+        param->analyse.i_me_range = 32;
+        param->rc.i_lookahead = 60;
+    }
+    else if( !strcasecmp( preset, "placebo" ) )
+    {
+        param->analyse.i_me_method = X264_ME_TESA;
+        param->analyse.i_subpel_refine = 11;
+        param->analyse.i_me_range = 32;
+        param->analyse.b_fast_pskip = 0;
+        param->rc.i_lookahead = 60;
+    }
+    else
+    {
+        x264_log_internal( X264_LOG_ERROR, "invalid preset '%s'\n", preset );
+        return -1;
+    }
+    return 0;
+}
+#endif /* HAVE_MPEG2 */
+
 static int param_apply_tune( x264_param_t *param, const char *tune )
 {
     int psy_tuning_used = 0;
@@ -761,6 +863,81 @@ static int param_apply_tune( x264_param_t *param, const char *tune )
     return 0;
 }
 
+#if HAVE_MPEG2
+/* MPEG-2 tune ladder, applied instead of param_apply_tune() when encoding MPEG-2. As with
+ * the preset ladder, settings that x264_param_force_mpeg2() overrides (deblock, cabac,
+ * weightp, ref) and psy_rd/psy_trellis (disabled for MPEG-2) are omitted. Notably the
+ * animation tune does NOT raise i_bframe here -- MPEG-2 keeps its own b-frame default. */
+static int param_apply_tune_mpeg2( x264_param_t *param, const char *tune )
+{
+    int psy_tuning_used = 0;
+    for( int len; tune += strspn( tune, ",./-+" ), (len = strcspn( tune, ",./-+" )); tune += len )
+    {
+        if( len == 4 && !strncasecmp( tune, "film", 4 ) )
+        {
+            if( psy_tuning_used++ ) goto psy_failure;
+        }
+        else if( len == 9 && !strncasecmp( tune, "animation", 9 ) )
+        {
+            if( psy_tuning_used++ ) goto psy_failure;
+            param->rc.f_aq_strength = 0.6;
+        }
+        else if( len == 5 && !strncasecmp( tune, "grain", 5 ) )
+        {
+            if( psy_tuning_used++ ) goto psy_failure;
+            param->analyse.b_dct_decimate = 0;
+            param->rc.f_pb_factor = 1.1;
+            param->rc.f_ip_factor = 1.1;
+            param->rc.f_aq_strength = 0.5;
+            param->analyse.i_luma_deadzone[0] = 9;
+            param->analyse.i_luma_deadzone[1] = 4;
+            param->rc.f_qcompress = 0.8;
+        }
+        else if( len == 10 && !strncasecmp( tune, "stillimage", 10 ) )
+        {
+            if( psy_tuning_used++ ) goto psy_failure;
+            param->rc.f_aq_strength = 1.2;
+        }
+        else if( len == 4 && !strncasecmp( tune, "psnr", 4 ) )
+        {
+            if( psy_tuning_used++ ) goto psy_failure;
+            param->rc.i_aq_mode = X264_AQ_NONE;
+            param->analyse.b_psy = 0;
+        }
+        else if( len == 4 && !strncasecmp( tune, "ssim", 4 ) )
+        {
+            if( psy_tuning_used++ ) goto psy_failure;
+            param->rc.i_aq_mode = X264_AQ_AUTOVARIANCE;
+            param->analyse.b_psy = 0;
+        }
+        else if( len == 10 && !strncasecmp( tune, "fastdecode", 10 ) )
+        {
+            /* deblock/cabac/weightp are already off for MPEG-2 */
+        }
+        else if( len == 11 && !strncasecmp( tune, "zerolatency", 11 ) )
+        {
+            param->rc.i_lookahead = 0;
+            param->i_sync_lookahead = 0;
+            param->i_bframe = 0;
+            param->rc.b_mb_tree = 0;
+        }
+        else if( len == 6 && !strncasecmp( tune, "touhou", 6 ) )
+        {
+            if( psy_tuning_used++ ) goto psy_failure;
+            param->rc.f_aq_strength = 1.3;
+        }
+        else
+        {
+            x264_log_internal( X264_LOG_ERROR, "invalid tune '%.*s'\n", len, tune );
+            return -1;
+    psy_failure:
+            x264_log_internal( X264_LOG_WARNING, "only 1 psy tuning can be used: ignoring tune %.*s\n", len, tune );
+        }
+    }
+    return 0;
+}
+#endif /* HAVE_MPEG2 */
+
 REALIGN_STACK int x264_param_default_preset( x264_param_t *param, const char *preset, const char *tune )
 {
 #if HAVE_MPEG2
@@ -768,18 +945,23 @@ REALIGN_STACK int x264_param_default_preset( x264_param_t *param, const char *pr
 #endif
     x264_param_default( param );
 #if HAVE_MPEG2
-    /* MPEG-2 tuning is the base; preset/tune adjust; structural constraints win last. */
+    /* MPEG-2 has its own base defaults, preset ladder, and tune ladder; structural
+     * constraints win last. The default (null) preset/tune is the base set by tune_mpeg2. */
     if( b_mpeg2 )
-        x264_param_tune_mpeg2( param );
+    {
+        x264_param_base_mpeg2( param );
+        if( preset && param_apply_preset_mpeg2( param, preset ) < 0 )
+            return -1;
+        if( tune && param_apply_tune_mpeg2( param, tune ) < 0 )
+            return -1;
+        x264_param_force_mpeg2( param );
+        return 0;
+    }
 #endif
     if( preset && param_apply_preset( param, preset ) < 0 )
         return -1;
     if( tune && param_apply_tune( param, tune ) < 0 )
         return -1;
-#if HAVE_MPEG2
-    if( b_mpeg2 )
-        x264_param_force_mpeg2( param );
-#endif
     return 0;
 }
 
@@ -787,7 +969,7 @@ REALIGN_STACK int x264_param_default_preset( x264_param_t *param, const char *pr
 REALIGN_STACK void x264_param_default_mpeg2( x264_param_t *param )
 {
     x264_param_default( param );
-    x264_param_tune_mpeg2( param );
+    x264_param_base_mpeg2( param );
     x264_param_force_mpeg2( param );
 }
 
