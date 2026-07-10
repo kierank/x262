@@ -4968,8 +4968,13 @@ static int encoder_frame_end( x264_t *h, x264_t *thread_current,
     return frame_size;
 }
 
-static void print_intra( int64_t *i_mb_count, double i_count, int b_print_pcm, char *intra )
+static void print_intra( int64_t *i_mb_count, double i_count, int b_print_pcm, int b_mpeg2, char *intra )
 {
+    if( b_mpeg2 )
+    {
+        sprintf( intra, "I16: %4.1f%%", i_mb_count[I_16x16] / i_count );
+        return;
+    }
     intra += sprintf( intra, "I16..4%s: %4.1f%% %4.1f%% %4.1f%%",
         b_print_pcm ? "..PCM" : "",
         i_mb_count[I_16x16]/ i_count,
@@ -5077,7 +5082,7 @@ void    x264_encoder_close  ( x264_t *h )
     {
         int64_t *i_mb_count = h->stat.i_mb_count[SLICE_TYPE_I];
         double i_count = (double)h->stat.i_frame_count[SLICE_TYPE_I] * h->mb.i_mb_count / 100.0;
-        print_intra( i_mb_count, i_count, b_print_pcm, buf );
+        print_intra( i_mb_count, i_count, b_print_pcm, MPEG2, buf );
         x264_log( h, X264_LOG_INFO, "mb I  %s\n", buf );
     }
     if( h->stat.i_frame_count[SLICE_TYPE_P] > 0 )
@@ -5085,7 +5090,23 @@ void    x264_encoder_close  ( x264_t *h )
         int64_t *i_mb_count = h->stat.i_mb_count[SLICE_TYPE_P];
         double i_count = (double)h->stat.i_frame_count[SLICE_TYPE_P] * h->mb.i_mb_count / 100.0;
         int64_t *i_mb_size = i_mb_count_size[SLICE_TYPE_P];
-        print_intra( i_mb_count, i_count, b_print_pcm, buf );
+        print_intra( i_mb_count, i_count, b_print_pcm, MPEG2, buf );
+        if( MPEG2 )
+        {
+            char dp[24] = "";
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+            if( PARAM_INTERLACED )
+                sprintf( dp, "  DP:%4.1f%%", i_mb_count[P_DUAL_PRIME] / i_count );
+#endif
+            x264_log( h, X264_LOG_INFO,
+                      "mb P  %s  P16..8: %4.1f%% %4.1f%%  skip:%4.1f%%%s\n",
+                      buf,
+                      i_mb_size[PIXEL_16x16] / (i_count*4),
+                      (i_mb_size[PIXEL_16x8] + i_mb_size[PIXEL_8x16]) / (i_count*4),
+                      i_mb_count[P_SKIP] / i_count,
+                      dp );
+        }
+        else
         x264_log( h, X264_LOG_INFO,
                   "mb P  %s  P16..4: %4.1f%% %4.1f%% %4.1f%% %4.1f%% %4.1f%%    skip:%4.1f%%\n",
                   buf,
@@ -5103,7 +5124,7 @@ void    x264_encoder_close  ( x264_t *h )
         double i_mb_list_count;
         int64_t *i_mb_size = i_mb_count_size[SLICE_TYPE_B];
         int64_t list_count[3] = {0}; /* 0 == L0, 1 == L1, 2 == BI */
-        print_intra( i_mb_count, i_count, b_print_pcm, buf );
+        print_intra( i_mb_count, i_count, b_print_pcm, MPEG2, buf );
         for( int i = 0; i < X264_PARTTYPE_MAX; i++ )
             for( int j = 0; j < 2; j++ )
             {
@@ -5117,12 +5138,18 @@ void    x264_encoder_close  ( x264_t *h )
         list_count[2] += h->stat.i_mb_partition[SLICE_TYPE_B][D_BI_8x8];
         i_mb_count[B_DIRECT] += (h->stat.i_mb_partition[SLICE_TYPE_B][D_DIRECT_8x8]+2)/4;
         i_mb_list_count = (list_count[0] + list_count[1] + list_count[2]) / 100.0;
-        sprintf( buf + strlen(buf), "  B16..8: %4.1f%% %4.1f%% %4.1f%%  direct:%4.1f%%  skip:%4.1f%%",
-                 i_mb_size[PIXEL_16x16] / (i_count*4),
-                 (i_mb_size[PIXEL_16x8] + i_mb_size[PIXEL_8x16]) / (i_count*4),
-                 i_mb_size[PIXEL_8x8] / (i_count*4),
-                 i_mb_count[B_DIRECT] / i_count,
-                 i_mb_count[B_SKIP]   / i_count );
+        if( MPEG2 )
+            sprintf( buf + strlen(buf), "  B16..8: %4.1f%% %4.1f%%  skip:%4.1f%%",
+                     i_mb_size[PIXEL_16x16] / (i_count*4),
+                     (i_mb_size[PIXEL_16x8] + i_mb_size[PIXEL_8x16]) / (i_count*4),
+                     i_mb_count[B_SKIP]   / i_count );
+        else
+            sprintf( buf + strlen(buf), "  B16..8: %4.1f%% %4.1f%% %4.1f%%  direct:%4.1f%%  skip:%4.1f%%",
+                     i_mb_size[PIXEL_16x16] / (i_count*4),
+                     (i_mb_size[PIXEL_16x8] + i_mb_size[PIXEL_8x16]) / (i_count*4),
+                     i_mb_size[PIXEL_8x8] / (i_count*4),
+                     i_mb_count[B_DIRECT] / i_count,
+                     i_mb_count[B_SKIP]   / i_count );
         if( i_mb_list_count != 0 )
             sprintf( buf + strlen(buf), "  L0:%4.1f%% L1:%4.1f%% BI:%4.1f%%",
                      list_count[0] / i_mb_list_count,
@@ -5153,7 +5180,19 @@ void    x264_encoder_close  ( x264_t *h )
                                 h->stat.f_frame_duration[SLICE_TYPE_B];
         float f_bitrate = SUM3(h->stat.i_frame_size) / duration / 125;
 
-        if( PARAM_INTERLACED )
+        if( PARAM_INTERLACED && MPEG2 )
+        {
+            char *fs = buf;
+            fs[0] = 0;
+            if( i_inter )
+                fs += sprintf( fs, " inter: %.1f%%", h->stat.i_mb_field[1] * 100.0 / i_inter );
+            int64_t i_coded = i_mb_count - i_skip;
+            if( i_coded )
+                fs += sprintf( fs, "  field dct: %.1f%%", h->stat.i_mb_field_dct * 100.0 / i_coded );
+            x264_log( h, X264_LOG_INFO, "field mbs: intra: %.1f%%%s\n",
+                      h->stat.i_mb_field[0] * 100.0 / i_all_intra, buf );
+        }
+        else if( PARAM_INTERLACED )
         {
             char *fieldstats = buf;
             fieldstats[0] = 0;
@@ -5163,30 +5202,16 @@ void    x264_encoder_close  ( x264_t *h )
                 fieldstats += sprintf( fieldstats, " skip:%.1f%%", h->stat.i_mb_field[2] * 100.0 / i_skip );
             x264_log( h, X264_LOG_INFO, "field mbs: intra: %.1f%%%s\n",
                       h->stat.i_mb_field[0] * 100.0 / i_all_intra, buf );
-            if( MPEG2 )
-            {
-                int64_t i_coded = i_mb_count - i_skip;
-                buf[0] = 0;
-#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
-                int64_t i_p_mbs = (int64_t)h->stat.i_frame_count[SLICE_TYPE_P] * h->mb.i_mb_count;
-                if( i_p_mbs )
-                    sprintf( buf, "  dual-prime: %.1f%%",
-                             h->stat.i_mb_count[SLICE_TYPE_P][P_DUAL_PRIME] * 100.0 / i_p_mbs );
-#endif
-                if( i_coded )
-                    x264_log( h, X264_LOG_INFO, "field dct: %.1f%%%s\n",
-                              h->stat.i_mb_field_dct * 100.0 / i_coded, buf );
-            }
         }
 
         if( MPEG2 && h->mb.b_adaptive_intra_vlc )
-            x264_log( h, X264_LOG_INFO, "alt intra vlc: I:%.1f%% P:%.1f%% B:%.1f%%\n",
+            x264_log( h, X264_LOG_INFO, "alt intra: I:%.1f%% P:%.1f%% B:%.1f%%\n",
                       h->stat.i_intra_vlc_count[SLICE_TYPE_I] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_I], 1 ),
                       h->stat.i_intra_vlc_count[SLICE_TYPE_P] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_P], 1 ),
                       h->stat.i_intra_vlc_count[SLICE_TYPE_B] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_B], 1 ) );
 
         if( MPEG2 && h->mb.b_adaptive_scan )
-            x264_log( h, X264_LOG_INFO, "alt-scan pictures: I:%.1f%% P:%.1f%% B:%.1f%%\n",
+            x264_log( h, X264_LOG_INFO, "alt scan:  I:%.1f%% P:%.1f%% B:%.1f%%\n",
                       h->stat.i_alt_scan_count[SLICE_TYPE_I] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_I], 1 ),
                       h->stat.i_alt_scan_count[SLICE_TYPE_P] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_P], 1 ),
                       h->stat.i_alt_scan_count[SLICE_TYPE_B] * 100.0 / X264_MAX( h->stat.i_frame_count[SLICE_TYPE_B], 1 ) );
@@ -5209,7 +5234,15 @@ void    x264_encoder_close  ( x264_t *h )
         }
 
         buf[0] = 0;
-        if( CHROMA_FORMAT )
+        if( MPEG2 )
+        {
+            if( i_mb_count != i_all_intra )
+                x264_log( h, X264_LOG_INFO, "coded y,uvDC,uvAC inter: %.1f%% %.1f%% %.1f%%\n",
+                          h->stat.i_mb_cbp[1] * 100.0 / ((i_mb_count - i_all_intra)*4),
+                          h->stat.i_mb_cbp[3] * 100.0 / (i_mb_count - i_all_intra),
+                          h->stat.i_mb_cbp[5] * 100.0 / (i_mb_count - i_all_intra) );
+        }
+        else if( CHROMA_FORMAT )
         {
             int csize = CHROMA444 ? 4 : 1;
             if( i_mb_count != i_all_intra )
