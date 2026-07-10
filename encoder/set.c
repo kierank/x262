@@ -652,24 +652,28 @@ int x264_sei_version_write( x264_t *h, bs_t *s )
     };
     char *opts = x264_param2string( &h->param, 0 );
     char *payload;
-    int length;
 
     if( !opts )
         return -1;
-    CHECKED_MALLOC( payload, 200 + strlen( opts ) );
-
-    memcpy( payload, uuid, 16 );
-    sprintf( payload+16, "x264 - core %d%s - H.264/MPEG-4 AVC codec - "
-             "Copy%s 2003-2025 - http://www.videolan.org/x264.html - options: %s",
-             X264_BUILD, X264_VERSION, HAVE_GPL?"left":"right", opts );
-    length = strlen(payload)+1;
+    CHECKED_MALLOC( payload, 256 + strlen( opts ) );
 
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
     if( MPEG2 )
-        x264_user_data_write_mpeg2( s, (uint8_t *)payload, length );
+    {
+        sprintf( payload, "x262 - core %d%s - MPEG-2 (H.262) codec - "
+                 "Copy%s 2003-2025 - http://www.videolan.org/x264.html - options: %s",
+                 X262_BUILD, X262_VERSION, HAVE_GPL?"left":"right", opts );
+        x264_user_data_write_mpeg2( s, (uint8_t *)payload, strlen( payload ) );
+    }
     else
 #endif
-        x264_sei_write( s, (uint8_t *)payload, length, SEI_USER_DATA_UNREGISTERED );
+    {
+        memcpy( payload, uuid, 16 );
+        sprintf( payload+16, "x264 - core %d%s - H.264/MPEG-4 AVC codec - "
+                 "Copy%s 2003-2025 - http://www.videolan.org/x264.html - options: %s",
+                 X264_BUILD, X264_VERSION, HAVE_GPL?"left":"right", opts );
+        x264_sei_write( s, (uint8_t *)payload, strlen( payload )+1, SEI_USER_DATA_UNREGISTERED );
+    }
 
     x264_free( opts );
     x264_free( payload );

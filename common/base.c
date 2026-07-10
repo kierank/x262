@@ -1771,6 +1771,83 @@ REALIGN_STACK int x264_param_parse( x264_param_t *p, const char *name, const cha
 /****************************************************************************
  * x264_param2string:
  ****************************************************************************/
+#if HAVE_MPEG2
+static char *param2string_mpeg2( x264_param_t *p, char *s, char *buf )
+{
+    s += sprintf( s, "mpeg2=1" );
+    s += sprintf( s, " me=%s subme=%d me_range=%d chroma_me=%d",
+                  x264_motion_est_names[p->analyse.i_me_method], p->analyse.i_subpel_refine,
+                  p->analyse.i_me_range, p->analyse.b_chroma_me );
+    s += sprintf( s, " trellis=%d deadzone=%d,%d fast_pskip=%d", p->analyse.i_trellis,
+                  p->analyse.i_luma_deadzone[0], p->analyse.i_luma_deadzone[1], p->analyse.b_fast_pskip );
+    s += sprintf( s, " cqm=%d cqm_recenter=%d", p->i_cqm_preset, p->b_cqm_recenter );
+    s += sprintf( s, " nonlinear_quant=%d dc_precision=%d alt_intra_vlc=%d alt_scan=%d",
+                  p->b_nonlinear_quant, 8 + p->i_intra_dc_precision, p->b_alt_intra_vlc, p->b_alternate_scan );
+    s += sprintf( s, " nr=%d decimate=%d", p->analyse.i_noise_reduction, p->analyse.b_dct_decimate );
+    s += sprintf( s, " interlaced=%s", p->b_interlaced ? p->b_tff ? "tff" : "bff" : p->b_fake_interlaced ? "fake" : "0" );
+    if( p->b_interlaced )
+        s += sprintf( s, " dual_prime=%d", p->b_dual_prime );
+    s += sprintf( s, " threads=%d lookahead_threads=%d sliced_threads=%d",
+                  p->i_threads, p->i_lookahead_threads, p->b_sliced_threads );
+    if( p->i_slice_count )
+        s += sprintf( s, " slices=%d", p->i_slice_count );
+    if( p->i_slice_max_mbs )
+        s += sprintf( s, " slice_max_mbs=%d", p->i_slice_max_mbs );
+
+    s += sprintf( s, " bframes=%d", p->i_bframe );
+    if( p->i_bframe )
+        s += sprintf( s, " b_adapt=%d b_bias=%d open_gop=%d",
+                      p->i_bframe_adaptive, p->i_bframe_bias, p->b_open_gop );
+
+    if( p->i_keyint_max == X264_KEYINT_MAX_INFINITE )
+        s += sprintf( s, " keyint=infinite" );
+    else
+        s += sprintf( s, " keyint=%d", p->i_keyint_max );
+    s += sprintf( s, " keyint_min=%d scenecut=%d", p->i_keyint_min, p->i_scenecut_threshold );
+
+    if( p->rc.b_mb_tree || p->rc.i_vbv_buffer_size )
+        s += sprintf( s, " rc_lookahead=%d", p->rc.i_lookahead );
+    s += sprintf( s, " rc=%s mbtree=%d", p->rc.i_rc_method == X264_RC_ABR ?
+                  ( p->rc.b_stat_read ? "2pass" : p->rc.i_vbv_max_bitrate == p->rc.i_bitrate ? "cbr" : "abr" )
+                  : p->rc.i_rc_method == X264_RC_CRF ? "crf" : "cqp", p->rc.b_mb_tree );
+    if( p->rc.i_rc_method == X264_RC_ABR || p->rc.i_rc_method == X264_RC_CRF )
+    {
+        if( p->rc.i_rc_method == X264_RC_CRF )
+            s += sprintf( s, " crf=%.1f", p->rc.f_rf_constant );
+        else
+            s += sprintf( s, " bitrate=%d ratetol=%.1f", p->rc.i_bitrate, p->rc.f_rate_tolerance );
+        s += sprintf( s, " qcomp=%.2f qpmin=%d qpmax=%d qpstep=%d",
+                      p->rc.f_qcompress, p->rc.i_qp_min, p->rc.i_qp_max, p->rc.i_qp_step );
+        if( p->rc.b_stat_read )
+            s += sprintf( s, " cplxblur=%.1f qblur=%.1f", p->rc.f_complexity_blur, p->rc.f_qblur );
+        if( p->rc.i_vbv_buffer_size )
+        {
+            s += sprintf( s, " vbv_maxrate=%d vbv_bufsize=%d filler=%d",
+                          p->rc.i_vbv_max_bitrate, p->rc.i_vbv_buffer_size, p->rc.b_filler );
+            if( p->rc.i_rc_method == X264_RC_CRF )
+                s += sprintf( s, " crf_max=%.1f", p->rc.f_rf_constant_max );
+        }
+    }
+    else if( p->rc.i_rc_method == X264_RC_CQP )
+        s += sprintf( s, " qp=%d", p->rc.i_qp_constant );
+
+    if( !(p->rc.i_rc_method == X264_RC_CQP && p->rc.i_qp_constant == 0) )
+    {
+        s += sprintf( s, " ip_ratio=%.2f", p->rc.f_ip_factor );
+        if( p->i_bframe && !p->rc.b_mb_tree )
+            s += sprintf( s, " pb_ratio=%.2f", p->rc.f_pb_factor );
+        s += sprintf( s, " aq=%d", p->rc.i_aq_mode );
+        if( p->rc.i_aq_mode )
+            s += sprintf( s, ":%.2f", p->rc.f_aq_strength );
+        if( p->rc.psz_zones )
+            s += sprintf( s, " zones=%s", p->rc.psz_zones );
+        else if( p->rc.i_zones )
+            s += sprintf( s, " zones" );
+    }
+    return buf;
+}
+#endif
+
 char *x264_param2string( x264_param_t *p, int b_res )
 {
     int len = 2000;
@@ -1791,6 +1868,10 @@ char *x264_param2string( x264_param_t *p, int b_res )
 
     if( p->b_opencl )
         s += sprintf( s, "opencl=%d ", p->b_opencl );
+#if HAVE_MPEG2
+    if( p->b_mpeg2 )
+        return param2string_mpeg2( p, s, buf );
+#endif
     s += sprintf( s, "mpeg2=%d ", p->b_mpeg2 );
     s += sprintf( s, "cabac=%d", p->b_cabac );
     s += sprintf( s, " ref=%d", p->i_frame_reference );
