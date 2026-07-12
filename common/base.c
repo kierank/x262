@@ -396,6 +396,13 @@ static void x264_param_base_mpeg2( x264_param_t *param )
     param->b_alt_intra_vlc = -1;
     param->b_alternate_scan = -1;
     param->b_cqm_recenter = 1;
+    param->i_cqm_preset = X264_CQM_CUSTOM;
+    for( int i = 0; i < 8; i++ )
+        for( int j = 0; j < 8; j++ )
+        {
+            param->cqm_8iy[8*i+j] = param->cqm_8ic[8*i+j] = x264_cqm_intra_mpeg2[8*j+i];
+            param->cqm_8py[8*i+j] = param->cqm_8pc[8*i+j] = x264_cqm_inter_mpeg2[8*j+i];
+        }
     param->b_dual_prime = -1;
     param->analyse.f_psy_rd = 0.1;
     param->analyse.i_trellis = 2;
