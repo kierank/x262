@@ -544,7 +544,18 @@ static void slicetype_mb_cost( x264_t *h, x264_mb_analysis_t *a,
     const int i_mb_xy = i_mb_x + i_mb_y * i_mb_stride;
     const int i_stride = fenc->i_stride_lowres;
     const int i_pel_offset = 8 * (i_mb_x + i_mb_y * i_stride);
-    const int i_bipred_weight = h->param.analyse.b_weighted_bipred ? 64 - (dist_scale_factor>>2) : 32;
+    /* MPEG-2 bidir really is a plain (fwd+bwd+1)/2, but as a bit-cost proxy the
+     * equal-weight average wildly overprices asymmetric-distance B frames: lowres
+     * SATD keeps the misaligned detail that real quantization discards, so the
+     * model says B(1,2) costs +55% over B(1,1) where coded bits say ~8%
+     * (mobile_cif). The b-adapt-2 path search sums these over whole paths and
+     * collapses to single-B structures (+8.9% BD-XPSNR on mobile_cif), so give it
+     * temporal weights as the cost model, like H.264. b-adapt 1 only makes local
+     * thresholded comparisons and its mbtree/qcompress calibration baseline used
+     * equal weights (changing it moves src13 ba1 +0.7%), so it keeps them. */
+    const int i_bipred_weight = h->param.analyse.b_weighted_bipred ||
+                                ( MPEG2 && h->param.i_bframe_adaptive == X264_B_ADAPT_TRELLIS )
+                              ? 64 - (dist_scale_factor>>2) : 32;
     int16_t (*fenc_mvs[2])[2] = { b != p0 ? &fenc->lowres_mvs[0][b-p0-1][i_mb_xy] : NULL, b != p1 ? &fenc->lowres_mvs[1][p1-b-1][i_mb_xy] : NULL };
     int (*fenc_costs[2]) = { b != p0 ? &fenc->lowres_mv_costs[0][b-p0-1][i_mb_xy] : NULL, b != p1 ? &fenc->lowres_mv_costs[1][p1-b-1][i_mb_xy] : NULL };
     int b_frame_score_mb = (i_mb_x > 0 && i_mb_x < h->mb.i_mb_width - 1 &&
@@ -1322,7 +1333,37 @@ static uint64_t slicetype_path_cost( x264_t *h, x264_mb_analysis_t *a, x264_fram
 
         /* Add the cost of the non-B-frame found above */
         if( path[next_nonb] == 'P' )
-            cost += slicetype_frame_cost( h, a, frames, cur_nonb, next_nonb, next_nonb );
+        {
+            int cost_p = slicetype_frame_cost( h, a, frames, cur_nonb, next_nonb, next_nonb );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+            /* The frame-based lowres underprices even reference distances on
+             * combed content (field parity survives even frame distances),
+             * which hands BP alternation a fake advantage; real cost is
+             * non-decreasing in distance since field MC covers the parity.
+             * Clamp each anchor to its cost at shorter distances, except
+             * across a weights-detected fade, where longer distances can
+             * genuinely be cheaper. Increase-only, so the pruning threshold
+             * stays sound. b-adapt 1 keeps raw costs: its qcompress/scenecut
+             * calibrations were fit on them (same precedent as the bidir
+             * weights above). */
+            if( MPEG2 && h->param.b_interlaced
+                && h->param.i_bframe_adaptive == X264_B_ADAPT_TRELLIS )
+            {
+                int dist = next_nonb - cur_nonb;
+                int max_shorter = cost_p;
+                for( int d = dist - 1; d >= 1; d-- )
+                    max_shorter = X264_MAX( max_shorter, slicetype_frame_cost( h, a, frames, next_nonb - d, next_nonb, next_nonb ) );
+                int fade = 0;
+                x264_emms();
+                for( int e = 1; e <= dist && !fade; e++ )
+                    fade = frames[next_nonb]->f_weighted_cost_delta[e-1] > 0.0f
+                        && frames[next_nonb]->f_weighted_cost_delta[e-1] < 0.99f;
+                if( !fade )
+                    cost_p = max_shorter;
+            }
+#endif
+            cost += cost_p;
+        }
         else /* I-frame */
             cost += slicetype_frame_cost( h, a, frames, next_nonb, next_nonb, next_nonb );
         /* Early terminate if the cost we have found is larger than the best path cost so far */
@@ -1347,6 +1388,7 @@ static uint64_t slicetype_path_cost( x264_t *h, x264_mb_analysis_t *a, x264_fram
     }
     return cost;
 }
+
 
 /* Viterbi/trellis slicetype decision algorithm. */
 /* Uses strings due to the fact that the speed of the control functions is
@@ -1574,17 +1616,33 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
     {
         if( h->param.i_bframe_adaptive == X264_B_ADAPT_TRELLIS )
         {
-            if( num_frames > 1 )
+            int trellis_frames = num_frames;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+            /* The mbtree/psy window extension deliberately runs past the next keyint
+             * boundary, but the path search doesn't know a keyframe will be forced
+             * there and plans B-runs across it. With H.264-scale keyint the boundary
+             * is rarely inside the window; with MPEG-2 broadcast GOPs it always is,
+             * so cap the path search at the boundary. */
+            if( MPEG2 )
+            {
+                trellis_frames = X264_MAX( orig_num_frames, 1 );
+                /* Mirror the capped path's open-GOP extension: the frame right
+                 * before the keyframe may then be a B referencing it. */
+                if( h->param.b_open_gop && trellis_frames < framecnt )
+                    trellis_frames++;
+            }
+#endif
+            if( trellis_frames > 1 )
             {
                 char best_paths[X264_BFRAME_MAX+1][X264_LOOKAHEAD_MAX+1] = {"","P"};
-                int best_path_index = num_frames % (X264_BFRAME_MAX+1);
+                int best_path_index = trellis_frames % (X264_BFRAME_MAX+1);
 
                 /* Perform the frametype analysis. */
-                for( int j = 2; j <= num_frames; j++ )
+                for( int j = 2; j <= trellis_frames; j++ )
                     slicetype_path( h, &a, frames, j, best_paths );
 
                 /* Load the results of the analysis into the frame types. */
-                for( int j = 1; j < num_frames; j++ )
+                for( int j = 1; j < trellis_frames; j++ )
                 {
                     if( best_paths[best_path_index][j-1] != 'B' )
                     {
@@ -1598,6 +1656,16 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
                     }
                 }
             }
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+            /* Type the frames past the cap as P so mbtree/VBV planning still see a
+             * fully-typed window (the boundary frame itself stays P here, matching
+             * what mbtree sees on the other b-adapt paths); everything from
+             * reset_start on is reset to AUTO below and re-decided next call. */
+            if( MPEG2 )
+                for( int j = trellis_frames; j <= num_frames; j++ )
+                    if( frames[j]->i_type == X264_TYPE_AUTO )
+                        frames[j]->i_type = X264_TYPE_P;
+#endif
         }
         else if( h->param.i_bframe_adaptive == X264_B_ADAPT_FAST )
         {
@@ -1696,8 +1764,41 @@ void x264_slicetype_analyse( x264_t *h, int intra_minigop )
 
     /* Perform the actual macroblock tree analysis.
      * Don't go farther than the maximum keyframe interval; this helps in short GOPs. */
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    /* The capped b-adapt-2 search types the boundary-adjacent anchor P before
+     * mbtree runs, so mbtree boosts a frame whose quality the imminent
+     * keyframe refreshes. The other b-adapt modes dodge this by ordering:
+     * boundary-oblivious typing leaves that frame B while mbtree runs
+     * (unreferenced -> no boost) and the keyframe enforcement below flips it
+     * to P afterwards. Do the same here: retype it B around the mbtree call
+     * only, which moves the qp offsets but no decisions. */
+    int tailb_j = 0;
+    if( MPEG2 && h->param.i_bframe_adaptive == X264_B_ADAPT_TRELLIS
+        && keyint_limit >= 1 && keyint_limit <= num_frames
+        && frames[keyint_limit]->i_type == X264_TYPE_P
+        && frames[keyint_limit]->i_forced_type == X264_TYPE_AUTO )
+    {
+        /* Never extend a B-run past i_bframe: lookahead lowres_mvs arrays are
+         * only allocated for reference distances up to i_bframe+1, and longer
+         * runs make macroblock_tree evaluate combos past that (NULL deref). */
+        int run = 1;
+        for( int k = keyint_limit - 1; k >= 1 && IS_X264_TYPE_B( frames[k]->i_type ); k-- )
+            run++;
+        for( int k = keyint_limit + 1; k <= num_frames && IS_X264_TYPE_B( frames[k]->i_type ); k++ )
+            run++;
+        if( run <= h->param.i_bframe )
+        {
+            tailb_j = keyint_limit;
+            frames[tailb_j]->i_type = X264_TYPE_B;
+        }
+    }
+#endif
     if( h->param.rc.b_mb_tree )
         macroblock_tree( h, &a, frames, X264_MIN(num_frames, h->param.i_keyint_max), keyframe );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( tailb_j )
+        frames[tailb_j]->i_type = X264_TYPE_P;
+#endif
 
     /* Enforce keyframe limit. */
     if( !h->param.b_intra_refresh )
