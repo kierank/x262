@@ -54,6 +54,10 @@ extern const uint8_t x264_cqm_jvt4p[16];
 extern const uint8_t x264_cqm_jvt8i[64];
 extern const uint8_t x264_cqm_jvt8p[64];
 extern const uint8_t x264_cqm_flat16[64];
+#if HAVE_MPEG2
+extern const uint8_t x264_cqm_intra_mpeg2[64];
+extern const uint8_t x264_cqm_inter_mpeg2[64];
+#endif
 extern const uint8_t * const x264_cqm_jvt[8];
 extern const uint8_t x264_cqm_avci50_4ic[16];
 extern const uint8_t x264_cqm_avci50_p_8iy[64];
