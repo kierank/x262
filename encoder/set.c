@@ -339,10 +339,17 @@ void x264_sps_init_scaling_list( x264_sps_t *sps, x264_param_t *param )
             sps->scaling_list[CQM_8PY] = param->cqm_8py;
             sps->scaling_list[CQM_8IC] = param->cqm_8ic;
             sps->scaling_list[CQM_8PC] = param->cqm_8pc;
+            static const char * const list_name[4] =
+                { "intra luma", "inter luma", "intra chroma", "inter chroma" };
             for( int i = 0; i < 4; i++ )
                 for( int j = 0; j < 64; j++ )
                     if( sps->scaling_list[i][j] < 4 )
+                    {
+                        x264_log( NULL, X264_LOG_WARNING, "custom %s quant matrix has "
+                                  "an entry below 4, using flat 16 instead\n", list_name[i] );
                         sps->scaling_list[i] = x264_cqm_flat16;
+                        break;
+                    }
         }
         else
 #endif
