@@ -559,6 +559,13 @@ static int validate_parameters( x264_t *h, int b_open )
                                      "I444/YV24/BGR/BGRA/RGB supported)\n" );
         return -1;
     }
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 && (i_csp == X264_CSP_I400 || i_csp >= X264_CSP_I444) )
+    {
+        x264_log( h, X264_LOG_ERROR, "MPEG-2 only supports 4:2:0 and 4:2:2\n" );
+        return -1;
+    }
+#endif
 
     int w_mod = 1;
     int h_mod = 1 << (PARAM_INTERLACED || h->param.b_fake_interlaced);
