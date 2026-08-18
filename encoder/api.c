@@ -80,6 +80,11 @@ REALIGN_STACK x264_t *x264_encoder_open( x264_param_t *param )
     if( !api )
         return NULL;
 
+#if HAVE_MPEG2
+    if( param->b_mpeg2 && param->i_bitdepth != 8 )
+        x264_log_internal( X264_LOG_ERROR, "MPEG-2 doesn't support a bit depth of %d\n", param->i_bitdepth );
+    else
+#endif
 #if HAVE_BITDEPTH8
     if( param->i_bitdepth == 8 )
     {
