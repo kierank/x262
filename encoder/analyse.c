@@ -421,6 +421,17 @@ void x264_analyse_weight_frame( x264_t *h, int end )
     }
 }
 
+static int mb_forced_intra_qp( x264_t *h )
+{
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
+        return X264_MAX( (int)( x264_mpeg2_grid_code( h,
+            x264_mpeg2_grid_qscale( h, h->mb.i_qp ) / h->param.rc.f_ip_factor ) + 0.5f ),
+            h->param.rc.i_qp_min );
+#endif
+    return X264_MAX( h->mb.i_qp - h->mb.ip_offset, h->param.rc.i_qp_min );
+}
+
 /* initialize an array of lambda*nbits for all possible mvs */
 static void mb_analyse_load_costs( x264_t *h, x264_mb_analysis_t *a )
 {
@@ -4045,7 +4056,7 @@ intra_analysis:
         {
             if( !h->param.analyse.b_psy )
             {
-                mb_analyse_init_qp( h, &analysis, X264_MAX( h->mb.i_qp - h->mb.ip_offset, h->param.rc.i_qp_min ) );
+                mb_analyse_init_qp( h, &analysis, mb_forced_intra_qp( h ) );
                 goto intra_analysis;
             }
         }
@@ -4419,7 +4430,7 @@ skip_analysis:
                     h->mc.copy[PIXEL_8x8]  ( h->mb.pic.p_fenc[1], FENC_STRIDE, h->mb.pic.p_fdec[1], FDEC_STRIDE, height );
                     h->mc.copy[PIXEL_8x8]  ( h->mb.pic.p_fenc[2], FENC_STRIDE, h->mb.pic.p_fdec[2], FDEC_STRIDE, height );
                 }
-                mb_analyse_init_qp( h, &analysis, X264_MAX( h->mb.i_qp - h->mb.ip_offset, h->param.rc.i_qp_min ) );
+                mb_analyse_init_qp( h, &analysis, mb_forced_intra_qp( h ) );
                 goto intra_analysis;
             }
 

@@ -1100,6 +1100,14 @@ static int validate_parameters( x264_t *h, int b_open )
         }
         float qp_i = qp_p - stepsize*log2f( h->param.rc.f_ip_factor );
         float qp_b = qp_p + stepsize*log2f( h->param.rc.f_pb_factor );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        if( MPEG2 )
+        {
+            float qscale_p = x264_mpeg2_grid_qscale( h, qp_p );
+            qp_i = x264_mpeg2_grid_code( h, qscale_p / h->param.rc.f_ip_factor );
+            qp_b = x264_mpeg2_grid_code( h, qscale_p * h->param.rc.f_pb_factor );
+        }
+#endif
         if( qp_p < 0 )
         {
             x264_log( h, X264_LOG_ERROR, "qp not specified\n" );

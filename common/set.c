@@ -307,27 +307,56 @@ fail:
 }
 
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+/* Continues past code 31 into the fake-QP range on each table's own slope;
+ * clipping there would cap RC's B/I planning at the rail. */
+float x264_mpeg2_grid_qscale( x264_t *h, float code )
+{
+    const uint8_t *grid = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
+    float c = x264_clip3f( code, 1.0f, (float)QP_MAX_MPEG2 );
+    if( c > QP_MAX_SPEC_MPEG2 )
+        return h->param.b_nonlinear_quant
+             ? grid[QP_MAX_SPEC_MPEG2] * powf( 2.0f, ( c - QP_MAX_SPEC_MPEG2 ) / 8.0f )
+             : grid[QP_MAX_SPEC_MPEG2] + 2.0f * ( c - QP_MAX_SPEC_MPEG2 );
+    int lo = X264_MIN( (int)c, QP_MAX_SPEC_MPEG2-1 );
+    return grid[lo] + (c - lo) * (float)( grid[lo+1] - grid[lo] );
+}
+
+float x264_mpeg2_grid_code( x264_t *h, float qscale )
+{
+    const uint8_t *grid = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
+    if( qscale <= grid[1] )
+        return 1.0f;
+    if( qscale > grid[QP_MAX_SPEC_MPEG2] )
+    {
+        float c = h->param.b_nonlinear_quant
+                ? QP_MAX_SPEC_MPEG2 + 8.0f * log2f( qscale / grid[QP_MAX_SPEC_MPEG2] )
+                : QP_MAX_SPEC_MPEG2 + ( qscale - grid[QP_MAX_SPEC_MPEG2] ) / 2.0f;
+        return X264_MIN( c, (float)QP_MAX_MPEG2 );
+    }
+    for( int q = 1; q < QP_MAX_SPEC_MPEG2; q++ )
+        if( qscale < grid[q+1] )
+            return q + ( qscale - grid[q] ) / (float)( grid[q+1] - grid[q] );
+    return (float)QP_MAX_SPEC_MPEG2;
+}
+
 /* Pure selection: pick the (matrix index k, grid code best_qp) whose effective
  * qscale grid[best_qp]*S_k best matches the continuous quant RC asked for (qpm),
  * plus the grid-only code (*pgrid_qp) RC would land on with no matrix change.
  * No state mutation, so ratecontrol can call this to learn centering's effect on
  * the effective quant BEFORE the decision is committed. Returns best_qp. */
+static float mpeg2_interp_qscale( x264_t *h, float qpm )
+{
+    const uint8_t *qscale = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
+    if( qpm < 1.0f )
+        return (float)qscale[1] * qpm;
+    return x264_mpeg2_grid_qscale( h, qpm );
+}
+
 static int mpeg2_cqm_center_select( x264_t *h, float qpm, int emitted,
                                     float *pS, int *pk, int *pgrid_qp, float *ptarget )
 {
     const uint8_t *qscale = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
-    float target_qscale;
-
-    /* Interpolate the continuous qscale for qpm */
-    if( qpm < 1.0f )
-        target_qscale = (float)qscale[1] * qpm;
-    else
-    {
-        int q_lo = x264_clip3( (int)qpm, 1, QP_MAX_SPEC_MPEG2-1 );
-        int q_hi = X264_MIN( q_lo+1, QP_MAX_SPEC_MPEG2 );
-        float frac = qpm - (float)q_lo;
-        target_qscale = (float)qscale[q_lo] + frac * (float)(qscale[q_hi] - qscale[q_lo]);
-    }
+    float target_qscale = mpeg2_interp_qscale( h, qpm );
 
     float inv_target = 1.0f / X264_MAX( target_qscale, 1.0f );
 
@@ -427,14 +456,23 @@ float x264_mpeg2_cqm_center_predict_qscale( x264_t *h, float qpm, float qscale_i
     return qscale_in * x264_mpeg2_cqm_center_ratio( h, qpm );
 }
 
-/* RC feedback hook: the same ratio for the matrix committed to the frame just
- * encoded, so the complexity model learns bits-vs-(effective qscale). Uses the
- * committed index, not a fresh selection, so it matches what was emitted. */
+/* Must search only the committed scale (what x264_ratecontrol_mb_qp emits);
+ * a fresh selection could land on a different matrix once qpm drifts. */
 float x264_mpeg2_cqm_center_committed_ratio( x264_t *h, float qpm )
 {
     if( h->i_mpeg2_cqm_center_idx == MPEG2_CQM_CENTER_IDENTITY )
         return 1.0f;
-    return x264_mpeg2_cqm_center_ratio( h, qpm );
+    const uint8_t *qscale = x264_qscale_mpeg2[h->param.b_nonlinear_quant];
+    float S = x264_mpeg2_cqm_center_scale[h->i_mpeg2_cqm_center_idx];
+    float target = mpeg2_interp_qscale( h, qpm );
+    int best = 1;
+    float berr = 1e30f;
+    for( int q = 1; q <= QP_MAX_SPEC_MPEG2; q++ )
+    {
+        float e = fabsf( (float)qscale[q] * S - target );
+        if( e < berr ) { berr = e; best = q; }
+    }
+    return ( (float)qscale[best] * S ) / X264_MAX( target, 1.0f );
 }
 
 void x264_mpeg2_cqm_center_decide( x264_t *h, float qpm, int *pi_qp )

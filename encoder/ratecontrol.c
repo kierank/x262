@@ -84,7 +84,7 @@ struct x264_ratecontrol_t
     double rate_tolerance;
     double qcompress;
     int nmb;                    /* number of macroblocks in a frame */
-    int qp_constant[3];
+    float qp_constant[3];
 
     /* current frame */
     ratecontrol_entry_t *rce;
@@ -231,6 +231,13 @@ static inline float qscale2qp( x264_t *h, float qscale )
 #endif
         return (12.0f + QP_BD_OFFSET) + 6.0f * log2f( qscale/0.85f );
 }
+
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+static inline float mpeg2_qp_scaled( x264_t *h, float qp, float ratio )
+{
+    return x264_mpeg2_grid_code( h, x264_mpeg2_grid_qscale( h, qp ) * ratio );
+}
+#endif
 
 /* Texture bitrate is not quite inversely proportional to qscale,
  * probably due the the changing number of SKIP blocks.
@@ -869,8 +876,19 @@ int x264_ratecontrol_new( x264_t *h )
     rc->ip_offset = stepsize * log2f( h->param.rc.f_ip_factor );
     rc->pb_offset = stepsize * log2f( h->param.rc.f_pb_factor );
     rc->qp_constant[SLICE_TYPE_P] = h->param.rc.i_qp_constant;
-    rc->qp_constant[SLICE_TYPE_I] = x264_clip3( h->param.rc.i_qp_constant - rc->ip_offset + 0.5, 0, qp_max );
-    rc->qp_constant[SLICE_TYPE_B] = x264_clip3( h->param.rc.i_qp_constant + rc->pb_offset + 0.5, 0, qp_max );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+    if( MPEG2 )
+    {
+        float qscale_p = x264_mpeg2_grid_qscale( h, h->param.rc.i_qp_constant );
+        rc->qp_constant[SLICE_TYPE_I] = x264_clip3f( x264_mpeg2_grid_code( h, qscale_p / h->param.rc.f_ip_factor ), 1, qp_max );
+        rc->qp_constant[SLICE_TYPE_B] = x264_clip3f( x264_mpeg2_grid_code( h, qscale_p * h->param.rc.f_pb_factor ), 1, qp_max );
+    }
+    else
+#endif
+    {
+        rc->qp_constant[SLICE_TYPE_I] = x264_clip3( h->param.rc.i_qp_constant - rc->ip_offset + 0.5, 0, qp_max );
+        rc->qp_constant[SLICE_TYPE_B] = x264_clip3( h->param.rc.i_qp_constant + rc->pb_offset + 0.5, 0, qp_max );
+    }
     h->mb.ip_offset = rc->ip_offset + 0.5;
 
 #if HAVE_MPEG2 && !HIGH_BIT_DEPTH
@@ -1494,7 +1512,14 @@ static void accum_p_qp_update( x264_t *h, float qp )
     rc->accum_p_norm *= .95;
     rc->accum_p_norm += 1;
     if( h->sh.i_type == SLICE_TYPE_I )
-        rc->accum_p_qp += qp + rc->ip_offset;
+    {
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        if( MPEG2 )
+            rc->accum_p_qp += mpeg2_qp_scaled( h, qp, h->param.rc.f_ip_factor );
+        else
+#endif
+            rc->accum_p_qp += qp + rc->ip_offset;
+    }
     else
         rc->accum_p_qp += qp;
 }
@@ -2040,8 +2065,19 @@ int x264_ratecontrol_slice_type( x264_t *h, int frame_num )
             h->param.rc.i_qp_constant = (h->stat.i_frame_count[SLICE_TYPE_P] == 0) ? 24 + QP_BD_OFFSET
                                       : 1 + h->stat.f_frame_qp[SLICE_TYPE_P] / h->stat.i_frame_count[SLICE_TYPE_P];
             rc->qp_constant[SLICE_TYPE_P] = x264_clip3( h->param.rc.i_qp_constant, 0, QP_MAX );
-            rc->qp_constant[SLICE_TYPE_I] = x264_clip3( (int)( qscale2qp( h, qp2qscale( h, h->param.rc.i_qp_constant ) / h->param.rc.f_ip_factor ) + 0.5 ), 0, QP_MAX );
-            rc->qp_constant[SLICE_TYPE_B] = x264_clip3( (int)( qscale2qp( h, qp2qscale( h, h->param.rc.i_qp_constant ) * h->param.rc.f_pb_factor ) + 0.5 ), 0, QP_MAX );
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+            if( MPEG2 )
+            {
+                float qscale_p = x264_mpeg2_grid_qscale( h, h->param.rc.i_qp_constant );
+                rc->qp_constant[SLICE_TYPE_I] = x264_clip3f( x264_mpeg2_grid_code( h, qscale_p / h->param.rc.f_ip_factor ), 1, QP_MAX );
+                rc->qp_constant[SLICE_TYPE_B] = x264_clip3f( x264_mpeg2_grid_code( h, qscale_p * h->param.rc.f_pb_factor ), 1, QP_MAX );
+            }
+            else
+#endif
+            {
+                rc->qp_constant[SLICE_TYPE_I] = x264_clip3( (int)( qscale2qp( h, qp2qscale( h, h->param.rc.i_qp_constant ) / h->param.rc.f_ip_factor ) + 0.5 ), 0, QP_MAX );
+                rc->qp_constant[SLICE_TYPE_B] = x264_clip3( (int)( qscale2qp( h, qp2qscale( h, h->param.rc.i_qp_constant ) * h->param.rc.f_pb_factor ) + 0.5 ), 0, QP_MAX );
+            }
 
             x264_log( h, X264_LOG_ERROR, "2nd pass has more frames than 1st pass (%d)\n", rc->num_entries );
             x264_log( h, X264_LOG_ERROR, "continuing anyway, at constant QP=%d\n", h->param.rc.i_qp_constant );
@@ -2781,14 +2817,38 @@ static float rate_estimate_qscale( x264_t *h )
             q1 -= rcc->pb_offset/2;
 
         if( i0 && i1 )
+        {
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+            if( MPEG2 )
+                q = x264_mpeg2_grid_code( h, sqrtf( x264_mpeg2_grid_qscale( h, q0 )
+                                                  * x264_mpeg2_grid_qscale( h, q1 ) )
+                                             * h->param.rc.f_ip_factor );
+            else
+#endif
             q = (q0 + q1) / 2 + rcc->ip_offset;
+        }
         else if( i0 )
             q = q1;
         else if( i1 )
             q = q0;
         else
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        if( MPEG2 )
+        {
+            float g0 = x264_mpeg2_grid_qscale( h, q0 );
+            float g1 = x264_mpeg2_grid_qscale( h, q1 );
+            q = x264_mpeg2_grid_code( h, expf( ( dt1 * logf( g0 ) + dt0 * logf( g1 ) )
+                                               / ( dt0 + dt1 ) ) );
+        }
+        else
+#endif
             q = (q0*dt1 + q1*dt0) / (dt0 + dt1);
 
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+        if( MPEG2 )
+            q = mpeg2_qp_scaled( h, q, h->param.rc.f_pb_factor );
+        else
+#endif
         if( h->fenc->b_kept_as_ref )
             q += rcc->pb_offset/2;
         else
@@ -2953,8 +3013,16 @@ static float rate_estimate_qscale( x264_t *h )
                 /* should test _next_ pict type, but that isn't decided yet */
                 && rcc->last_non_b_pict_type != SLICE_TYPE_I )
             {
-                q = qp2qscale( h, rcc->accum_p_qp / rcc->accum_p_norm );
-                q /= h->param.rc.f_ip_factor;
+                float qp_p = rcc->accum_p_qp / rcc->accum_p_norm;
+#if HAVE_MPEG2 && !HIGH_BIT_DEPTH
+                if( MPEG2 )
+                    q = qp2qscale( h, mpeg2_qp_scaled( h, qp_p, 1.f / h->param.rc.f_ip_factor ) );
+                else
+#endif
+                {
+                    q = qp2qscale( h, qp_p );
+                    q /= h->param.rc.f_ip_factor;
+                }
             }
             else if( h->i_frame > 0 )
             {
