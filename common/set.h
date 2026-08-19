@@ -189,6 +189,8 @@ int  x264_cqm_init_mpeg2( x264_t *h );
 /* Index of the S=1.0 identity scale in the per-frame matrix set (the decoder's
  * base/default matrix). Shared by set.c (selection) and encoder.c (keyframe reset). */
 #define MPEG2_CQM_CENTER_IDENTITY 5
+float x264_mpeg2_grid_qscale( x264_t *h, float code );
+float x264_mpeg2_grid_code( x264_t *h, float qscale );
 void x264_mpeg2_cqm_center_decide( x264_t *h, float qpm, int *pi_qp );
 float x264_mpeg2_cqm_center_predict_qscale( x264_t *h, float qpm, float qscale_in );
 float x264_mpeg2_cqm_center_committed_ratio( x264_t *h, float qpm );
